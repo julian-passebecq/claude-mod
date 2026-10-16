@@ -5,10 +5,14 @@ import { expect, mock, test } from 'claude-code/testing'
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const HOME = 'C:/Users/me'
 const CONFIG = {
-  tabs: ['config', 'guide', 'scenarios', 'sante', 'ci'], start_tab: 'config', python: 'python', node: 'node',
-  paths: { claude_dir: '~/.claude', control_out_dir: '~/.claude/effort-board/control', sante_data_dir: '~/.claude/sante-mod', ci_pipelines_cache: '~/.claude/ci-pipelines-cache.json', scenarios_file: '' },
+  tabs: ['config', 'guide', 'scenarios', 'sante', 'ci', 'essais', 'rd', 'repos'], start_tab: 'config', python: 'python', node: 'node',
+  paths: { claude_dir: '~/.claude', control_out_dir: '~/.claude/effort-board/control', sante_data_dir: '~/.claude/sante-mod', ci_pipelines_cache: '~/.claude/ci-pipelines-cache.json', scenarios_file: '', reference_dir: '~/.claude/reference-mod' },
   sante_refresh_min: 10,
-  labels: { pane_title: 'Référence', tab_config: 'Config', tab_guide: 'Guide', tab_scenarios: 'Scénarios', tab_sante: 'Santé', tab_ci: 'CI' },
+  essais: { state_file: '~/.claude/reference-mod/essais.json', presets: [], extra: [{ id: 'extra:jev', name: 'Routeur externe (démo)', state: 'écarté', alternative: '/advisor' }] },
+  labels: {
+    pane_title: 'Référence', tab_config: 'Config', tab_guide: 'Guide', tab_scenarios: 'Scénarios', tab_sante: 'Santé', tab_ci: 'CI', tab_essais: 'À essayer', tab_rd: 'R&D', tab_repos: 'Repos',
+    'sec_en test': "Ce qu'on fait (en test)", sec_jamais: 'À essayer', 'sec_adopté': 'Adopté', 'sec_écarté': 'Écarté', todo: "Ce qu'on doit tester",
+  },
 }
 const CONTROL = { paths: { out_dir: '~/.claude/effort-board/control' }, config_claude: { viewer_chars: 60000, labels: { title: 'Config Claude', search: 'chercher' } } }
 const CONFIG_DATA = {
@@ -32,6 +36,16 @@ const SCEN = {
 }
 const SANTE_CFG = { data_dir: '~/.claude/sante-mod', labels: { pane_title: 'Santé des mods' }, colors: {}, icons: {} }
 const REPORT = { generated: NOW - 60000, mods: [{ key: 'alpha', name: 'alpha', dir: 'C:/m/alpha', source: 'env', exists: true, manifest: { ok: true, version: '0.1.0' }, hooks: { ok: true }, expected: ['alpha'], configs: [], caches: [], logs: [], fields: [] }] }
+const ESSAIS = {
+  at: NOW, missing: [], docs: [{ name: 'features.md', path: 'C:/r/features.md' }],
+  items: [
+    { id: 'features.md:a', doc: 'features.md', section: 'Outils', name: 'Outil A', what: 'Un outil', test: 'essayer sur un dépôt de test', interest: 'haut', cost: 'usage credits', risk: 'aperçu', used: 'non', source: '', state: 'jamais', why: '' },
+    { id: 'features.md:b', doc: 'features.md', section: 'Outils', name: 'Outil B', what: '', test: '', interest: 'fait', cost: '', risk: '', used: 'oui', source: '', state: 'adopté', why: 'déjà utilisé' },
+  ],
+  todo: [{ src: 'manual', date: '2026-10-01', project: 'demo-app', what: 'le curseur à 200 %', how: 'ouvrir Réglages' }],
+}
+const RD = { at: NOW, groups: [{ label: 'Recherches', path: 'C:/r', missing: false, docs: [{ file: 'features.md', name: 'features.md', path: 'C:/r/features.md', date: '2026-10-03', subject: 'Fonctions à essayer', summary: ['Une note de démonstration.'], sources: { count: 2, hosts: ['example.com'] } }] }] }
+const REPOS = { at: NOW, repos: [{ name: 'demo-repo', path: 'C:/code/demo-repo', main: 'main', github: 'demo-owner/demo-repo', exists: true, export: 'audit', branch: 'main', sync: { ahead: 0, behind: 2 }, dirty: 0, last: { sha: 'abc1234', at: NOW - 3600000, subject: 'fix: a thing' }, prs: [{ number: 7, title: 'Une PR de démo', url: 'https://github.com/demo-owner/demo-repo/pull/7' }] }] }
 const SNAPSHOT = { generated: '2026-10-16T11:58:00Z', labels: {}, backends: [{ id: 'gitlab-local', label: 'GitLab runner on this PC', kind: 'gitlab', host: 'gitlab.com', status: 'active', check: null }], routes: [], current: null, routing_file: '~/.claude/ci-routing.json', config: '~/.claude/ci.config.json' }
 
 function world(on: any, { present = [] as any[], files = {} as Record<string, string> } = {}) {
@@ -64,7 +78,11 @@ function world(on: any, { present = [] as any[], files = {} as Record<string, st
   on('process.run', ($: any, e: any) => {
     const argv = (e.argv ?? e) as string[]
     runs.push(argv)
-    const out = argv.includes('show') ? SNAPSHOT : { generated: null, apps: [], hosts: [], conversations: [] }
+    const rd = argv.some(a => String(a).endsWith('rd_scan.mjs')) ? argv[argv.findIndex(a => String(a).endsWith('rd_scan.mjs')) + 1] : ''
+    const out = rd === 'essais' ? ESSAIS : rd === 'rd' ? RD : rd === 'repos' ? REPOS
+      : rd === 'audit-export' ? { ok: true, file: 'C:/Users/me/.claude/audit-exports/audit-2026-10-16-120000.zip', files: 12, masked: 3, held: 1, skipped: 0, mods: 2 }
+      : rd === 'repo-update' ? { ok: true, msg: 'demo-repo : git pull --ff-only (Fast-forward)' }
+      : argv.includes('show') ? SNAPSHOT : { generated: null, apps: [], hosts: [], conversations: [] }
     return { value: { exitCode: 0, stdout: JSON.stringify(out), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('command.list', () => ({ value: present }))
@@ -89,7 +107,7 @@ const start = async ($: any, on: any) => {
 test('aliases: only the old commands no loaded mod has are registered', async ($, on) => {
   const w = world(on, { present: [{ name: 'ci', source: 'plugin', plugin: 'ci' }, { name: 'sante', source: 'plugin', plugin: 'sante' }] })
   await start($, on)
-  expect(w.registered).toEqual(['reference', 'config-claude', 'control', 'mods-guide', 'scenarios'])
+  expect(w.registered).toEqual(['reference', 'config-claude', 'control', 'mods-guide', 'scenarios', 'audit-export'])
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -152,5 +170,66 @@ test('/reference guide <section> opens the guide there; an unknown section says 
   await $.command.run({ command: 'reference', args: 'guide un hook' } as any)
   const pane = await mount($, 'terminal')
   expect(await pane.find({ type: 'Text', text: /^→ Un hook$/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('À essayer: sections, test, cost and risk; the state button writes essais.json; Ce qu’on doit tester', async ($, on) => {
+  const w = world(on)
+  await start($, on)
+  await $.command.run({ command: 'reference', args: 'essais' } as any)
+  await w.clock.advance(10)
+  const pane = await mount($, 'terminal')
+  expect(await pane.find({ type: 'Button', text: /▾ Ce qu'on fait \(en test\) \(0\)/ })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: /▾ À essayer \(1\)/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^test : essayer sur un dépôt de test$/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /coût : usage credits · risque : aperçu · intérêt : haut/ })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: /▸ Écarté \(1\)/ })).toBeDefined() // JEV, from the shipped config's extra items
+  await pane.press({ key: 'ess-state-features.md:a' })
+  const f = `${HOME}/.claude/reference-mod/essais.json`
+  expect(JSON.parse(w.writes[f]!).items['features.md:a'].state).toBe('en test')
+  expect(await pane.find({ type: 'Button', text: /▾ Ce qu'on fait \(en test\) \(1\)/ })).toBeDefined()
+  await pane.press({ key: 'ess-fold-todo' })
+  expect(await pane.find({ type: 'Text', text: /2026-10-01 · demo-app : le curseur à 200 %/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('R&D: index with date, subject, summary, sources and idea states; Exporter pour audit on click; /audit-export', async ($, on) => {
+  const w = world(on, { present: [] })
+  await start($, on)
+  await $.command.run({ command: 'reference', args: 'rd' } as any)
+  await w.clock.advance(10)
+  const pane = await mount($, 'desktop')
+  expect(await pane.find({ type: 'Text', text: /^2026-10-03 · Fonctions à essayer$/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /Une note de démonstration/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /features\.md · 2 sources \(example\.com\) · idées : 1 jamais · 1 adopté/ })).toBeDefined()
+  expect(w.runs.some(a => a.join(' ').includes('audit-export'))).toBe(false)
+  await pane.press({ key: 'audit-export' })
+  await w.clock.advance(10)
+  expect(w.runs.some(a => a.join(' ').includes('audit-export'))).toBe(true)
+  expect(await pane.find({ type: 'Text', text: /export pour audit : C:\/Users\/me\/\.claude\/audit-exports\/audit-2026-10-16-120000\.zip \(12 fichiers, 3 masqués, 1 retenus, 2 mods\)/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('/audit-export runs the export when this mod registered it', async ($, on) => {
+  world(on, { present: [{ name: 'audit-export', source: 'plugin', plugin: 'reference' }] })
+  await start($, on)
+  const r = await $.command.run({ command: 'audit-export', args: '' } as any)
+  expect(r.text).toMatch(/^audit-export: export pour audit : .*audit-2026-10-16-120000\.zip/)
+})
+
+test('Repos: state, last commit, PRs; Mettre à jour runs only on click', async ($, on) => {
+  const w = world(on)
+  await start($, on)
+  await $.command.run({ command: 'reference', args: 'repos' } as any)
+  await w.clock.advance(10)
+  const pane = await mount($, 'terminal')
+  expect(await pane.find({ type: 'Text', text: /^main · 2 en retard · 0 en avance$/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /abc1234 fix: a thing · 1 h/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /Une PR de démo/ })).toBeDefined()
+  expect(w.runs.some(a => a.includes('repo-update'))).toBe(false)
+  await pane.press({ key: 'repo-update-demo-repo' })
+  await w.clock.advance(10)
+  expect(w.runs.some(a => a.includes('repo-update') && a.includes('demo-repo'))).toBe(true)
+  expect(await pane.find({ type: 'Text', text: /demo-repo : git pull --ff-only/ })).toBeDefined()
   await pane.unmount()
 })

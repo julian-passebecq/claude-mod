@@ -1,5 +1,5 @@
-// Référence hub: tabs, /reference arguments and the old commands it answers when their mod is not loaded. Pure.
-export const TABS = ['config', 'guide', 'scenarios', 'sante', 'ci'] as const
+// Référence hub: tabs (Config, Guide, Scénarios, Santé, CI, À essayer, R&D, Repos), /reference arguments and the old commands it answers when their mod is not loaded. Pure.
+export const TABS = ['config', 'guide', 'scenarios', 'sante', 'ci', 'essais', 'rd', 'repos'] as const
 export type Tab = (typeof TABS)[number]
 
 /** The old slash commands, each with the tab it opens. Registered by reference only when absent from the session. */
@@ -18,7 +18,13 @@ const WORDS: Record<string, Tab> = {
   scenarios: 'scenarios', scénarios: 'scenarios', scenario: 'scenarios', scénario: 'scenarios',
   sante: 'sante', santé: 'sante', health: 'sante',
   ci: 'ci',
+  essais: 'essais', 'à-essayer': 'essais', 'a-essayer': 'essais', essayer: 'essais', features: 'essais',
+  rd: 'rd', 'r&d': 'rd', recherches: 'rd', recherche: 'rd', research: 'rd',
+  repos: 'repos', 'mes-repos': 'repos', depots: 'repos', dépôts: 'repos',
 }
+
+/** Commands of this mod that run an action (not an old mod's alias): registered only when the session has none. */
+export const ACTION_COMMANDS = ['audit-export'] as const
 
 export type Parsed = { close: boolean; tab?: Tab; rest: string[] }
 
@@ -43,7 +49,7 @@ export function missingAliases(present: readonly { name: string }[], wanted: rea
   return wanted.filter(n => ALIASES[n] && !have.has(n))
 }
 
-/** Tabs in the configured order (unknown ids dropped, a missing list = all five). */
+/** Tabs in the configured order (unknown ids dropped, a missing list = all of them). */
 export function tabsOf(list: unknown): Tab[] {
   const out = Array.isArray(list) ? list.filter((t): t is Tab => (TABS as readonly string[]).includes(String(t))) : []
   return out.length ? [...new Set(out)] : [...TABS]

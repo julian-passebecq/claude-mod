@@ -10,11 +10,11 @@ import { test } from 'node:test'
 import { collect, loadConfig, scan } from '../lib/collect.mjs'
 import { veilleFeed } from '../lib/feed.mjs'
 import {
-  applyState, codeSpans, counterText, countToFile, feedOf, gapItems, hash, markDone, markSnooze,
+  applyState, codeSpans, counterText, countToFile, feedOf, gapItems, groups, hash, markDone, markSnooze, parseClaudeControl,
   parseDecisions, parseManualChecks, parseQuestions, prItems, summary, veilleItems,
 } from '../lib/items.mjs'
 import { modsNotLoaded } from '../lib/mods-check.mjs'
-import { initialOpen, viewModel } from '../hooks/view.mjs'
+import { dueText, initialOpen, viewModel } from '../hooks/view.mjs'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const LOGIN = /\b(login|sign[- ]?in|2FA|tenant|password)\b/i
@@ -153,9 +153,9 @@ test('view: categories in order, unfolded when they hold items, one-line summari
   const open = initialOpen(cfg, data)
   assert.deepEqual(open, ['decisions'])
   const vm = viewModel(cfg, data, open, NOW)
-  assert.deepEqual(vm.cats.map((c) => c.label), ['Configuration', 'Décisions', 'Connexions / 2FA', 'Secrets à ranger', 'Tests manuels', 'Questions des conversations'])
-  assert.equal(vm.cats[1].summary, 'Pick a name')
-  assert.equal(vm.cats[1].items[0].sinceText, 'depuis 2 h')
+  assert.deepEqual(vm.cats.map((c) => c.label), ['Configuration', 'Claude Control', 'Décisions', 'Connexions / 2FA', 'Secrets à ranger', 'Tests manuels', 'Questions des conversations'])
+  assert.equal(vm.cats[2].summary, 'Pick a name')
+  assert.equal(vm.cats[2].items[0].sinceText, 'depuis 2 h')
   assert.equal(vm.cats[0].summary, 'rien')
   assert.equal(vm.snoozed, 1)
   assert.equal(vm.title, 'À toi · 1')
@@ -185,7 +185,7 @@ test('scan end to end on fixture files: smtp gap auto-closes when smtp.json appe
 
     let r = await scan(cfg, opts)
     const by = r.summary.by_cat
-    assert.deepEqual(by, { config: 2, decisions: 5, logins: 1, secrets: 1, manual: 1, questions: 1 })
+    assert.deepEqual(by, { config: 2, claude_control: 0, decisions: 5, logins: 1, secrets: 1, manual: 1, questions: 1 })
     assert.ok(r.open.some((i) => i.id === 'gap:smtp'))
     assert.equal(counterText(r.summary), 'À toi : 11')
     assert.equal(JSON.stringify(r.summary).includes('Draft'), false, 'summary carries counts only')
@@ -212,4 +212,28 @@ test('helpers', () => {
   assert.deepEqual(codeSpans('run `a b` then `c`'), ['a b', 'c'])
   assert.equal(hash('x'), hash('x'))
   assert.notEqual(hash('x'), hash('y'))
+})
+
+test('Claude Control: « - [ ] échéance · priorité · quoi · pourquoi · comment », sorted by deadline, done lines skipped', () => {
+  const md = [
+    '# À faire (inventé)',
+    '- [ ] — · haute · Valider la démo · une PR attend · lire la PR',
+    '- [ ] 2026-11-05 · haute · Utiliser les crédits de démo · ils expirent · `demo --use`',
+    '- [x] 2026-10-01 · haute · Déjà fait · rien · rien',
+    '- [ ] 2026-10-20 · basse · Nettoyer le disque de démo · plein · mod Ménage',
+    '- [ ] ~~2026-10-02 · basse · barré · x · y~~',
+  ].join('\n')
+  const items = parseClaudeControl(md, { file: 'claude-control.md' })
+  assert.deepEqual(items.map((i) => [i.title, i.prio, i.dueDay]), [
+    ['Valider la démo', 'feature', ''], ['Utiliser les crédits de démo', 'feature', '2026-11-05'], ['Nettoyer le disque de démo', 'comfort', '2026-10-20'],
+  ])
+  assert.deepEqual(items[1].steps.map((s) => s.copy).filter(Boolean), ['demo --use'])
+  const [g] = groups(items, ['claude_control'])
+  assert.deepEqual(g.items.map((i) => i.title), ['Nettoyer le disque de démo', 'Utiliser les crédits de démo', 'Valider la démo'])
+  const now = Date.parse('2026-10-17T12:00:00')
+  assert.equal(dueText(items[1], now), 'échéance 2026-11-05 (J-19)')
+  assert.equal(dueText({ ...items[2], due: Date.parse('2026-10-16T09:00:00'), dueDay: '2026-10-16' }, now), 'échéance 2026-10-16 (dépassée)')
+  const vm = viewModel({ order: ['claude_control'], categories: { claude_control: 'Claude Control' }, labels: {} }, { open: items }, ['claude_control'], now)
+  assert.equal(vm.cats[0].label, 'Claude Control')
+  assert.equal(vm.cats[0].items[0].sinceText, 'échéance 2026-10-20 (J-3)')
 })

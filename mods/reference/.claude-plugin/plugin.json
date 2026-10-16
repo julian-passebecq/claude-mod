@@ -1,10 +1,24 @@
 {
   "name": "reference",
-  "version": "0.1.0",
-  "description": "Référence : un seul panneau en lecture seule, onglets Config (toute la config de Claude Code, secrets masqués), Guide (mode d'emploi des mods), Scénarios (modèle et effort par rôle, « Appliquer ce scénario » note le choix dans ~/.claude/scenarios/applied.json et montre l'écart, sans jamais toucher settings ni agents), Santé (mods chargés, erreurs, CPU), CI (routage et Diagramme avec Gantt et ETA). Les anciennes commandes /config-claude, /control, /mods-guide, /scenarios, /sante, /ci restent quand leur mod n'est pas chargé. /reference",
-  "author": { "name": "Julian Passebecq" },
+  "version": "0.2.0",
+  "description": "Référence : un seul panneau en lecture seule, onglets Config (toute la config de Claude Code, secrets masqués), Guide (mode d'emploi des mods), Scénarios (modèle et effort par rôle, « Appliquer ce scénario » note le choix dans ~/.claude/scenarios/applied.json et montre l'écart, sans jamais toucher settings ni agents), Santé (mods chargés, erreurs, CPU), CI (routage et Diagramme avec Gantt et ETA), À essayer (fonctions et idées des recherches, état jamais/en test/adopté/écarté, test, coût, risque, ce qu'on doit tester), R&D (index des recherches, Exporter vers eta), Repos (état, PR, Mettre à jour sur clic) et Exporter pour audit (/audit-export, zip masqué). Les anciennes commandes /config-claude, /control, /mods-guide, /scenarios, /sante, /ci restent quand leur mod n'est pas chargé. /reference",
+  "author": {
+    "name": "Julian Passebecq"
+  },
   "license": "MIT",
-  "keywords": ["mod", "pane", "reference", "config", "guide", "scenarios", "health", "ci"],
+  "keywords": [
+    "mod",
+    "pane",
+    "reference",
+    "config",
+    "guide",
+    "scenarios",
+    "health",
+    "ci",
+    "research",
+    "audit",
+    "repos"
+  ],
   "userConfig": {
     "config": {
       "type": "string",

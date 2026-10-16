@@ -9,6 +9,14 @@ export function ago(ms) {
   return h < 48 ? `${h} h` : `${Math.floor(h / 24)} j`
 }
 
+// « échéance 2026-11-05 (J-19) », « … (aujourd’hui) », « … (dépassée) »: days counted from local midnight.
+export function dueText(i, now, L = {}) {
+  const day = 86400000
+  const n = Math.round((new Date(i.due).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / day)
+  const when = n > 0 ? `J-${n}` : n === 0 ? L.today || 'aujourd’hui' : L.overdue || 'dépassée'
+  return `${L.due || 'échéance'} ${i.dueDay || new Date(i.due).toISOString().slice(0, 10)} (${when})`
+}
+
 // Which categories are unfolded when nothing was clicked yet: config.open = nonempty | all | none | [ids].
 export function initialOpen(cfg, data) {
   const o = cfg.open ?? 'nonempty'
@@ -32,7 +40,7 @@ export function viewModel(cfg, data, openCats, now) {
       cat, label: names[cat] || cat, n: items.length, unfolded: (openCats || []).includes(cat),
       tone: now_n ? 'now' : items.some((i) => i.prio === 'feature') ? 'feature' : items.length ? 'comfort' : 'dim',
       summary: top ? oneLine(top.title, 90) + (items.length > 1 ? ` (+${items.length - 1})` : '') : L.empty_cat || 'rien',
-      items: items.map((i) => ({ ...i, prioLabel: P[i.prio] || i.prio, sinceText: i.since ? `${L.since || 'depuis'} ${ago(now - i.since)}` : '' })),
+      items: items.map((i) => ({ ...i, prioLabel: P[i.prio] || i.prio, sinceText: i.due ? dueText(i, now, L) : i.since ? `${L.since || 'depuis'} ${ago(now - i.since)}` : '' })),
     }
   })
   const high = open.filter((i) => i.prio === 'now').length

@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  applyState, countToFile, deepMerge, gapItems, parseDecisions, parseManualChecks, parseQuestions,
+  applyState, countToFile, deepMerge, DEFAULT_CC_PRIOS, gapItems, parseClaudeControl, parseDecisions, parseManualChecks, parseQuestions,
   prItems, pruneState, smtpProblem, summary, veilleItems,
 } from './items.mjs'
 import { modFolders, modsNotLoaded } from './mods-check.mjs'
@@ -149,6 +149,12 @@ export async function collect(cfg, opts = {}) {
     const f = expand((S.manual_checks || {}).file || '~/.claude/effort-board/manual-checks.md')
     const t = readText(f)
     if (t !== null) items.push(...parseManualChecks(t, { file: path.basename(f), href: fileHref(f), loginRe, gaps }))
+  }
+  if (src('claude_control')) {
+    const CC = S.claude_control || {}
+    const f = expand(CC.file || path.join(cfg.home, 'claude-control.md'))
+    const t = readText(f)
+    if (t !== null) items.push(...parseClaudeControl(t, { file: path.basename(f), href: fileHref(f), prios: { ...DEFAULT_CC_PRIOS, ...(CC.prios || {}) }, sinceMs: mtime(f) }))
   }
   if (src('questions')) {
     const Q = S.questions || {}

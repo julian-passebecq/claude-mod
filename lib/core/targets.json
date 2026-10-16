@@ -110,6 +110,8 @@
     ["mods/ci/hooks/view.ts", "mods/reference/lib/ci/hooks/view.ts"],
     ["mods/ci/types/index.d.ts", "mods/reference/lib/ci/types/index.d.ts"],
     ["lib/core/estimate.mjs", "mods/reference/lib/ci/lib/core/estimate.mjs"],
-    ["lib/core/gantt.mjs", "mods/reference/lib/ci/lib/core/gantt.mjs"]
+    ["lib/core/gantt.mjs", "mods/reference/lib/ci/lib/core/gantt.mjs"],
+    ["mods/export-eta/lib/mask.mjs", "mods/reference/lib/eta/mask.mjs"],
+    ["mods/export-eta/lib/etagit.mjs", "mods/reference/lib/eta/etagit.mjs"]
   ]
 }
