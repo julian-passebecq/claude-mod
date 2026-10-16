@@ -25,7 +25,7 @@ M1, M2, M6, M8 and M10 reuse the names of claude-control's `docs/PRACTICES.md` (
 
 ## How it runs
 
-- `/regles [V5.8] [refresh]` opens the pane. The command returns no text, so nothing reaches the model ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview), [reference](https://code.claude.com/docs/en/plugins/mods/reference)). No hook blocks, rewrites or delays a tool call or a prompt.
+- `/regles [V5.8] [refresh]` opens the pane, `/regles close` closes it. To get a « Règles » button in the band's Mods bar, add `{ "label": "Règles", "mod": "metrics", "command": "regles" }` to `launcher.items` in your band override file. The command returns no text, so nothing reaches the model ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview), [reference](https://code.claude.com/docs/en/plugins/mods/reference)). No hook blocks, rewrites or delays a tool call or a prompt.
 - When the data is older than `refresh_min` (30 min), the pane starts `scanner/metrics_scan.mjs` in the background (`$.process.run`): it reads only the bytes appended to `~/.claude/projects/**/*.jsonl` since its last run (first run: ~3 GB in ~35 s on the author's PC), lists the repos (git remotes), and calls `gh` / `glab` (read-only list calls) at most once per `refresh_min`. Results: `~/.claude/metrics-mod/` (`scan-cache.json`, `forge-cache.json`, `metrics.json`).
 - From a shell: `node mods/metrics/scanner/metrics_scan.mjs report` prints the latest before/after table.
 - Needs Node 22.18+ and the `usage` mod folder beside it (`../usage/lib`, shared parser and prices). `gh` and `glab` are optional (logged in for the forges you use).

@@ -71,12 +71,16 @@ export const register: Register = on => {
     await $.command.register({
       name: 'regles',
       description: 'Les règles marchent ? PR mergées, tokens par PR, modèles, arrêts, gardes, creux CI, par jour et par version des règles (args: [V5.8] [refresh])',
-      argumentHint: '[V5.8] [refresh]',
+      argumentHint: '[V5.8] [refresh] | close',
     })
     return next(e)
   })
 
   on('command.run', { command: 'regles' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      await $.ui.close({ id: PANE })
+      return {}
+    }
     const words = String(e.args ?? '').split(/\s+/).filter(Boolean)
     const v = words.find(w => /^v\d/i.test(w))
     if (v) await update($, versionAtom, () => v.toUpperCase())

@@ -44,6 +44,7 @@ function world(on: any, model: any = MODEL) {
   on('process.run', ($: any, e: any) => (runs.push(e.argv ?? e), { value: { exitCode: 0, stdout: '{"ok":true}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('command.register', () => ({ value: undefined }))
   on('ui.open', ($: any, e: any) => (opened.push(e.id), { value: { isPlaced: true } }))
+  on('ui.close', ($: any, e: any) => (opened.push(`close:${e.id}`), { value: undefined }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
   return { runs, opened, clock }
 }
@@ -79,6 +80,9 @@ test('/regles opens the pane, returns no text for the model, and rescans only wh
   expect(w.opened).toEqual(['regles'])
   await w.clock.advance(10)
   expect(w.runs.some(a => a.join(' ').includes('metrics_scan.mjs scan'))).toBe(true)
+  const c = await $.command.run({ command: 'regles', args: 'close' } as any)
+  expect(c.text).toBeUndefined()
+  expect(w.opened).toEqual(['regles', 'close:regles'])
 })
 
 test('before the first scan the pane says it is computing', async ($, on) => {

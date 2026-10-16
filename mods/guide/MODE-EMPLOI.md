@@ -96,6 +96,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [band](#band)
     - [filetree](#filetree)
     - [machine](#machine)
+    - [metrics](#metrics)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -499,6 +500,16 @@ Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RA
 - **Fonctionnalités** : commandes `/machine` · affiche : panneau, bandeau · options userConfig : config « Settings file », défaut "" ; band « Band entry above the prompt » (on | off), défaut "off"
 - **Activer** : `<dépôt>/mods/machine` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/machine`
 - **Tests** : `python -I -m unittest discover -s mods/machine/tests -p "test_*.py"` · `node --test mods/machine/tests/logic.test.mjs` · `claude plugin test mods/machine`
+
+#### metrics
+
+Les règles marchent ? PR/MR mergées par jour, tokens par PR, part Opus / Sonnet / Haiku, agents avec modèle nommé, arrêts, refus, gardes de l'app, creux CI, arrêts BLOCKED, avec les versions des règles en repères et un tableau avant / après. Lecture seule. /regles
+
+- **État** : en construction · version 0.1.0 · aucun texte envoyé au modèle (la commande ouvre un panneau). Non vérifié : les attentes de permission (seuls les refus sont comptés), le modèle des agent() de Workflow (lu dans le script), les creux CI (le travail démarrable n'est pas connu).
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : transcripts ~/.claude/projects (lecture incrémentale, parseur de mods/usage/lib), git remote de tes repos, gh search prs / gh run list et glab mr list / glab ci list (lecture seule, au plus toutes les 30 min), git log du fichier de règles ; caches dans ~/.claude/metrics-mod · aucun blocage
+- **Fonctionnalités** : commandes `/regles` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/metrics` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/metrics`
+- **Tests** : `node --test mods/metrics/tests/logic.test.mjs` · `claude plugin test mods/metrics`
 
 ### Archivés / rejetés
 

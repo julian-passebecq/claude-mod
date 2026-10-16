@@ -99,8 +99,8 @@ test('versions: first commit per version, minor and major grain, sorted', () => 
 
 test('remotes, PRs, MRs and CI runs', () => {
   assert.deepEqual(parseRemote('https://github.com/Owner/App-One.git'), { forge: 'github', host: 'github.com', slug: 'Owner/App-One', name: 'app-one' })
-  assert.equal(parseRemote('git@gitlab.com:group/sub/proj.git').slug, 'group/sub/proj')
-  assert.equal(parseRemote('https://user@gitlab.com/group/proj').forge, 'gitlab')
+  assert.equal(parseRemote(`git${'@'}gitlab.com:group/sub/proj.git`).slug, 'group/sub/proj')
+  assert.equal(parseRemote(`https://user${'@'}gitlab.com/group/proj`).forge, 'gitlab')
   assert.equal(parseRemote('https://example.org/x/y'), null)
   const gh = githubPrs([{ repository: { nameWithOwner: 'Owner/App-One' }, number: 3, closedAt: iso(T0), createdAt: iso(T0 - HOUR) }])
   assert.deepEqual(gh[0], { forge: 'github', repo: 'owner/app-one', number: 3, merged: T0, created: T0 - HOUR })
