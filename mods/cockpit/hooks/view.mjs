@@ -11,7 +11,7 @@ import { drawWorkflowBody } from '../lib/factory/hooks/workflow_draw.mjs'
 import { layout, clip } from '../lib/factory/hooks/screens.mjs'
 import { barSvg } from '../lib/band/hooks/gauge.ts'
 import {
-  cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
+  cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, canOpenAgent, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
   projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf, menuOf,
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
@@ -115,9 +115,11 @@ function drawTab(h, V, L, tab) {
     h.T(V.at ? hhmm(tab === 'workflow' ? V.wfAt || V.at : V.at).slice(0, 5) : '--:--', { dim: true, key: 'tab-time' })], { key: 'tab-head', alignItems: 'center', marginBottom: 1 })
   const base = { cfg: V.fcfg, at: V.at, busy: V.busy, error: V.error, columns: V.columns, filter: V.filter || 'all', jfilter: V.jfilter || 'all', jproject: V.jproject || '',
     picking: false, live: [], quotas: null, machine: V.machine || {}, embedded: true, target: V.nav && V.nav.conv, self: V.self, scan: V.scan,
+    canView: V.canView, viewAgent: V.viewAgent,
     wf: V.wf, wfAt: V.wfAt, wfBusy: V.wfBusy, wfError: V.wfError, wfScope: V.wfScope, wfOpen: V.wfOpen,
     act: { tab: (id) => V.act.tab(id), go: (cli) => V.act.go(cli), refresh: () => V.act.refresh(), filter: (k) => V.act.filter(k), jfilter: (k) => V.act.jfilter(k),
-      jproject: (p) => V.act.jproject(p), pick: () => V.act.pick(), wfScope: (k) => V.act.wfScope(k), wfToggle: (k, o) => V.act.wfToggle(k, o) } }
+      jproject: (p) => V.act.jproject(p), pick: () => V.act.pick(), wfScope: (k) => V.act.wfScope(k), wfToggle: (k, o) => V.act.wfToggle(k, o),
+      openAgent: (id) => V.act.openAgent(id), backToConv: () => V.act.backToConv() } }
   if (tab === 'workflow') return [head, ...drawWorkflowBody(V.el, base)]
   if (tab === 'machine') {
     const m = V.machine || {}
@@ -220,10 +222,15 @@ function drawAgent(h, V, L) {
     a.started ? h.T(`début ${hhmm(a.started).slice(0, 5)}${a.last ? ' · dernier ' + hhmm(a.last).slice(0, 5) : ''}${a.lastTool ? ' · ' + a.lastTool : ''}`, { dim: true }) : null,
     a.task ? h.T(clip(a.task, lay.textMax * 3), { dim: true }) : null,
   ], { key: 'agent-card', tone })
+  // « Ouvrir l'agent »: the engine's own transcript view of this agent ($.ui.view, 2.1.300+), and the way back
+  const nav = h.row([
+    canOpenAgent(a, V.self, V.canView) && V.viewAgent !== a.id ? h.btn(L.open_agent, () => V.act.openAgent(a.id), true, 'agent-open') : null,
+    V.canView && V.viewAgent ? h.btn(L.back_conv, () => V.act.backToConv(), false, 'agent-back') : null,
+  ], { key: 'agent-nav' })
   const log = h.box(L.agent_log, a.events.length
     ? a.events.map((e, i) => h.row([h.T(hhmm(e.at).slice(0, 5), { dim: true }), h.T(e.kind, { bold: e.kind === 'prompt' }), h.T(clip(e.text, lay.textMax - 16))], { key: 'ae' + i, flexWrap: 'nowrap' }))
     : [h.T(a.hasLog ? '—' : L.scanning, { dim: true })], { key: 'agent-log' })
-  return [card, log]
+  return [card, nav, log]
 }
 
 // ---- 2. Ce projet -----------------------------------------------------------------------------------------------------

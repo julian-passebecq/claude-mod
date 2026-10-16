@@ -116,14 +116,21 @@
     "max_repos": 8,
     "max_prs": 8
   },
-  "_galerie": "Galerie tab: views (equipe, carte, codex) in order; roles = the agent types of each lane of Équipe (anything else: Autres); codex_prices = list price per million tokens by model id prefix (API equivalent, cached input not deducted; unknown model: « tarif inconnu »); codex_days = the window of the Codex view.",
+  "_galerie": "Galerie tab: views (equipe, lanes, sequence, carte, concept, codex) in order; roles = the agent types of each lane of Équipe (advisor, worker, reviewer = the adversary / reviewer role, explorer, researcher; anything else: Autres); lanes = the selected conversation's project, one lane per worktree active in the last lanes_days days (at most lanes_max), each with its PR and its reviewer agents, or « aucun relecteur » (lane_reviewer_match: a conversation title that makes the lane itself a reviewer lane); sequence = the selected conversation as a sequence diagram (seq_agents lifelines, seq_events latest events); concept = the soft-control map: concept.soft / concept.hard lists of {label, from} where from is a Carte figure (rules, memory, skills, agents, workflows, mods, mode, hooks, env); every label under labels; codex_prices = list price per million tokens by model id prefix (API equivalent, cached input not deducted; unknown model: « tarif inconnu »); codex_days = the window of the Codex view.",
   "galerie": {
     "views": [
       "equipe",
+      "lanes",
+      "sequence",
       "carte",
+      "concept",
       "codex"
     ],
-    "codex_days": 7
+    "codex_days": 7,
+    "lanes_days": 3,
+    "lanes_max": 8,
+    "seq_agents": 5,
+    "seq_events": 24
   },
   "_controle": "« Claude Control » card: the open to-dos of file (`- [ ] YYYY-MM-DD · priorité · quoi · …`, « — » = no date), soonest deadline first; warn under warn_days, red under bad_days; max = lines shown.",
   "controle": {

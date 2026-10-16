@@ -12,14 +12,14 @@
 // command ($.command.run; a mod cannot open another mod's pane). Opens by itself at session start (userConfig `start`).
 // Read-only: scanners (factory's, workflow's, machine's copies, scanner/cards.mjs over lib/core); nothing blocks,
 // rewrites or adds to a prompt, nothing calls a model. Refresh only while the pane is the one shown.
-import { deepMerge, scanArgs, pickSession, repoOf } from '../lib/factory/hooks/logic.mjs'
+import { deepMerge, scanArgs, pickSession, repoOf, engineAtLeast } from '../lib/factory/hooks/logic.mjs'
 import { waitingArgs, waitingRows } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
 import { workflowConfig, workflowArgs, workflowScreen, loneAgents } from '../lib/factory/hooks/workflow.mjs'
 import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
 import { cardsOf, pickTarget, workflowsLive, runnerBackends, cardsConfig } from '../lib/cards.mjs'
-import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabValid, nightRepos, titleOf } from './nav.mjs'
+import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabValid, nightRepos, titleOf, laneRows } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 
@@ -35,7 +35,7 @@ const D = {
   wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {}, wfAll: null,
   machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '' },
   who: null, nuitRaw: null, nuitBusy: false, relaisRaw: null, relaisBusy: false, galerieRaw: null, galerieBusy: false,
-  galView: 'equipe', launch: null, nuitMsg: '',
+  galView: 'equipe', launch: null, nuitMsg: '', identity: undefined, engine: '',
 }
 
 const decideLabels = () => decideConfig(CFG || {}).nuit.labels
@@ -280,13 +280,40 @@ async function loadVeille($) {
   D.veille = state || heartbeat ? viewModel(cfg, state, heartbeat, acks, await $.clock.now()) : null
 }
 
+// How the session is signed in, for the Galerie's Carte: $.session.identity() (engine 2.1.299+) answers only a mod
+// that managed settings install, { deny } to the others; older engines have no such method. Asked once.
+async function loadIdentity($) {
+  if (D.identity !== undefined) return
+  D.identity = null
+  if (!engineAtLeast(D.engine, '2.1.299')) return
+  try {
+    const r = await $.session.identity()
+    D.identity = r && !r.deny && typeof r.kind === 'string' ? { kind: r.kind } : null
+  } catch { D.identity = null }
+}
+
+// « Ouvrir l'agent »: the engine's transcript view of one running agent of this conversation ($.ui.view, 2.1.300+;
+// a button press is person-initiated, which the engine requires). Older engines: the button is not drawn.
+const VIEW_MIN = '2.1.300'
+
+async function viewAgent($, target) {
+  const L = cockpitConfig(CFG || {}).labels
+  if (!engineAtLeast(D.engine, VIEW_MIN)) { $.ui.toast(L.view_old); return }
+  try {
+    const r = await $.ui.view(target)
+    if (r && r.deny) $.ui.toast(L.view_denied.replace('{reason}', r.deny))
+  } catch (err) {
+    $.ui.toast(L.view_denied.replace('{reason}', String(err && err.message ? err.message : err).slice(0, 120)))
+  }
+}
+
 // What the tab on screen needs, now.
 async function refreshTab($) {
   if (D.tab === 'workflow') return rescanWorkflow($)
   if (D.tab === 'machine') return sampleMachine($)
   if (D.tab === 'relais') return loadPart($, 'relais')
   if (D.tab === 'nuit') { await rescan($); await loadCards($).catch(() => undefined); return loadPart($, 'nuit') }
-  if (D.tab === 'galerie') { await rescan($); return loadPart($, 'galerie') }
+  if (D.tab === 'galerie') { await rescan($); await loadIdentity($); return loadPart($, 'galerie') }
   await rescan($)
   if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
 }
@@ -379,6 +406,8 @@ function actions($) {
     nothing: () => { D.launch = null; D.nuitMsg = ''; setTab($, 'home'); $.ui.toast(decideLabels().nothing_done) },
     launch: (i) => { D.launch = D.launch === i ? null : i; redraw() },
     galView: (v) => { D.galView = v; redraw() },
+    openAgent: (id) => { void viewAgent($, { agentId: id }) },
+    backToConv: () => { void viewAgent($, {}) },
   }
 }
 
@@ -392,6 +421,7 @@ async function openPane($, focus) {
 async function runCockpit($, args) {
   await loadConfig($)
   try { D.self = (await $.session.id()) || D.self } catch { /* keep */ }
+  try { D.engine = ((await $.session.version()) || {}).version || D.engine } catch { /* keep */ }
   const p = parseArgs(args)
   if (p.close) { D.open = false; await $.ui.close({ id: PANE }); return {} }
   await openPane($, true)
@@ -442,6 +472,7 @@ export function register(on, opts) {
   options = opts || {}
   on('session.start', async ($, e, next) => {
     try { D.self = await $.session.id() } catch { D.self = null }
+    try { D.engine = ((await $.session.version()) || {}).version || '' } catch { D.engine = '' }
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     try {
@@ -476,11 +507,14 @@ export function register(on, opts) {
     const teamCli = (D.nav && D.nav.conv) || D.self
     const teamRow = D.tab === 'galerie' && D.scan ? findSession(D.scan, teamCli) : null
     const teamDetail = teamRow && D.scan.detail && D.scan.detail.cli === teamCli ? D.scan.detail : null
+    const laneRepo = teamRow ? repoOf(teamRow) : null
     return drawCockpit(el, {
       who: whoOf(), now: now || D.at, galView: D.galView, launch: D.launch, nuitMsg: D.nuitMsg,
       nuitData: D.tab === 'nuit' ? { running: runningNow(now || D.at), quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, ready: readyItems((D.nuitRaw && D.nuitRaw.repos) || [], CFG || {}) } : null,
       nuitBusy: D.nuitBusy, relaisData: D.relaisRaw && D.relaisRaw.interactions, relaisBusy: D.relaisBusy, galerieData: D.galerieRaw, galerieBusy: D.galerieBusy,
       teamSession: teamRow ? { ...teamRow, ...(teamDetail || {}) } : null, teamTitle: teamRow ? titleOf(teamRow) : '',
+      laneRepo, laneRows: laneRepo && D.galView === 'lanes' ? laneRows(D.scan, laneRepo, FCFG || {}) : [], identity: D.identity || null,
+      canView: engineAtLeast(D.engine, VIEW_MIN), viewAgent: (e.props && e.props.view && e.props.view.agentId) || null,
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
       busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
       conso: D.conso, consoPreset: D.consoPreset, tab: D.tab, jfilter: D.jfilter, jproject: D.jproject,

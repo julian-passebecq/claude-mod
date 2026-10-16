@@ -60,6 +60,9 @@ export const SCREEN_DEFAULTS = {
     subconvs: 'Sous-conversations',
     workflow: 'workflow',
     no_agents: 'aucun sous-agent',
+    // « Ouvrir l'agent » on a running agent of this conversation: $.ui.view({ agentId }) (engine 2.1.300+)
+    open_agent: 'Ouvrir l’agent',
+    back_conv: '← Conversation',
     architect_title: 'architecte · sur appel',
     architect_triggers: ['before plan', 'error repeats', 'before done'],
     architect_trigger_labels: { 'before plan': 'avant un plan', 'error repeats': 'erreur répétée', 'before done': 'avant « fini »' },

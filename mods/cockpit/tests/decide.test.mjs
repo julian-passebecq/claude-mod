@@ -8,8 +8,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   parseTodos, controleCard, nextWake, readyItems, launchCommand, nuitModel, relaisView, roleOf, teamView, controlMap, codexPanel, codexPrice,
+  lanesView, worktreeOf, sequenceView, conceptMap,
 } from '../lib/decide.mjs'
-import { menuOf, tabValid, nightRepos } from '../hooks/nav.mjs'
+import { menuOf, tabValid, nightRepos, laneRows, canOpenAgent } from '../hooks/nav.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
 import { scan, repoRoot } from '../scanner/cards.mjs'
 import { renderText, widest } from '../lib/factory/scanner/textrender.mjs'
@@ -134,6 +135,74 @@ test('controlMap / codexPanel: layers in one map; Codex approvals, tokens and AP
   assert.equal(codexPanel(null, CCFG).available, false)
 })
 
+test('lanesView: one lane per worktree, its PR and reviewer agents; « aucun relecteur » otherwise; old lanes out', () => {
+  assert.equal(worktreeOf('C:\\code\\app\\.claude\\worktrees\\lane-a\\src'), 'lane-a')
+  assert.equal(worktreeOf('C:/code/app'), null)
+  assert.equal(roleOf('verify', CCFG), 'reviewer')
+  assert.equal(roleOf('auditor', CCFG), 'reviewer')
+  const rows = [
+    { cli: 'm', title: 'Lead', cwd: 'C:/code/app', branch: 'main', live: true, last: NOW, state: 'en cours', subs: [] },
+    { cli: 'a', title: 'Lane A', cwd: 'C:/code/app/.claude/worktrees/lane-a', branch: 'claude/a', live: false, last: NOW - H, state: 'au repos',
+      pr: { number: 7, state: 'open', ci: 'success' }, subs: [{ id: 'x', type: 'coder', status: 'done' }, { id: 'y', type: 'verify', status: 'done', last_ts: NOW - H }] },
+    { cli: 'b', title: 'Lane B', cwd: 'C:/code/app/.claude/worktrees/lane-b', live: false, last: NOW - 2 * H, state: 'au repos', subs: [{ id: 'z', type: 'coder', status: 'done' }] },
+    { cli: 'c', title: 'Verify lane C', cwd: 'C:/code/app/.claude/worktrees/lane-c', live: false, last: NOW - 3 * H, state: 'fini', subs: [] },
+    { cli: 'o', title: 'Old', cwd: 'C:/code/app/.claude/worktrees/old', live: false, last: NOW - 30 * 24 * H, subs: [] },
+  ]
+  const w = lanesView(rows, 'app', CCFG, NOW)
+  assert.deepEqual(w.lanes.map((l) => l.id), ['main', 'lane-a', 'lane-b', 'lane-c'])
+  assert.equal(w.lanes[0].title, 'checkout principal · main')
+  assert.equal(w.lanes[1].pr, 'PR #7 · open · CI success')
+  assert.equal(w.lanes[1].reviewers, 'relecture : verify ✓ 21:00')
+  assert.equal(w.lanes[1].reviewerTone, 'ok')
+  assert.equal(w.lanes[2].reviewers, 'aucun relecteur (adversaire) lancé')
+  assert.equal(w.lanes[2].reviewerTone, 'warn')
+  assert.equal(w.lanes[3].reviewers, 'lane de relecture')
+  assert.match(w.title, /Lanes de app/)
+  assert.equal(lanesView(rows, null, CCFG, NOW).available, false)
+  assert.match(lanesView([], 'app', CCFG, NOW).none, /aucune conversation/)
+})
+
+test('laneRows: the project conversations with worktree, PR and state; canOpenAgent only for a running agent of this conversation', () => {
+  const scan = { sessions: [{ cli: 'a', cwd: 'C:/code/app/.claude/worktrees/x', app_title: 'Lane', pr: { number: 3 }, ci: { state: 'open', ci: 'running' }, last_activity: NOW / 1000, subs: [] },
+    { cli: 'b', cwd: 'C:/code/other', subs: [] }] }
+  const r = laneRows(scan, 'app', FCFG)
+  assert.equal(r.length, 1)
+  assert.deepEqual([r[0].title, r[0].pr], ['Lane', { number: 3, state: 'open', ci: 'running' }])
+  assert.equal(canOpenAgent({ conv: 's', status: 'running' }, 's', true), true)
+  assert.equal(canOpenAgent({ conv: 's', status: 'running' }, 's', false), false)
+  assert.equal(canOpenAgent({ conv: 'other', status: 'running' }, 's', true), false)
+  assert.equal(canOpenAgent({ conv: 's', status: 'done' }, 's', true), false)
+})
+
+test('sequenceView: lead and agent lifelines, a call arrow and a return arrow per agent, oldest first', () => {
+  const s = { cli: 'c1', advisor_ts: NOW - 30 * 60000, subs: [
+    { id: 'a', type: 'coder', desc: 'build', status: 'done', ts: NOW - 2 * H, last_ts: NOW - H },
+    { id: 'b', type: 'verify', status: 'running', ts: NOW - 20 * 60000 },
+  ] }
+  const q = sequenceView(s, 'Lead conv', CCFG, NOW, 60)
+  assert.equal(q.title, 'Séquence · Lead conv')
+  assert.match(q.header, /Lead.*coder.*verify/)
+  assert.deepEqual(q.rows.map((r) => r.text.trim()), ['coder · build', 'coder ↩ rendu au lead', '/advisor consulté', 'verify'])
+  assert.match(q.rows[0].line, /^20:00 .*├─*▶┐/)
+  assert.match(q.rows[1].line, /^21:00 .*├◀─*┘/)
+  assert.match(q.rows[2].line, /◆/)
+  for (const r of q.rows) assert.ok(r.line.length <= 60, r.line)
+  const many = { cli: 'c', subs: Array.from({ length: 8 }, (_, i) => ({ id: 'x' + i, type: 't' + i, status: 'done', ts: NOW - (10 - i) * 60000, last_ts: NOW - (9 - i) * 60000 })) }
+  assert.equal(sequenceView(many, 'x', CCFG, NOW, 60).hidden, '+ 3 agent(s) plus anciens hors du diagramme')
+  assert.equal(sequenceView({ cli: 'e', subs: [] }, 'e', CCFG, NOW, 60).available, false)
+  assert.equal(sequenceView(null, '', CCFG, NOW, 60).available, false)
+})
+
+test('conceptMap: soft layers (the model reads) vs hard ones (the harness enforces), with the Carte counts; identity row', () => {
+  const map = { rules: { title: 'Rules V9' }, settings: { env: 3, hooks: 0, mode: 'bypassPermissions' }, agents: ['coder'], skills: ['a', 'b'], workflows: [], mods: 4, memory: 2 }
+  const c = conceptMap(map, CCFG)
+  assert.deepEqual(c.soft.rows.map((r) => r.text), ['Rules V9', '2 fichier(s)', '2', '1'])
+  assert.deepEqual(c.hard.rows.map((r) => r.text), ['bypassPermissions', '0', '3 clé(s)', '0', '4'])
+  assert.equal(conceptMap(null, CCFG).hard.rows[0].text, 'non lu')
+  assert.equal(controlMap(map, CCFG, { kind: 'claude.ai' }).pop().text, 'claude.ai')
+  assert.equal(controlMap(map, CCFG, { deny: 'x' }).length, 7)
+})
+
 // ---- the pane ------------------------------------------------------------------------------------------------------
 
 const noop = () => {}
@@ -175,11 +244,22 @@ test('pane: Claude ↔ Codex and Galerie tabs draw their views', () => {
   assert.match(renderText(drawCockpit(el, VIEW({ tab: 'relais', relaisData: null })), 75), /\/ci relais refresh/)
   const team = { cli: 'c1', model: 'claude-opus-5-5', subs: [{ id: 'a', type: 'coder', status: 'done', last_ts: NOW }] }
   const g = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'equipe', teamSession: team, teamTitle: 'Lead' })), 75)
-  assert.match(g, /\[Équipe\] \[Carte\] \[Codex\][\s\S]*Lead · Lead[\s\S]*Workers \(1\)[\s\S]*↩ rendu au lead 22:00/)
+  assert.match(g, /\[Équipe\] \[Lanes\] \[Séquence\] \[Carte\] \[Doux \/ dur\] \[Codex\][\s\S]*Lead · Lead[\s\S]*Workers \(1\)[\s\S]*↩ rendu au lead 22:00/)
   const m = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'carte', galerieData: { map: { agents: ['coder'], mods: 3 } } })), 75)
   assert.match(m, /Carte du contrôle[\s\S]*Agents[\s\S]*1 · coder[\s\S]*Mods[\s\S]*3/)
   const cx = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'codex', galerieData: { codex: { available: true, days: 7, byModel: {}, approvals: { policies: { never: 1 }, requests: 0, sessions: 1 } } } })), 75)
   assert.match(cx, /approbations et coût[\s\S]*never 1[\s\S]*0 demande/)
+  for (const cols of [60, 75]) {
+    const lanes = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'lanes', columns: cols, laneRepo: 'app',
+      laneRows: [{ cli: 'a', title: 'Lane A', cwd: 'C:/code/app/.claude/worktrees/lane-a', branch: 'claude/a', live: true, last: NOW, state: 'en cours', subs: [{ id: 'y', type: 'verify', status: 'running' }] }] })), cols)
+    assert.match(lanes, /\[Lanes\][\s\S]*Lanes de app[\s\S]*lane-a · claude\/a[\s\S]*relecture : verify/, lanes)
+    const team2 = { cli: 'c1', subs: [{ id: 'a', type: 'coder', desc: 'build', status: 'done', ts: NOW - H, last_ts: NOW }] }
+    const seq = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'sequence', columns: cols, teamSession: team2, teamTitle: 'Lead' })), cols)
+    assert.match(seq, /Séquence · Lead[\s\S]*Lead[\s\S]*coder[\s\S]*├─*▶┐[\s\S]*├◀─*┘/, seq)
+    const con = renderText(drawCockpit(el, VIEW({ tab: 'galerie', galView: 'concept', columns: cols, galerieData: { map: { settings: { env: 1, hooks: 0, mode: '' }, mods: 2 } } })), cols)
+    assert.match(con, /Contrôle doux \/ dur[\s\S]*Doux : le modèle[\s\S]*Dur : le harness[\s\S]*Hooks[\s\S]*0/, con)
+    for (const t of [lanes, seq, con]) assert.ok(widest(t) <= cols, `${widest(t)} > ${cols}`)
+  }
 })
 
 // ---- scanner parts over a temp home ---------------------------------------------------------------------------------

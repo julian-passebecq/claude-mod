@@ -5,7 +5,7 @@
 // load from lib/core (usage.mjs, runner.mjs) through scanner/extras.mjs, plus $.session.usage(); Système's PC sample from
 // the machine mod's sampler. These screens now also live inside Cockpit (/cockpit). Each
 // source runs only while the pane is open and its tab is showing. Nothing here blocks, rewrites or adds to a prompt.
-import { deepMerge, pickSession, scanArgs } from './logic.mjs'
+import { deepMerge, pickSession, scanArgs, engineAtLeast } from './logic.mjs'
 import { waitingConfig, waitingRows, waitingArgs, toAnnounce, notifyText, holdsLease, fill } from './waiting.mjs'
 import { screensConfig, tabsOf, parseArgs } from './screens.mjs'
 import { drawFactoryPane, allTabs } from './workflow_draw.mjs'
@@ -15,7 +15,7 @@ let CFG = null
 const D = {
   scan: null, target: null, self: null, busy: false, error: '', at: 0, open: false, tab: null, filter: 'all', jfilter: 'all', jproject: '',
   picking: false, live: [], quotas: null, quotasAt: 0, machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '', runnerAt: 0 },
-  columns: 0,
+  columns: 0, engine: '',
   wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {},
 }
 
@@ -219,12 +219,29 @@ function actions($) {
     pick: () => { D.picking = !D.picking; redraw() },
     wfScope: (k) => { D.wfScope = k; redraw(); void rescanWorkflow($) },
     wfToggle: (key, open) => { D.wfOpen = { ...D.wfOpen, [key]: open }; redraw() },
+    openAgent: (id) => { void viewAgent($, { agentId: id }) },
+    backToConv: () => { void viewAgent($, {}) },
+  }
+}
+
+// « Ouvrir l'agent »: the engine's transcript view of one agent of this conversation ($.ui.view, 2.1.300+; a press is
+// person-initiated, which the engine requires). Older engines have no $.ui.view: the button is not drawn, a toast here.
+const VIEW_MIN = '2.1.300'
+
+async function viewAgent($, target) {
+  if (!engineAtLeast(D.engine, VIEW_MIN)) { $.ui.toast(`Ouvrir un agent demande Claude Code ${VIEW_MIN} ou plus récent (claude update)`); return }
+  try {
+    const r = await $.ui.view(target)
+    if (r && r.deny) $.ui.toast(`Agent non ouvert : ${r.deny}`)
+  } catch (err) {
+    $.ui.toast(`Agent non ouvert : ${String(err && err.message ? err.message : err).slice(0, 120)}`)
   }
 }
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
     try { D.self = await $.session.id() } catch { D.self = null }
+    try { D.engine = ((await $.session.version()) || {}).version || '' } catch { D.engine = '' }
     await loadConfig($).catch(() => { CFG = {} })
     const sc = screensConfig(CFG || {})
     $.clock.every(Math.max(5, (CFG && CFG.refresh_s) || 20) * 1000, () => { if (D.open && D.tab !== 'workflow') void rescan($) })
@@ -245,6 +262,7 @@ export function register(on) {
   on('command.run', { command: 'factory' }, async ($, e) => {
     await loadConfig($)
     try { D.self = (await $.session.id()) || D.self } catch { /* keep the last one */ }
+    try { D.engine = ((await $.session.version()) || {}).version || D.engine } catch { /* keep */ }
     const q = String(e.args || '').trim()
     if (q.toLowerCase() === 'close') { D.open = false; await $.ui.close({ id: 'factory' }); return {} }
     await openPane($)
@@ -267,6 +285,8 @@ export function register(on) {
     const cols = Number(e.props && e.props.bodyColumns) || 0
     D.columns = cols
     if (!allTabs(CFG).some((t) => t.id === D.tab)) D.tab = (tabsOf(CFG)[0] || { id: 'mission' }).id
-    return drawFactoryPane(el, { ...D, cfg: CFG, columns: cols, act: actions($) })
+    const canView = engineAtLeast(D.engine, VIEW_MIN)
+    const viewAgent = (e.props && e.props.view && e.props.view.agentId) || null
+    return drawFactoryPane(el, { ...D, cfg: CFG, columns: cols, canView, viewAgent, act: actions($) })
   })
 }
