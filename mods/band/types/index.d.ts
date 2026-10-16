@@ -1,7 +1,8 @@
 // Types of the band mod (Jauge): the view scanner/scan.mjs prints (hooks/logic.ts buildView) and the `$.state` values.
 // Self-contained, as a mod contract must be; hooks/logic.ts and hooks/parse.ts take their shapes from here.
 
-export type Usage = { inp: number; cw: number; cr: number; out: number }
+/** Tokens of one response: input, cache write (all of it; cw1h its 1-hour part), cache read, output. */
+export type Usage = { inp: number; cw: number; cr: number; out: number; cw1h?: number }
 
 /** One API response: t ms, main session id, agent id (subagent or Workflow agent), workflow id, model, usage. */
 export type Ev = { t: number; s: string; a?: string; w?: string; m: string; id?: string; u: Usage }
@@ -72,6 +73,8 @@ export type View = {
   conv?: { ctx?: number; ctxT?: number; growthTpm?: number; last?: number; title?: string }
   files: number
   ms: number
+  /** where the per-line usage and the prices came from: "mods/usage/lib" (shared) or "band" (fallback) */
+  lib: string
 }
 
 /** This conversation's figures from the engine ($.session.usage / session.measure). */

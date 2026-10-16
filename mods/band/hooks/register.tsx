@@ -257,7 +257,7 @@ export const register: Register = (on, raw) => {
         </Button>
         <Text dimColor>
           {v
-            ? `mesuré à ${hhmm(v.now)} · ${v.files} fichier(s) lus en ${v.ms} ms · compte: ${v.count === 'all' ? 'tout (lectures cache comprises)' : 'entrée + écriture cache + sortie'}`
+            ? `mesuré à ${hhmm(v.now)} · ${v.files} fichier(s) lus en ${v.ms} ms · usage et prix: ${v.lib} · compte: ${v.count === 'all' ? 'tout (lectures cache comprises)' : 'entrée + écriture cache + sortie'}`
             : 'pas encore de mesure'}
         </Text>
       </Box>

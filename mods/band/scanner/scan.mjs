@@ -9,10 +9,30 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { buildView, deepMerge, expandHome, repoKey } from '../hooks/logic.ts'
-// The one parser import: swap it for the shared one (mods/usage) when that lands.
-import { classifyPath, emptyMeta, parseLines, prune } from '../hooks/parse.ts'
+import { classifyPath, emptyMeta, ownUsage, parseLines, prune } from '../hooks/parse.ts'
 
 const CHUNK = 8 * 1024 * 1024
+
+/**
+ * The shared parser and price table of mods/usage (lib/transcripts.mjs usageOf and costOf, lib/prices.json), when the
+ * usage mod sits beside this one (this repo, or both copied under ~/.claude/mods). Else band's fallback parser and the
+ * `rates` of band.config.json. `shared_lib: "off"` forces the fallback.
+ */
+export async function sharedLib(cfg) {
+  if (cfg.shared_lib === 'off') return undefined
+  try {
+    const lib = await import(new URL('../../usage/lib/transcripts.mjs', import.meta.url).href)
+    const prices = JSON.parse(readFileSync(new URL('../../usage/lib/prices.json', import.meta.url), 'utf8'))
+    if (typeof lib.usageOf !== 'function' || typeof lib.costOf !== 'function') return undefined
+    return {
+      name: 'mods/usage/lib',
+      extract: lib.usageOf,
+      price: e => lib.costOf([e.u.inp, e.u.out, e.u.cr, e.u.cw - (e.u.cw1h ?? 0), e.u.cw1h ?? 0], e.m, prices),
+    }
+  } catch {
+    return undefined
+  }
+}
 
 const readStdin = () => {
   try {
@@ -108,9 +128,10 @@ export const repoRoot = (cwd, markers) => {
   return key
 }
 
-export function scan(req) {
+export function scan(req, lib) {
   const t0 = Date.now()
   const { cfg, now } = req
+  const extract = lib?.extract ?? ownUsage
   const keepS = Math.max(...cfg.windows_s, cfg.spark_min * 60, cfg.context.growth_window_s)
   const keepFrom = now - keepS * 1000
   const compactFrom = now - cfg.compact_history_hours * 3600000
@@ -151,7 +172,7 @@ export function scan(req) {
             carry = text
             continue
           }
-          parseLines(text.slice(0, cut + 1), kind, st.st, meta, cache.events, keepFrom)
+          parseLines(text.slice(0, cut + 1), kind, st.st, meta, cache.events, keepFrom, extract)
           carry = text.slice(cut + 1)
         }
         st.off = off - Buffer.byteLength(carry, 'utf8')
@@ -182,12 +203,14 @@ export function scan(req) {
     cwd: cwdRepo,
     files: read,
     ms: Date.now() - t0,
+    ...(lib ? { price: lib.price, lib: lib.name } : {}),
   })
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
-    process.stdout.write(JSON.stringify(scan(loadRequest(process.argv.slice(2)))))
+    const req = loadRequest(process.argv.slice(2))
+    process.stdout.write(JSON.stringify(scan(req, await sharedLib(req.cfg))))
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: String(err?.stack ?? err).slice(0, 800) }))
     process.exitCode = 1

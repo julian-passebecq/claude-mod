@@ -22,6 +22,7 @@ export type Config = {
   count: CountMode
   compact_history_hours: number
   first_read_mb: number
+  shared_lib: string
   worktree_markers: string[]
   band: { items: string[]; scopes: string[] }
   status_line: { items: string[]; scopes: string[] }
@@ -53,7 +54,11 @@ const rateFor = (rates: Rates, model: string) => {
 }
 
 /** List-price dollars of one response (cache writes priced at the 5-minute rate). */
-export const costOf = (e: Ev, rates: Rates) => {
+/** A price table, or a function pricing one response (the shared mods/usage price table). */
+export type Price = Rates | ((e: Ev) => number)
+
+export const costOf = (e: Ev, rates: Price) => {
+  if (typeof rates === 'function') return rates(e)
   const r = rateFor(rates, e.m)
   return (e.u.inp * r.in + e.u.cw * r.cache_write_5m + e.u.cr * r.cache_read + e.u.out * r.out) / 1e6
 }
@@ -110,7 +115,7 @@ export const inScope = (scope: ScopeId, e: Ev, c: ScopeCtx) => {
 
 
 /** Sliding-window rate: the events with t in (now - w, now], over w seconds. */
-export const rateOf = (events: Ev[], now: number, wS: number, mode: CountMode, rates: Rates): Rate => {
+export const rateOf = (events: Ev[], now: number, wS: number, mode: CountMode, rates: Price): Rate => {
   const from = now - wS * 1000
   let tokens = 0
   let usd = 0
@@ -178,9 +183,10 @@ export const buildView = (
   cfg: Pick<Config, 'windows_s' | 'spark_min' | 'bucket_s' | 'count' | 'rates' | 'top_n' | 'compact_history_hours' | 'worktree_markers'> & {
     context?: { growth_window_s: number }
   },
-  opts: { now: number; session?: string; cwd?: string; files?: number; ms?: number },
+  opts: { now: number; session?: string; cwd?: string; files?: number; ms?: number; price?: (e: Ev) => number; lib?: string },
 ): View => {
   const { now, session } = opts
+  const price: Price = opts.price ?? cfg.rates
   const repoOf = (s: string) => sessions[s]?.repo ?? (sessions[s]?.cwd ? repoKey(sessions[s].cwd, cfg.worktree_markers) : undefined)
   const repo = opts.cwd ? repoKey(opts.cwd, cfg.worktree_markers) : session ? repoOf(session) : undefined
   const ctx: ScopeCtx = { session, repo, repoOf }
@@ -190,7 +196,7 @@ export const buildView = (
     const evs = events.filter(e => inScope(id, e, ctx))
     return {
       id,
-      rates: cfg.windows_s.map(w => rateOf(evs, now, w, cfg.count, cfg.rates)),
+      rates: cfg.windows_s.map(w => rateOf(evs, now, w, cfg.count, price)),
       spark: spark(evs, now, cfg.spark_min, cfg.bucket_s, cfg.count),
     }
   })
@@ -207,7 +213,7 @@ export const buildView = (
   const compOf = (s: string) => (sessions[s]?.compactions ?? []).filter(c => c.t > since && !c.a)
   const top: TopRow[] = [...bySession.entries()]
     .map(([s, evs]) => {
-      const r = rateOf(evs, now, longest, cfg.count, cfg.rates)
+      const r = rateOf(evs, now, longest, cfg.count, price)
       const m = sessions[s]
       const cs = compOf(s)
       return {
@@ -236,7 +242,7 @@ export const buildView = (
   }
   const projects = [...byRepo.entries()]
     .map(([k, g]) => {
-      const r = rateOf(g.evs, now, longest, cfg.count, cfg.rates)
+      const r = rateOf(g.evs, now, longest, cfg.count, price)
       return { repo: repoName(k), tps: r.tps, usdPerH: r.usdPerH, sessions: g.sessions.size }
     })
     .sort((a, b) => b.tps - a.tps)
@@ -273,6 +279,7 @@ export const buildView = (
       : undefined,
     files: opts.files ?? 0,
     ms: opts.ms ?? 0,
+    lib: opts.lib ?? 'band',
   }
 }
 

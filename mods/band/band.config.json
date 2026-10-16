@@ -67,7 +67,9 @@
     "trigger_unknown": "inconnu",
     "pane_title": "Jauge"
   },
-  "rates_source": "USD per million tokens, list prices as in mods/factory/factory.config.json (claude.com/pricing). Cache write priced at the 5-minute rate.",
+  "_shared_lib": "auto: per-line usage and prices from mods/usage/lib (its parser and prices.json) when that mod sits beside this one; off: band's own parser and the rates below.",
+  "shared_lib": "auto",
+  "rates_source": "Fallback only (shared_lib off or mods/usage absent): USD per million tokens, list prices as in mods/factory/factory.config.json (claude.com/pricing). Cache writes priced at the 5-minute rate.",
   "rates": {
     "claude-fable-5-1": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5 },
     "claude-opus-5-5": { "in": 4, "out": 20, "cache_read": 0.4, "cache_write_5m": 5 },

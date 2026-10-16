@@ -22,7 +22,7 @@ import {
   sparkline,
 } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, parseLines } from '../hooks/parse.ts'
-import { scan } from '../scanner/scan.mjs'
+import { scan, sharedLib } from '../scanner/scan.mjs'
 
 const CFG = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -171,7 +171,7 @@ test('parser: a response split over entries counts once; compactions with and wi
   assert.equal(compactLabel({ t: 0, trigger: 'auto', gapMin: 1 }, CFG.labels, 54), 'auto')
 })
 
-test('scanner: incremental tail, worktree grouping, compaction markers, cache only', () => {
+test('scanner: incremental tail, worktree grouping, compaction markers, shared parser', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'band-test-'))
   try {
     const root = join(dir, 'projects')
@@ -216,6 +216,18 @@ test('scanner: incremental tail, worktree grouping, compaction markers, cache on
     assert.equal(v3.scopes.find(s => s.id === 'conv').rates[0].tokens, 2400)
     assert.equal(v3.conv.ctx, 20000)
     assert.match(sparkline(v3.scopes.find(s => s.id === 'all').spark), /[▁-█]$/)
+    assert.equal(v3.lib, 'band')
+
+    // the shared parser and price table of mods/usage give the same tokens; a fresh cache reads every file again
+    const lib = await sharedLib(CFG)
+    assert.equal(lib?.name, 'mods/usage/lib')
+    const v4 = scan({ ...req, cache_file: join(dir, 'cache2.json') }, lib)
+    assert.equal(v4.lib, 'mods/usage/lib')
+    for (const id of ['conv', 'agents', 'workflows', 'project']) {
+      assert.equal(v4.scopes.find(s => s.id === id).rates[0].tokens, v3.scopes.find(s => s.id === id).rates[0].tokens, id)
+    }
+    assert.ok(v4.scopes.find(s => s.id === 'all').rates[0].usdPerH > 0)
+    assert.equal(await sharedLib({ ...CFG, shared_lib: 'off' }), undefined)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
