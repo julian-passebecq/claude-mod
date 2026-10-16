@@ -4,7 +4,7 @@
 // Secret values are never copied: only their kind, the session and the date are kept. Prints counts only.
 //   node mods/tests-reels/scanner/recover.mjs [--force] [--data-dir <dir>]
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, extname, join, relative } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { createInterface } from 'node:readline'
 
 import { counts, addError, addHit, appFor, appFromCwd, appFromFolder, compile, extract, finalize, mergeAgg, newApp, parseManualLine } from '../lib/recover.mjs'
@@ -21,7 +21,7 @@ const P = compile(RC)
 const LIM = { per_list: RC.per_list ?? 40, mentions: RC.mentions ?? 30 }
 const MAX_RESULT = RC.max_result_chars ?? 20000
 const P_ = paths(dataDir)
-const LOGIC = 4 // bump when extraction changes: the per-file cache is then rebuilt
+const LOGIC = 5 // bump when extraction changes: the per-file cache is then rebuilt
 let cache = FORCE ? { files: {} } : readJson(P_.cache, { files: {} })
 if (cache.logic !== LOGIC) cache = { files: {} }
 cache.logic = LOGIC
@@ -89,7 +89,7 @@ function repoOf(cwd) {
   if (repoCache.has(cwd)) return repoCache.get(cwd)
   let d = S(cwd).replace(/\/\.claude\/worktrees\/[^/]+.*$/, '')
   let name = ''
-  for (let i = 0; i < 8 && d && !name; i++) {
+  for (let i = 0; i < 8 && d && isAbsolute(d) && !name; i++) {
     if (existsSync(join(d, '.git'))) name = basename(d)
     const up = S(dirname(d))
     if (up === d) break
