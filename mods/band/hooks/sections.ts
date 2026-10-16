@@ -50,6 +50,7 @@ export const DEF_SECTION_LABELS: Record<string, string> = {
   collapse: 'replier',
   cost: 'cette session',
   relay_left: 'relais dans',
+  todo: 'À toi',
 }
 
 export const DEF_SECTIONS: SectionsCfg = {
@@ -229,4 +230,11 @@ export const veilleLine = (v: VeilleSum, labels: Record<string, string> = DEF_SE
   const top = v.top ? alertText(v.top) : ''
   const s = `${v.open} ${L.alerts}${v.julian ? ` · ${v.julian} ${L.julian}` : ''}${top ? ` · ${top}` : ''}`
   return s.length > max ? s.slice(0, max - 1) + '…' : s
+}
+
+/** a-faire's summary.json (counts only, written by the a-faire mod's scanner) -> the red « À toi : N » of line 1, or ''. */
+export const todoBadge = (sum: any, labels: Record<string, string> = DEF_SECTION_LABELS) => {
+  const L = { ...DEF_SECTION_LABELS, ...labels }
+  const n = sum && typeof sum === 'object' ? Number(sum.open) : 0
+  return Number.isFinite(n) && n > 0 ? `${L.todo} : ${Math.round(n)}` : ''
 }

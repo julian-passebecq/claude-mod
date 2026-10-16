@@ -119,6 +119,19 @@
         "claude plugin test mods/cockpit",
         "claude plugin validate mods/cockpit"
       ]
+    },
+    {
+      "dir": "a-faire",
+      "name": "a-faire (À faire par Julian)",
+      "state": "building",
+      "description": "Tout ce qui attend une action que seul Julian peut faire, pour que rien ne se perde : configuration (smtp.json de la veille, mods installés pas chargés, tâche ClaudeVeille absente ou arrêtée), décisions (DECISIONS-PENDING, PR ouvertes qui attendent ton accord, lignes de questions.md marquées pour toi), connexions et 2FA, secrets de tests réels à ranger (comptes seulement), tests manuels (manual-checks.md), questions des conversations (alertes « attend Julian » de la veille, avec le lien). Chaque ligne : pourquoi elle bloque, les étapes exactes avec Copier, depuis quand, la source, une priorité (bloque une conversation > bloque une fonction > confort). Fait revérifie quand c'est possible (smtp.json rempli : la ligne se ferme seule), Plus tard la cache un jour. Catégories repliables avec un résumé d'une ligne. « À toi : N » en rouge sur la première ligne de la Jauge, bouton « À faire » dans sa barre Mods ; la veille envoie une fois chaque nouvelle ligne prioritaire (notification Windows, e-mail quand smtp.json marche).",
+      "data": "~/.claude/effort-board/manual-checks.md et questions.md, les fichiers de décisions listés dans sources.decisions.files, gh search prs --author @me (titre, corps, étiquettes ; cache 30 min, jetons gardés par gh), ~/.claude/veille (state.json, acks.jsonl, heartbeat.json, smtp.json : présence et champs, jamais le mot de passe), schtasks /Query ClaudeVeille, CLAUDE_CODE_PLUGIN_DIRS de ~/.claude/settings.json et les dossiers de mods à côté, ~/.claude/tests-reels/registry.json (comptes « à ranger ») ; écrit seulement ~/.claude/a-faire (state.json, items.json, summary.json, notified.json, prs-cache.json)",
+      "note": "lecture seule sauf son propre état (Fait, Plus tard) ; aucune source n'est modifiée, aucune commande montrée n'est lancée, aucun texte envoyé au modèle. Fait sur une ligne mesurée (smtp.json, mods, tâche, secrets) revérifie et refuse tant que la cause est là. Non vérifié : format de ~/.claude/tests-reels/registry.json (le mod tests-reels est en construction : un tableau ou {items|secrets|entries} dont status/state/category contient « ranger »). La copie installée de la veille (~/.claude/veille/bin) ne prend le flux qu'après node veille.mjs install.",
+      "tests": [
+        "node --test mods/a-faire/tests/logic.test.mjs",
+        "claude plugin test mods/a-faire",
+        "claude plugin validate mods/a-faire"
+      ]
     }
   ],
   "archived": [

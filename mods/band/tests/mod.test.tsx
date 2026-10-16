@@ -15,7 +15,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
   ...extra,
 })
 
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; veille?: unknown } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; veille?: unknown; todo?: number } = {}) {
   const tokens = opts.tokens ?? 164000
   mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -39,6 +39,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     if (p.endsWith('/band.config.json')) return { value: SHIPPED }
     if (opts.veille && p === 'C:/Users/me/.claude/veille/state.json') return { value: JSON.stringify(opts.veille) }
     if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
+    if (opts.todo !== undefined && p === 'C:/Users/me/.claude/a-faire/summary.json') return { value: JSON.stringify({ v: 1, open: opts.todo, high: 1 }) }
     throw new Error('ENOENT')
   })
   on('fs.stat', ($: any, e: any) => {
@@ -111,6 +112,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await band.unmount()
   })
 }
+
+test('line 1 starts with the red « À toi : N » from a-faire, nothing at 0; the Mods row has « À faire »', async ($, on) => {
+  world(on, { todo: 4 })
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Text', text: 'À toi : 4' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: 'À faire' })).toBeDefined()
+  await band.unmount()
+})
+
+test('no « À toi » when a-faire has nothing open', async ($, on) => {
+  world(on, { todo: 0 })
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Text', text: /^À toi/ })).toBeUndefined()
+  await band.unmount()
+})
 
 test('sections: the state remembered in $.store comes back at session start', async ($, on) => {
   world(on, { stored: { expanded: true, open: ['usage'] } })

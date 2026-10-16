@@ -255,4 +255,5 @@ test('task XML: per-user, no admin, every 5 min, one instance, own time limit', 
   assert.match(x, /<StartWhenAvailable>true/)
   assert.match(x, /a&amp;b\.vbs/)
   assert.ok(BIN_FILES.includes('factory/hooks/waiting.mjs'), 'the installed copy carries the factory library it imports')
+  assert.ok(BIN_FILES.includes('a-faire/lib/feed.mjs'), 'and the a-faire feed (optional: skipped when that mod is absent)')
 })

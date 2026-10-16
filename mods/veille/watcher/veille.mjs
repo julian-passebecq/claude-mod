@@ -15,7 +15,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   deepMerge, modeName, modeOf, may, tourDue, gapOf, alertsOf, reconcile, plan, markSent, budgetLeft, pruneSpent,
   mergeCandidates, ownerOf, ghEligible, glEligible, wakeDecision, brief, prText, scrub, fill, watcherState, MODES, due,
@@ -257,6 +257,11 @@ async function tour(cfg, why) {
     for (const g of rec.gone) events.push(logEvent(cfg, { kind: 'resolved', key: g.key, what: g.what }))
 
     const todo = plan(list, rec.fresh.map((a) => rec.alerts[a.key]), cfg, state, now)
+    // a-faire (sibling mod, when present): new high-priority actions only Julian can do, each pushed once.
+    const feed = await aFaireFeed(tp, env, now)
+    if (feed.length) events.push(logEvent(cfg, { kind: 'afaire', keys: feed.map((a) => a.key), reason: `${feed.length} nouvelle(s) action(s) pour Julian (/afaire)` }))
+    if (may(cfg, 'notify', mode)) todo.notify = [...todo.notify, ...feed]
+    if (may(cfg, 'mail', mode)) todo.mail = [...todo.mail, ...feed]
     let sent = state.sent || {}
     // (1) Windows notifications: at most 3 per tour, then one « N autres ».
     const shown = todo.notify.slice(0, 3)
@@ -390,6 +395,16 @@ async function julianPass(cfg) {
   }
 }
 
+// The a-faire mod's feed (mods/a-faire/lib/feed.mjs beside veille, or in the bin copy). Missing or failing: nothing.
+async function aFaireFeed(tp, env, now) {
+  const file = path.join(MODS, 'a-faire', 'lib', 'feed.mjs')
+  if (!fs.existsSync(file)) return []
+  try {
+    const { veilleFeed } = await import(pathToFileURL(file).href)
+    return (await veilleFeed({ gh: tp.gh, env, now })).map((a) => ({ ...a, severity: 'julian', julian: true }))
+  } catch { return [] }
+}
+
 const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
 function readAcks(cfg) {
@@ -425,6 +440,7 @@ function where(name) {
 function copyTree(files, dest) {
   for (const rel of files) {
     const from = path.join(MODS, rel)
+    if (OPTIONAL_BIN.includes(rel) && !fs.existsSync(from)) continue
     const to = path.join(dest, rel)
     fs.mkdirSync(path.dirname(to), { recursive: true })
     fs.copyFileSync(from, to)
@@ -436,6 +452,9 @@ export const BIN_FILES = [
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
 ]
+// The a-faire mod's feed, copied when that mod sits beside veille (pushes « À faire par Julian » items once each).
+export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/afaire.config.json']
+BIN_FILES.push(...OPTIONAL_BIN)
 
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
