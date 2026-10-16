@@ -1,0 +1,24 @@
+{
+  "name": "machine",
+  "version": "0.1.0",
+  "description": "Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RAM, disques, GPU, top 5 processus CPU et mémoire (claude, node, python, git en couleur), charge du runner GitLab local (via le mod ci) et « agents en parallèle conseillés maintenant : N ». /machine",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "machine", "cpu", "ram", "gpu", "processes", "gitlab runner"],
+  "userConfig": {
+    "config": {
+      "type": "string",
+      "title": "Settings file",
+      "description": "Path to your own JSON deep-merged over machine.config.json (interval, rules, caps, labels, colors; ~ allowed). Empty: shipped settings.",
+      "default": ""
+    },
+    "band": {
+      "type": "string",
+      "title": "Band entry above the prompt",
+      "description": "on: a compact line (agents conseillés, CPU, RAM, GPU, CI) above the prompt, sampled every band.interval_s. off: only /machine, sampled only while its pane is open.",
+      "default": "off",
+      "options": ["on", "off"]
+    }
+  }
+}
