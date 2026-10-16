@@ -104,6 +104,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [cockpit](#cockpit)
     - [a-faire](#a-faire)
     - [problemes](#problemes)
+    - [export-eta](#export-eta)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -582,6 +583,16 @@ Problèmes : registre persistant de chaque erreur et problème du travail de Cla
 - **Fonctionnalités** : commandes `/problemes` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/problemes` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/problemes`
 - **Tests** : `node --test mods/problemes/tests/logic.test.mjs` · `claude plugin test mods/problemes` · `claude plugin validate mods/problemes`
+
+#### export-eta
+
+Export eta : exporte des conversations Claude Code en Markdown vers le dépôt eta, sans tokens. En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet), Lot terminé (la Veille compte les conversations terminées depuis le dernier export et propose un bouton « Exporter vers eta »). Passe de confidentialité avant écriture (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails), fichiers non masquables retenus et listés ; worktree neuf du dépôt eta, branche, PR, merge squash. /export, /export-eta
+
+- **État** : en construction · version 0.1.0 · Trois modes : En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet, repliables), Lot terminé (la Veille compte à chaque tour les conversations terminées depuis le dernier export ; à partir de batch_min, défaut 3, ou quand un lead et toutes ses sous-conversations sont terminés, elle affiche « 4 conversations terminées — Exporter vers eta » avec un bouton, dans son onglet Alertes et Fil ; la même ligne et le même bouton apparaissent au-dessus du prompt). auto: true exporte le lot sans clic. Chaque conversation devient un Markdown : en-tête (projet, dossier, branche, modèle · effort, début, dernière activité, état, parent, sous-conversations, PR), puis les messages dans l'ordre, un appel d'outil par ligne, sorties d'outils et fichiers omis, résultats d'agents en une ligne ; découpé en parties au-delà de max_kb (300 Ko). Passe de confidentialité avant écriture (jetons GitHub/GitLab/Anthropic/OpenAI/AWS/Slack, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails sauf les tiens, motifs en plus par config ou fichier) puis une vérification : un fichier avec un secret non masquable est retenu et listé, jamais écrit. Chemin : sources/conversations/<projet>/<date>-<titre>-<id>.md, INDEX.md par projet et global ; un ré-export réécrit son propre fichier (retrouvé par l'id), jamais un autre. Git : worktree neuf du dépôt eta, branche export/conversations-<date-heure>, commit, push, PR, merge squash (checks verts s'il y en a, sinon après la passe de confidentialité), branche distante supprimée, worktree retiré ; jamais de push sur main ni de force-push. /export peut être pris par la commande intégrée de Claude Code : /export-eta marche toujours. La copie du veilleur installée (~/.claude/veille/bin) ne prend l'export qu'après un nouveau « veille install ».
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : les fichiers de session de l'app Desktop (titre, modèle, effort, état de fin de tour, spawnedFrom, PR) et les transcripts de ~/.claude/projects, lus par un script Node sans dépendance ; ~/.claude/export-eta (config.json, state.json, sessions.json, pending.json) ; le dépôt eta (chemin dans config.json, jamais dans le dépôt public), où le mod crée un worktree neuf. Aucun appel de modèle. · aucun blocage
+- **Fonctionnalités** : commandes aucune · affiche : panneau, bandeau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/export-eta` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/export-eta`
+- **Tests** : `node --test mods/export-eta/tests/logic.test.mjs` · `node --test mods/veille/tests/export.test.mjs` · `claude plugin test mods/export-eta` · `claude plugin validate mods/export-eta`
 
 ### Archivés / rejetés
 
