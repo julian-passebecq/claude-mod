@@ -251,3 +251,6 @@ test('every screen, rendered at 50, 75 and 120 columns, stacks top to bottom wit
   }
   assert.equal(screensConfig(CFG).labels.tabs.systeme, 'Système')
 })
+
+// The Workflow screen's tests run with this file in CI (one node --test list in .github/workflows/tests.yml).
+import './workflow.test.mjs'

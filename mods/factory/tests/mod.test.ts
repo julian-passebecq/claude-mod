@@ -109,6 +109,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(toasts.some((t) => t.includes('Attend Julian : Log in to the provider'))).toBe(true)
   })
 
+  test(`/factory workflow draws the Workflow screen: sentence, phases, agents, inherited model, limits (${surface})`, async ($, on) => {
+    const session = make(dayOf(NOW))
+    const agent = (id: string, label: string, status: string, explicit: string | null) => ({ id, label, phase: 'Build', type: 'coder', explicit_model: explicit, model: 'claude-opus-5-5',
+      effort: 'medium', status, start: NOW - 20 * 60000, end: status === 'running' ? null : NOW - 5 * 60000, last: NOW - 60000, models: { 'claude-opus-5-5': V },
+      last_tool: 'Bash gh pr checks 9 --watch', last_text: '', last_cmd: 'gh pr checks 9 --watch', worktree: '', branch: 'claude/pkg', pr: 9, rate_limits: 0 })
+    const run = { run_id: 'wf_t-1', cli: 'sess-1', project: 'D--code-app-one', name: 'demo-wave', description: 'invented run', status: 'running', start: NOW - 20 * 60000,
+      phases: [{ title: 'Build', detail: 'coders' }, { title: 'Verify', detail: '' }], last_activity: NOW, agents: [agent('a1', 'coder:alpha', 'running', 'opus'), agent('a2', 'coder:beta', 'done', null)] }
+    base(on, JSON.stringify({ generated: 0, sessions: [session], detail: session, cpus: 22, runs: [run], live: [], history: [] }))
+    await $.command.run({ command: 'factory', args: 'workflow' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 80, rows: 80 }, props: { ...PANE('Factory'), bodyColumns: 75 } })
+    expect(await has(ui, surface, /^Workflow$/)).toBe(true)
+    expect(await has(ui, surface, /Phase 1 sur 2 \(Build\), 1 agent\(s\) en cours, fin : pas assez d’historique/)).toBe(true)
+    expect(await has(ui, surface, /coder:alpha/)).toBe(true)
+    expect(await has(ui, surface, /modèle hérité/)).toBe(true)
+    expect(await has(ui, surface, /CI 1 \/ 4/)).toBe(true)
+  })
+
   test(`tabs on top; Quotas shows the official % and "module usage non chargé"; Système without the machine mod (${surface})`, async ($, on) => {
     base(on)
     on('session.usage', () => ({ value: { rateLimits: [{ kind: 'seven_day', percentUsed: 42, resetsAt: '2026-10-12T10:00:00Z' }] } }))

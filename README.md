@@ -90,6 +90,33 @@ Or load one as a dev-mod in the desktop app for one session. Python 3 must be on
 
 Each mod has a config file next to it (`factory.config.json`, `config.json`): rates, thresholds, colors, labels and paths are set there, nothing is hard-coded. `factory` also deep-merges `~/.claude/effort-board/factory.config.json` if you have one, and `control` deep-merges `~/.claude/effort-board/control.config.json` (`paths.user_config`): set `paths.projects_root` (the folder that holds your repos), the optional doc paths and `v6.repo` (the repo whose `main` may hold `docs/V6-CHANGES.md`) there.
 
+### factory: Workflow screen
+
+`/factory workflow` (this conversation) or `/factory workflow all` (every conversation), or the **Workflow** tab after Arbre. The desktop app's own « Background tasks » pane cannot be changed by a mod; this screen reads the same run files and shows more. French labels, read-only, no model call.
+
+- **Per workflow**: one plain sentence on top (« Phase 1 sur 5 (Wave A), 3 agent(s) en cours, fini vers 00:06, ~71,5 M tokens, ~46 $ »), name, description, elapsed, tokens, $ at list price (estimate, rates of `factory.config.json`), a complexity badge S / M / L / XL (agents × phases × median past tokens per agent), then foldable blocks: **Phases** as a vertical timeline (● done, ◐ running, ○ waiting) with each agent under its phase (label, status, model, effort, duration, tokens, $, last tool or last line ≤ 100 characters, branch or worktree, PR number when one appears in its transcript, its own estimate), **Estimations**, **Gantt** and **Vitesse**. Running workflows open unfolded, finished ones folded.
+- **Estimations**: from this PC's finished runs of the last 30 days (`history_days`), the median and the quartile range of past agents matched, most specific first: same workflow and label, same role (`coder:` prefix), model family and phase, same family and phase, same family and agent type, same family. Fewer than 3 samples (`min_samples`) → « pas assez d’historique ». Waiting phases use past runs of the same workflow, else all past phases (« toutes les phases passées »). Shown: remaining time, ETA clock time with its range, final tokens and $, sample size `n`, and « dépasse l’habituel » for an agent past the 75th percentile.
+- **Gantt**: one bar per agent on a time axis, grouped by phase, █ done, ▓ running, ▒ failed, ┄ estimated tail, │ now. Under `gantt.min_bar` columns for the bars it turns vertical (time goes down: starts, ends, estimated ends, the now line).
+- **Vitesse** (per workflow, and for the conversation or all): agents running at once as a mini chart, average and peak vs the cap (`min(16, CPUs − 2)`, 16 on a 22-CPU PC; the conversation guideline of 10 agents is shown beside it), time with no agent running between the first start and the last end (lead idle), agents of one phase that started within 90 s of another's end without overlap (« aurait pu tourner en parallèle »; heuristic, no input dependency is visible in the files), 429 / overloaded API errors seen in the agents' transcripts, and the CI / npm limits below. One sentence: « Utilisé 3/16 agents en moyenne (pic 3), 2 agent(s) auraient pu tourner en parallèle, aucune limite atteinte ».
+- **À regarder**, red only for real problems: failed agents, stuck agents (running, no transcript line for `stuck_min` = 15 min), a failed run, limits exceeded; orange: agents without an explicit model (inherited), a killed or interrupted run. **Parallélisme sur ce PC**: workflow agents running on the whole PC, how many wait on CI (last shell command matches `ci_match`, e.g. `gh pr checks --watch`) vs the rule's 4 pipelines, and how many run `npm ci` / `tsc` (`npm_match`) vs 3.
+- A glossary line (phase, agent, worktree, tokens, $) closes the screen.
+
+Where Claude Code keeps a Workflow run (found on Windows with Claude Code 2.1.29x; not a documented format):
+
+```
+~/.claude/projects/<project folder>/<conversation id>/
+  workflows/scripts/<name>-<runId>.js           the script, written at launch: export const meta = {name, description, phases}
+  workflows/<runId>.json                        the run record, written when the run ends: status (completed, failed, killed),
+                                                durationMs, phases, workflowProgress (one row per agent: model, state, durationMs,
+                                                lastToolName, tokens = the agent's last context size, not the tokens it used)
+  subagents/workflows/<runId>/journal.jsonl     live events: launched, started {agentId, label, phase}, result, failed
+  subagents/workflows/<runId>/agent-<id>.jsonl  each agent's transcript (usage per message, tools, gitBranch, perTurnEffort)
+  subagents/workflows/<runId>/agent-<id>.meta.json  {agentType, description, workflowPhase, model (only when the script
+                                                named one), worktreePath}
+```
+
+A run without its record is running while something in its folder moved within `stale_h` (6 h), else « interrompu ». `scanner/workflow_scan.py` (standard library) reads journals and transcripts from the byte offset where the last pass stopped and finished transcripts once, with its cache in `~/.claude/effort-board/factory_workflow_cache.json`; on this PC a first pass over 137 runs took 13 s and the next ones under 1 s. Text that leaves the scanner (last tool, last line, errors) is scrubbed (tokens, keys, passwords, e-mails, home folders masked) and scrubbed again before drawing. Settings: `mods/factory/workflow.config.json`, overridable under `workflow` in `~/.claude/effort-board/factory.config.json`; every label is in `WORKFLOW_DEFAULTS` of `hooks/workflow.mjs`. Text preview at a side-panel width: `node mods/factory/scanner/preview.mjs --tab workflow --wf-all --cols 75`.
+
 ### ci
 
 ```sh
