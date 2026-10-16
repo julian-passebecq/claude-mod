@@ -1,17 +1,30 @@
 {
   "name": "veille",
-  "version": "0.3.0",
-  "description": "Veille : un panneau, quatre onglets. Alertes : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes (gravité, depuis quand, conversation ou PR, lien, Ack), dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations. À archiver : les conversations finies, listées pour la conversation VEILLE. Export eta : le lot de conversations terminées d'export-eta et son bouton « Exporter vers eta ». « Attend Julian » : notification Windows et e-mail tout de suite, un seul compteur (la règle de lib/core/veille.mjs). Erreurs du veilleur dans ~/.claude/mods-health/veille.json. /veille [alertes|fil|archiver|export|mode <x>|ack <clé>|coordinateur|tour|close] ; /export-eta en alias quand le mod export-eta n'est pas chargé.",
-  "author": { "name": "Julian Passebecq" },
+  "version": "0.4.0",
+  "description": "Veille : un panneau, quatre onglets. Alertes : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes (gravité, depuis quand, conversation ou PR, lien, Ack), dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations. À archiver : les conversations finies, listées pour la conversation VEILLE. Export eta : le lot de conversations terminées d'export-eta et son bouton « Exporter vers eta ». « Attend Julian » : notification Windows et e-mail tout de suite, un seul compteur (la règle de lib/core/veille.mjs). Erreurs du veilleur dans ~/.claude/mods-health/veille.json. Nuit / Jour : /veille nuit passe en nuit-active, /veille jour revient en légère avec le bilan de la nuit (merges, échecs, attentes). Réveil sûr : une session claude -p neuve avec le modèle, l'effort et le mode de permission de la conversation cible (jamais --resume), résultat et contrôle dans le Fil. Alertes d'échéance J-7 et J-1 (À toi · Claude Control) et contrôle hebdo de la version vendored de filetree. /veille [alertes|fil|archiver|export|nuit|jour|mode <x>|ack <clé>|coordinateur|tour|close] ; /export-eta en alias quand le mod export-eta n'est pas chargé.",
+  "author": {
+    "name": "Julian Passebecq"
+  },
   "license": "MIT",
-  "keywords": ["mod", "veille", "watcher", "alerts", "merge", "task scheduler", "export"],
+  "keywords": [
+    "mod",
+    "veille",
+    "watcher",
+    "alerts",
+    "merge",
+    "task scheduler",
+    "export"
+  ],
   "userConfig": {
     "band": {
       "type": "string",
       "title": "Band entry above the prompt",
       "description": "off (default): the Jauge (band mod) shows « attend Julian : N » once. on: veille's own line above the prompt too, with the mode and the last tour (red when two tours were missed).",
       "default": "off",
-      "options": ["on", "off"]
+      "options": [
+        "on",
+        "off"
+      ]
     }
   }
 }

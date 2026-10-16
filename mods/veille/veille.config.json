@@ -9,7 +9,7 @@
   "quiet_hours": "23:00-07:30",
   "tour_deadline_s": 480,
   "scan_hours": 36,
-  "_actions": "alert: write the alert to the pane. notify: Windows notification for every new alert. notify_julian: Windows notification only for alerts that need Julian. mail: e-mail digest for alerts that need Julian. push_claude: a headless `claude -p` that calls PushNotification (off unless push.claude is true; costs tokens). merge: the script merges a green, up-to-date PR/MR itself (gh/glab, no Claude). wake: `claude -p --resume <id>` sends a ≤ 10-line brief to a conversation (off unless wake.enabled is true).",
+  "_actions": "alert: write the alert to the pane. notify: Windows notification for every new alert. notify_julian: Windows notification only for alerts that need Julian. mail: e-mail digest for alerts that need Julian. push_claude: a headless `claude -p` that calls PushNotification (off unless push.claude is true; costs tokens). merge: the script merges a green, up-to-date PR/MR itself (gh/glab, no Claude). wake: a fresh `claude -p` (never --resume) with the target conversation's own model, effort and permission mode (read from its session file), in its folder, with a ≤ 10-line brief; output in ~/.claude/veille/wakes, results in the Fil (off unless wake.enabled is true).",
   "modes": {
     "rien": { "label": "Rien", "interval_min": 0, "may": [], "claude_tokens_per_hour": 0, "help": "Veille éteinte : aucun tour, aucune alerte." },
     "légère": { "label": "Légère", "interval_min": 30, "may": ["alert", "notify", "mail"], "claude_tokens_per_hour": 0, "help": "Un tour toutes les 30 min. Alerte et prévient seulement ; ne merge rien, ne réveille personne, aucun token." },
@@ -21,7 +21,7 @@
     "_doc": "Rows come from the factory mod's « Ça t'attend » logic (mods/factory/hooks/waiting.mjs, its `waiting` settings apply) plus veille's own: missed (the watcher stopped), workflow (a Workflow agent stopped while its conversation is idle), manual (a GitLab pipeline waits on a manual job: never merged by the veille), exhausted (woken twice without effect), scan (gh / glab unreadable).",
     "julian_kinds": ["ask", "needs", "awaiting", "exhausted", "fil_pending_ask", "fil_wrap", "fil_needs", "fil_awaiting", "fil_question", "fil_approval", "fil_incoherence"],
     "_fil": "fil_* rows come from the Fil (lib/fil.mjs julianSignal): fil_pending_ask an AskUserQuestion with no answer, fil_wrap a wrap_up with an ask or blocked, fil_needs / fil_awaiting the app's needs_action / interrupted turn, fil_question a conversation at rest whose last message ends on a question to Julian (heuristic), fil_approval a tool call with no result for fil.approval_min while the transcript is silent (probable approval card, not verified), fil_incoherence a session reporting contradicting instructions (keywords in its last message or wrap_up). Every fire (not only tours) announces new ones at once: Windows notification, e-mail when smtp.json exists.",
-    "severity": { "ask": "julian", "needs": "julian", "awaiting": "julian", "exhausted": "julian", "fil_pending_ask": "julian", "fil_wrap": "julian", "fil_needs": "julian", "fil_awaiting": "julian", "fil_question": "julian", "fil_approval": "julian", "fil_incoherence": "julian", "idle": "bad", "missed": "bad", "workflow": "bad", "green": "warn", "manual": "warn", "export": "warn", "scan": "info" },
+    "severity": { "ask": "julian", "needs": "julian", "awaiting": "julian", "exhausted": "julian", "fil_pending_ask": "julian", "fil_wrap": "julian", "fil_needs": "julian", "fil_awaiting": "julian", "fil_question": "julian", "fil_approval": "julian", "fil_incoherence": "julian", "deadline_j1": "warn", "deadline_j7": "warn", "vendor": "info", "idle": "bad", "missed": "bad", "workflow": "bad", "green": "warn", "manual": "warn", "export": "warn", "scan": "info" },
     "workflow_idle_min": 20,
     "workflow_max_age_h": 24,
     "keep_resolved": 30
@@ -36,13 +36,18 @@
   "push": {
     "claude": false,
     "_claude": "true: also run `claude -p --model haiku` asking for a PushNotification (counted in the mode's token budget). Not verified that a -p session reaches the phone: phone pushes need Remote Control connected. The e-mail reaches the phone through its mail app.",
-    "model": "haiku",
+    "model": "claude-haiku-5-5",
     "est_tokens": 30000,
     "repeat_h": 6
   },
   "wake": {
-    "enabled": false,
-    "_enabled": "Off until one test on a throwaway session shows that `claude -p --resume <id>` keeps the model, effort and permission mode and is not run beside an open Desktop session.",
+    "enabled": true,
+    "_enabled": "On since 16 Oct: `node veille.mjs wake-test` on throwaway targets (haiku low plan, haiku low acceptEdits, sonnet medium acceptEdits) showed the fresh session ran with exactly the asked model, effort and permission mode (init line and transcript). Wakes still happen only in the modes that list wake (active, nuit-active), within their token budget. false turns them off.",
+    "_how": "Never `claude -p --resume` (16 Oct 22:45: it turned effort low into medium and acceptEdits into bypass). A fresh session: claude -p --model/--effort/--permission-mode from the target's session file (sessions_dir, default %APPDATA%/Claude/claude-code-sessions/**/local_*.json), cwd = its folder, CLAUDE_CODE_SUBAGENT_MODEL = its model, stream-json log in ~/.claude/veille/wakes. Each fire reads the result and checks the model, effort and permission mode the session really ran with (its transcript); a gap is a wake_failed (health -> Problèmes). Missing or unknown settings: no wake. Test: node veille.mjs wake-test.",
+    "sessions_dir": "",
+    "timeout_min": 60,
+    "keep": 20,
+    "result_chars": 1200,
     "target": "coordinator",
     "_target": "coordinator: always the conversation registered with /veille coordinateur. owner: the conversation that owns the row, else the coordinator.",
     "kinds": ["idle", "green", "workflow", "manual"],
@@ -127,6 +132,27 @@
     "batch_min": 3,
     "history": 3,
     "labels": {}
+  },
+  "night": {
+    "_doc": "/veille nuit: mode `mode` from now (night_started in ~/.claude/veille/config.json). /veille jour: mode `day_mode` and the night summary (merges, failures, what waited on Julian, wakes since nuit started, else the last fallback_h hours) in ~/.claude/veille/night-summary.json, shown in the Alertes tab for show_h hours.",
+    "mode": "nuit-active",
+    "day_mode": "légère",
+    "fallback_h": 12,
+    "show_h": 16,
+    "labels": { "title": "Bilan de la nuit", "merged": "mergées", "failed": "échecs", "waits": "attentes de Julian", "woken": "réveils", "night_button": "Nuit", "day_button": "Jour", "night_on": "Nuit active depuis {time}", "wakes": "Réveils de la Veille", "wake_states": { "en_cours": "en cours", "ok": "conforme", "ecart": "écart", "erreur": "erreur", "sans_resultat": "sans résultat" } }
+  },
+  "deadlines": {
+    "_doc": "Alerts J-7 and J-1 (days) for open lines `- [ ] YYYY-MM-DD · prio · quoi · ...` of file (the « À toi · Claude Control » list). One alert per stage, so J-1 notifies again; overdue items stay at J-1.",
+    "enabled": true,
+    "file": "~/.claude/a-faire/claude-control.md",
+    "days": [7, 1],
+    "title": "À toi · Claude Control"
+  },
+  "vendor_check": {
+    "_doc": "Every every_days, the latest upstream release (gh api repos/<repo>/releases/latest, read only) vs the vendored copy's plugin.json version (in the repo checkout recorded by veille install). A newer release is an info alert until the copy is updated.",
+    "enabled": true,
+    "every_days": 7,
+    "items": [{ "name": "filetree", "repo": "data-goblin/claude-code-filetree", "plugin_json": "vendor/filetree/.claude-plugin/plugin.json" }]
   },
   "problemes": { "_doc": "Each tour also runs the problemes mod's collector (mods/problemes/scanner/problemes_scan.mjs collect, zero tokens) when its files are in the installed copy. enabled: false turns it off.", "enabled": true, "timeout_s": 180 },
   "pane": { "events": 25, "refresh_s": 60 },

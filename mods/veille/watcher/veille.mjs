@@ -10,6 +10,9 @@
 //   node veille.mjs test-mail
 //   node veille.mjs fil               rebuild the Fil digest (fil.json) now, from files only
 //   node veille.mjs archiver          rebuild archive.json (finished conversations to archive) and print the list
+//   node veille.mjs nuit | jour       night: mode nuit-active from now; day: mode légère + night summary (night-summary.json)
+//   node veille.mjs wake-test         the safe wake on a throwaway target, then the check of model, effort, permission mode
+//   node veille.mjs wakes             refresh and print wakes.json (results of the fresh sessions the veille started)
 // State in ~/.claude/veille/. Only `fire`/`tour` write state.json and heartbeat.json (and fil.json, archive.json); `mode`, `coordinator`,
 // `install` write config.json; `ack` writes acks.jsonl. Tokens stay with gh and glab: never read, printed or stored.
 import { spawn, spawnSync } from 'node:child_process'
@@ -26,7 +29,8 @@ import { age } from '../lib/core/waiting.mjs'
 import { attendJulian } from '../lib/core/veille.mjs'
 import { writeHealth } from '../lib/core/health.mjs'
 import { julianAlerts } from '../lib/fil.mjs'
-import { writeFil } from './fil.mjs'
+import { writeFil, appDir } from './fil.mjs'
+import { wakeSettings, wakeArgv, wakeEnv, parseWakeLog, transcriptSettings, verifyWake, nightSummary, deadlineAlerts, vendorDue, vendorAlerts, normVersion } from '../lib/night.mjs'
 import { writeArchive } from './archive.mjs'
 import { archiveText } from '../lib/archive.mjs'
 import { exportBatch } from './export-batch.mjs'
@@ -55,7 +59,7 @@ const P = (cfg) => {
   return {
     home: h, config: path.join(h, 'config.json'), state: path.join(h, 'state.json'), heartbeat: path.join(h, 'heartbeat.json'),
     events: path.join(h, 'events.jsonl'), acks: path.join(h, 'acks.jsonl'), lock: path.join(h, 'lock'), cache: path.join(h, 'scan_cache.json'),
-    smtp: path.join(h, 'smtp.json'), fil: path.join(h, 'fil.json'), archive: path.join(h, 'archive.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
+    smtp: path.join(h, 'smtp.json'), fil: path.join(h, 'fil.json'), archive: path.join(h, 'archive.json'), wakesIndex: path.join(h, 'wakes.json'), night: path.join(h, 'night-summary.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
   }
 }
 
@@ -157,12 +161,12 @@ async function toast(cfg, title, body) {
   return r.code === 0
 }
 
-function detached(cfg, argv, cwd, tag) {
+function detached(cfg, argv, cwd, tag, env = toolEnv(toolPaths(cfg))) {
   const p = P(cfg)
   fs.mkdirSync(p.wakes, { recursive: true })
   const logFile = path.join(p.wakes, `${new Date().toISOString().replace(/[:.]/g, '-')}-${tag}.log`)
   const fd = fs.openSync(logFile, 'a')
-  const child = spawn(argv[0], argv.slice(1), { cwd, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: toolEnv(toolPaths(cfg)) })
+  const child = spawn(argv[0], argv.slice(1), { cwd, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env })
   child.on('error', () => undefined)
   child.unref()
   fs.closeSync(fd)
@@ -264,6 +268,13 @@ async function tour(cfg, why) {
       if (x.event) events.push(logEvent(cfg, x.event))
     } catch (e) { events.push(logEvent(cfg, { kind: 'export_failed', error: String(e.message || e) })) }
 
+    // Deadlines (J-7, J-1) of the « À toi · Claude Control » list, and the weekly vendored-mod version check.
+    extra.push(...deadlinesOf(cfg, now))
+    let vendor = state.vendor || null
+    const V = cfg.vendor_check || {}
+    if (V.enabled !== false && vendorDue(vendor, now, V.every_days || 7)) vendor = await vendorCheck(cfg, tp, env, now, events)
+    if (V.enabled !== false) extra.push(...vendorAlerts(vendor))
+
     // Rows woken twice without effect turn into a needs-Julian alert.
     const W = cfg.wake || {}
     const base = alertsOf(scan, cfg, now, extra)
@@ -321,7 +332,8 @@ async function tour(cfg, why) {
       const est = (cfg.push || {}).est_tokens || 30000
       if (budgetLeft(spent, perHour, now) >= est) {
         const text = todo.push.map((a) => `${a.title || ''} : ${a.what}`).join(' | ').slice(0, 300)
-        const log = detached(cfg, [tp.claude, '-p', '--model', (cfg.push || {}).model || 'haiku', `Appelle l'outil PushNotification avec exactement ce texte, puis arrête-toi : Veille — ${text}`], USER_HOME, 'push')
+        const pm = (cfg.push || {}).model || 'claude-haiku-5-5'
+        const log = detached(cfg, [tp.claude, '-p', '--model', pm, `Appelle l'outil PushNotification avec exactement ce texte, puis arrête-toi : Veille — ${text}`], USER_HOME, 'push', { ...env, CLAUDE_CODE_SUBAGENT_MODEL: pm })
         spent = [...spent, { at: now, tokens: est }]
         sent = markSent(sent, 'push', todo.push.map((a) => a.key), now)
         events.push(logEvent(cfg, { kind: 'push', keys: todo.push.map((a) => a.key), log: path.basename(log), reason: 'attend Julian (non vérifié : le push n’atteint le téléphone que si Remote Control est connecté)' }))
@@ -331,22 +343,23 @@ async function tour(cfg, why) {
     for (const a of list) {
       const d = wakeDecision(a, scan, cfg, { ...state, spent, wakes }, now)
       if (!d.ok) { if (may(cfg, 'wake', mode) && (cfg.wake.kinds || []).includes(a.kind) && !a.acked && rec.fresh.some((f) => f.key === a.key)) events.push(logEvent(cfg, { kind: 'wake_skipped', key: a.key, reason: d.why })); continue }
-      const text = brief(a, cfg, now, `node "${path.join(p.bin, 'veille', 'watcher', 'veille.mjs')}" ack`, { archive: archiveCount(cfg), file: p.archive })
-      const log = detached(cfg, [tp.claude, '-p', '--resume', d.target.cli, text], d.target.cwd, 'wake')
+      const s = wakeSettings(findSession(cfg, d.target))
+      if (!s.ok) { events.push(logEvent(cfg, { kind: 'wake_skipped', key: a.key, reason: s.why })); continue }
+      const text = brief(a, cfg, now, `node "${path.join(p.bin, 'veille', 'watcher', 'veille.mjs')}" ack`, { archive: archiveCount(cfg), file: p.archive, fresh: true })
+      const log = startWake(cfg, tp, s, text, { key: a.key, title: d.target.title, reason: a.what }, now)
       wakes[a.key] = [...(wakes[a.key] || []), now].slice(-10)
       spent = [...spent, { at: now, tokens: d.tokens }]
-      events.push(logEvent(cfg, { kind: 'woken', key: a.key, target: d.target.title, cli: d.target.cli, tokens_est: d.tokens, log: path.basename(log), reason: a.what }))
+      events.push(logEvent(cfg, { kind: 'woken', key: a.key, target: d.target.title, cli: d.target.cli, tokens_est: d.tokens, log: path.basename(log), reason: `${a.what} (session neuve ${s.model} · ${s.effort} · ${s.permission})` }))
     }
     for (const k of Object.keys(wakes)) if (!rec.alerts[k] && !wakes[k].some((t) => now - t < 24 * 3600000)) delete wakes[k]
 
     const recent = [...events.filter((e) => e.kind !== 'tour'), ...(state.recent || [])].slice(0, (cfg.pane || {}).events || 25)
     writeAtomic(p.state, {
       v: 1, mode: mode.name, last_tour: now, tours: (state.tours || 0) + 1, last_error: '', alerts: rec.alerts, resolved: rec.resolved,
-      sent, spent, wakes, merge_seen: mergeSeen, gap_mailed: state.gap_mailed || [], mail: mailState === 'off' ? state.mail || (smtpProblem(smtp) ? 'not_configured' : 'configured') : mailState,
+      sent, spent, wakes, vendor, merge_seen: mergeSeen, gap_mailed: state.gap_mailed || [], mail: mailState === 'off' ? state.mail || (smtpProblem(smtp) ? 'not_configured' : 'configured') : mailState,
       reviews_errors: (scan.reviews && scan.reviews.errors) || [], sessions: (scan.sessions || []).length, reviews: ((scan.reviews || {}).items || []).length, recent,
     })
     writeAtomic(p.heartbeat, { ...readJson(p.heartbeat, {}), last_tour: now, last_tour_ok: true, last_error: '' })
-    await problemes(cfg, tp)
     console.log(`veille: tour ${mode.name}: ${list.length} alert(s), ${rec.fresh.length} new, ${(scan.sessions || []).length} conversations, ${((scan.reviews || {}).items || []).length} PR/MR`)
     return 0
   } catch (e) {
@@ -358,6 +371,8 @@ async function tour(cfg, why) {
     return 1
   } finally {
     dropLock(cfg)
+    // after a failed tour too: Santé's and the veille's health records reach Problèmes even when the scanner fails
+    await problemes(cfg, tp).catch(() => undefined)
   }
 }
 
@@ -449,6 +464,168 @@ function readAcks(cfg) {
   } catch { return [] }
 }
 
+// ---- safe wake: a fresh `claude -p` with the target's own model, effort and permission mode -------------------------
+
+// The target's session file (%APPDATA%/Claude/claude-code-sessions/<account>/<org>/local_*.json, wake.sessions_dir moves it).
+export function findSession(cfg, target, dir = null) {
+  const root = dir || expand((cfg.wake || {}).sessions_dir) || appDir()
+  const want = [target && target.cli, target && target.sid].filter(Boolean)
+  if (!want.length) return null
+  const subdirs = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join(d, e.name)) } catch { return [] } }
+  for (const a of subdirs(root)) for (const b of subdirs(a)) {
+    let names = []
+    try { names = fs.readdirSync(b).filter((n) => /^local_.*\.json$/.test(n)) } catch { continue }
+    for (const n of names) {
+      if (want.includes(n.replace(/\.json$/, ''))) return readJson(path.join(b, n), null)
+      const j = want.length && readJson(path.join(b, n), null)
+      if (j && (want.includes(j.cliSessionId) || want.includes(j.sessionId))) return j
+    }
+  }
+  return null
+}
+
+// Starts the wake detached, logs its stream-json output to wakes/<time>-wake.log and lists it in wakes.json (the Fil
+// shows it; refreshWakes fills in the result and the check at the next fires).
+function startWake(cfg, tp, s, text, info, now) {
+  const p = P(cfg)
+  const log = detached(cfg, wakeArgv(tp.claude, s, text, `Veille · ${info.title || s.title || 'réveil'}`), s.cwd, 'wake', wakeEnv(toolEnv(tp), s))
+  const idx = readJson(p.wakesIndex, {}) || {}
+  const list = [{ at: now, key: info.key, title: info.title || s.title, target_cli: s.cli, cwd: s.cwd, reason: String(info.reason || '').slice(0, 200),
+    want: { model: s.model, effort: s.effort, permission: s.permission }, log: path.basename(log), status: 'en_cours' }, ...(idx.wakes || [])]
+  writeAtomic(p.wakesIndex, { v: 1, generated: now, wakes: list.slice(0, (cfg.wake || {}).keep || 20) })
+  return log
+}
+
+// ~/.claude/projects/<slug>/<session_id>.jsonl of a finished wake (CLAUDE_CONFIG_DIR moves ~/.claude).
+export function findTranscript(sessionId, home = process.env.CLAUDE_CONFIG_DIR || path.join(USER_HOME, '.claude')) {
+  if (!/^[\w-]{8,}$/.test(String(sessionId || ''))) return null
+  const dir = path.join(home, 'projects')
+  let subs = []
+  try { subs = fs.readdirSync(dir) } catch { return null }
+  for (const d of subs) { const f = path.join(dir, d, `${sessionId}.jsonl`); if (fs.existsSync(f)) return f }
+  return null
+}
+
+const readText = (f) => { try { return fs.readFileSync(f, 'utf8') } catch { return '' } }
+
+// Every fire: each running wake of wakes.json gets its result (the session's last text) and the check of the model,
+// effort and permission mode it really ran with. A gap or an error is a wake_failed event (health -> Problèmes).
+export function refreshWakes(cfg, now) {
+  const p = P(cfg)
+  const idx = readJson(p.wakesIndex, null)
+  if (!idx || !Array.isArray(idx.wakes)) return null
+  let changed = false
+  for (const w of idx.wakes) {
+    if (w.status !== 'en_cours') continue
+    const log = parseWakeLog(readText(path.join(p.wakes, w.log)))
+    if (!log.done) {
+      if (now - w.at > ((cfg.wake || {}).timeout_min || 60) * 60000) { w.status = 'sans_resultat'; changed = true; logEvent(cfg, { kind: 'wake_failed', key: w.key, error: `pas de résultat après ${(cfg.wake || {}).timeout_min || 60} min (${w.log})` }) }
+      continue
+    }
+    const tf = findTranscript(log.session_id)
+    const v = verifyWake(w.want, log, tf ? transcriptSettings(readText(tf)) : null)
+    Object.assign(w, { session_id: log.session_id, result: scrub(log.result).slice(0, (cfg.wake || {}).result_chars || 1200), cost: log.cost,
+      status: log.is_error ? 'erreur' : v.ok ? 'ok' : 'ecart', diffs: v.diffs, done_at: now })
+    changed = true
+    if (w.status !== 'ok') logEvent(cfg, { kind: 'wake_failed', key: w.key, error: log.is_error ? `erreur : ${w.result.slice(0, 120)}` : `écart : ${v.diffs.join(' ; ')}` })
+  }
+  if (changed) writeAtomic(p.wakesIndex, { ...idx, generated: now })
+  return idx
+}
+
+// `veille wake-test`: a throwaway target (temporary session file and folder), the same wake as a tour, run to the end,
+// then the check. Exit 0 only when the fresh session ran with the asked model, effort and permission mode.
+async function wakeTest(cfg, args) {
+  const opt = (k, d) => (args.includes(k) ? args[args.indexOf(k) + 1] : d)
+  const tp = toolPaths(cfg)
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'veille-wake-'))
+  const work = path.join(tmp, 'work')
+  const sessDir = path.join(tmp, 'sessions', 'acct', 'org')
+  fs.mkdirSync(work, { recursive: true })
+  fs.mkdirSync(sessDir, { recursive: true })
+  const fake = { sessionId: 'local_veille-wake-test', cliSessionId: 'veille-wake-test', cwd: work, title: 'veille wake test',
+    model: opt('--model', 'claude-haiku-5-5'), effort: opt('--effort', 'low'), permissionMode: opt('--permission-mode', 'plan') }
+  fs.writeFileSync(path.join(sessDir, 'local_veille-wake-test.json'), JSON.stringify(fake))
+  try {
+    const s = wakeSettings(findSession(cfg, { cli: 'veille-wake-test' }, path.join(tmp, 'sessions')))
+    if (!s.ok) { console.error(`veille: wake-test: ${s.why}`); return 1 }
+    const argv = wakeArgv(tp.claude, s, 'Test de réveil de la Veille : réponds exactement « ok » et rien d’autre.', 'Veille · wake test')
+    if (argv.includes('--resume')) { console.error('veille: wake-test: --resume in argv'); return 1 }
+    const r = await run(argv, { cwd: s.cwd, env: wakeEnv(toolEnv(tp), s), timeoutMs: 240000 })
+    const log = parseWakeLog(r.out)
+    const tf = findTranscript(log.session_id)
+    const v = verifyWake({ model: s.model, effort: s.effort, permission: s.permission }, log, tf ? transcriptSettings(readText(tf)) : null)
+    const out = { ok: r.code === 0 && log.done && !log.is_error && v.ok, exit: r.code, want: { model: s.model, effort: s.effort, permission: s.permission },
+      seen: { init_model: log.model, init_permission: log.permission, transcript: tf ? transcriptSettings(readText(tf)) : null }, diffs: v.diffs, result: log.result.slice(0, 200),
+      resume: false, cost_usd: log.cost }
+    logEvent(cfg, { kind: out.ok ? 'wake_test' : 'wake_failed', reason: out.ok ? 'session neuve conforme (modèle, effort, permission)' : undefined, error: out.ok ? undefined : `wake-test : ${v.diffs.join(' ; ') || (r.err || '').trim().slice(-160)}` })
+    console.log(JSON.stringify(out, null, 1))
+    return out.ok ? 0 : 1
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* temp folder, the OS cleans it */ }
+  }
+}
+
+// ---- deadlines and vendored mods ---------------------------------------------------------------------------------------
+
+function deadlinesOf(cfg, now) {
+  const D = cfg.deadlines || {}
+  if (D.enabled === false || !D.file) return []
+  try { return deadlineAlerts(readText(expand(D.file)), now, { days: D.days, title: D.title }) } catch { return [] }
+}
+
+// Weekly: each vendor_check.items entry, vendored version (its plugin.json in the repo checkout) vs the upstream latest
+// release (gh api, read only). Stored in state.vendor; vendorAlerts turns a gap into an info alert at every tour.
+export async function vendorCheck(cfg, tp, env, now, events) {
+  const V = cfg.vendor_check || {}
+  const roots = [path.resolve(MODS, '..'), (readJson(P(cfg).paths, {}) || {}).repo].filter(Boolean)
+  const items = []
+  for (const it of V.items || []) {
+    const file = roots.map((r) => path.join(r, it.plugin_json || '')).find((f) => it.plugin_json && fs.existsSync(f))
+    const vendored = file ? String((readJson(file, {}) || {}).version || '') : ''
+    const r = await run([tp.gh, 'api', `repos/${it.repo}/releases/latest`, '--jq', '.tag_name'], { env, timeoutMs: 30000 })
+    const latest = r.code === 0 ? r.out.trim() : ''
+    const error = !vendored ? 'version vendored introuvable (plugin.json)' : r.code !== 0 ? `gh : ${(r.err || '').trim().split(/\r?\n/).pop().slice(0, 120)}` : ''
+    items.push({ name: it.name, repo: it.repo, vendored, latest, error })
+    events.push(logEvent(cfg, { kind: 'vendor_check', reason: error ? `${it.name} : ${error}` : `${it.name} : vendored ${vendored}, amont ${latest}${normVersion(latest) === normVersion(vendored) ? ' (à jour)' : ''}` }))
+  }
+  return { checked_at: now, items }
+}
+
+// ---- night: /veille nuit and /veille jour ------------------------------------------------------------------------------
+
+function readEvents(p) {
+  const out = []
+  for (const f of [p.events + '.1', p.events]) for (const l of readText(f).split('\n')) { if (!l) continue; try { out.push(JSON.parse(l)) } catch { /* torn line */ } }
+  return out
+}
+
+function nightStart(cfg) {
+  const N = cfg.night || {}
+  const now = Date.now()
+  if (cfg.night_started) { console.log(`veille: nuit déjà commencée à ${hm(cfg.night_started)} (mode ${modeOf(cfg).name})`); return 0 }
+  const m = modeName(cfg, N.mode || 'nuit-active') || 'nuit-active'
+  writeUserConfig(cfg, { mode: m, night_started: now, night_prev_mode: modeOf(cfg).name })
+  logEvent(cfg, { kind: 'night_start', mode: m, reason: `nuit commencée, mode ${m}` })
+  console.log(`veille: nuit commencée à ${hm(now)} : mode ${m}`)
+  return 0
+}
+
+function nightEnd(cfg) {
+  const N = cfg.night || {}
+  const p = P(cfg)
+  const now = Date.now()
+  const since = cfg.night_started || now - (N.fallback_h || 12) * 3600000
+  const sum = nightSummary(readEvents(p), since, now, N.labels || {})
+  writeAtomic(p.night, { v: 1, generated: now, started: !!cfg.night_started, ...sum })
+  const m = modeName(cfg, N.day_mode || 'légère') || 'légère'
+  writeUserConfig(cfg, { mode: m, night_started: null, night_prev_mode: null })
+  logEvent(cfg, { kind: 'night_end', mode: m, reason: `jour, mode ${m} : ${sum.merged.length} mergées, ${sum.failed.length} échecs, ${sum.waits.length} attentes` })
+  for (const l of sum.lines) console.log(l)
+  console.log(`veille: jour : mode ${m}`)
+  return 0
+}
+
 // ---- the scheduled entry ---------------------------------------------------------------------------------------------
 
 // archive.json at every fire, whatever the mode: read-only, files only, never archives (the VEILLE conversation does).
@@ -462,6 +639,7 @@ async function fire(cfg) {
   const p = P(cfg)
   const now = Date.now()
   archivePass(cfg)
+  try { refreshWakes(cfg, now) } catch (e) { logEvent(cfg, { kind: 'wake_failed', error: String(e && e.message || e).slice(0, 200) }) }
   const hb = readJson(p.heartbeat, {}) || {}
   const gap = gapOf(hb.last_fire, now, cfg.fire_every_min || 5)
   const gaps = [...(hb.gaps || []).filter((g) => now - g.to < 24 * 3600000), ...(gap ? [gap] : [])]
@@ -492,7 +670,7 @@ function copyTree(files, dest) {
 }
 
 export const BIN_FILES = [
-  'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
+  'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/night.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'veille/lib/core/veille.mjs', 'veille/lib/core/health.mjs', 'veille/lib/export-view.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
@@ -547,7 +725,7 @@ function install(cfg, launcher) {
   const p = P(cfg)
   copyTree(BIN_FILES, p.bin)
   const tp = { node: process.execPath, python: where('python'), gh: where('gh'), glab: where('glab'), claude: where('claude'), powershell: where('powershell') || 'powershell.exe' }
-  writeAtomic(p.paths, tp)
+  writeAtomic(p.paths, { ...tp, repo: path.resolve(MODS, '..') })
   const script = path.join(p.bin, 'veille', 'watcher', 'veille.mjs')
   let command, args
   if ((launcher || cfg.launcher) === 'conhost') {
@@ -659,13 +837,17 @@ export async function main(argv) {
       return 0
     }
     case 'julian': return julianPass(cfg)
+    case 'nuit': case 'night': return nightStart(cfg)
+    case 'jour': case 'day': return nightEnd(cfg)
+    case 'wake-test': return wakeTest(cfg, rest)
+    case 'wakes': { const w = refreshWakes(cfg, Date.now()); console.log(JSON.stringify((w && w.wakes) || [], null, 1)); return 0 }
     case 'archiver': case 'archive': {
       const a = writeArchive(cfg, P(cfg).archive)
       for (const l of archiveText(a, Date.now())) console.log(l)
       return 0
     }
     default:
-      console.log('usage: node veille.mjs fire|tour|status|fil|archiver|julian|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
+      console.log('usage: node veille.mjs fire|tour|status|fil|archiver|julian|nuit|jour|wakes|wake-test [--model m --effort e --permission-mode p]|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
       return cmd ? 1 : 0
   }
 }
@@ -685,7 +867,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }, (cfg0.tour_deadline_s || 480) * 1000)
   deadline.unref()
   // health only for the runs that look at the world (not mode/ack/status...): the scheduled fire, tours, fil, archive
-  const watched = ['fire', 'tour', 'julian', 'fil', 'archiver', 'archive', 'test-mail'].includes(process.argv[2])
+  const watched = ['fire', 'tour', 'julian', 'fil', 'archiver', 'archive', 'test-mail', 'wake-test', 'wakes'].includes(process.argv[2])
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code
     if (watched) writeHealth('veille', healthError(ERRORS) || (code ? `${process.argv[2]}_failed: exit ${code}` : null))

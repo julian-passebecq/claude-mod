@@ -2,7 +2,8 @@
 // ~/.claude/veille (written by the watcher, the scheduled task ClaudeVeille) and of export-eta's ~/.claude/export-eta
 // pending.json / state.json; the buttons run the watcher's own commands (mode, ack, tour, coordinator) or export-eta's
 // exporter, so there is one code path each. Nothing here blocks, rewrites or adds text to a prompt; no model call.
-//   /veille [alertes | fil | archiver | export | mode <x> | ack <clé|all> | coordinateur | tour | close]
+//   /veille [alertes | fil | archiver | export | nuit | jour | mode <x> | ack <clé|all> | coordinateur | tour | close]
+// nuit / jour run the watcher's commands (mode nuit-active; mode légère + the night summary, night-summary.json).
 // Tabs: Alertes · Fil (every conversation's last message, fil-view.mjs) · À archiver (archive.json) · Export eta
 // (export-eta's batch, lib/export-view.mjs). /export-eta is registered here as an alias only when no other mod serves it.
 import { deepMerge, modeName } from '../lib/modes.mjs'
@@ -10,12 +11,12 @@ import { markAllRead, markRead } from '../lib/fil.mjs'
 import { archiveConfig, archiveText } from '../lib/archive.mjs'
 import { EXPORT_PENDING, EXPORT_RUN, exportTabLabel, exportView } from '../lib/export-view.mjs'
 import { viewModel, bandLine, eventText, ago } from './view.mjs'
-import { drawArchiveTab, drawFil, filLabels } from './fil-view.mjs'
+import { drawArchiveTab, drawFil, filLabels, nightLabels } from './fil-view.mjs'
 
 let options = {}
 const D = { cfg: null, state: null, heartbeat: null, acks: [], open: false, busy: '', msg: '', at: 0,
   tab: 'alertes', fil: null, archive: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {}, archiveOpen: false },
-  pending: null, exportState: null, aliasExport: false }
+  pending: null, exportState: null, aliasExport: false, wakes: null, night: null }
 
 export const TABS = ['alertes', 'fil', 'archiver', 'export']
 const TAB_OF = { alertes: 'alertes', alerts: 'alertes', fil: 'fil', archiver: 'archiver', archive: 'archiver', export: 'export', 'export-eta': 'export', eta: 'export' }
@@ -93,6 +94,8 @@ async function load($) {
   D.cfg = deepMerge(base, user)
   D.state = await readJson($, h + '/state.json')
   D.heartbeat = await readJson($, h + '/heartbeat.json')
+  D.wakes = await readJson($, h + '/wakes.json')
+  D.night = await readJson($, h + '/night-summary.json')
   const acks = (await readText($, h + '/acks.jsonl')) || ''
   D.acks = acks.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l).key } catch { return null } }).filter(Boolean)
   try { D.at = await $.clock.now() } catch { D.at = Date.now() }
@@ -134,6 +137,7 @@ async function runSibling($, argv) {
 function draw(el, cfg, vm, h) {
   const colors = cfg.colors || {}
   const L = cfg.labels || {}
+  const NL = nightLabels(cfg)
   const T = (text, o = {}) => el.Text({ children: [String(text ?? '')], wrap: 'wrap', ...(o.tone && colors[o.tone] ? { color: colors[o.tone] } : {}), ...(o.dim ? { dimColor: true } : {}), ...(o.bold ? { bold: true } : {}) })
   const row = (parts, o = {}) => el.Box({ flexDirection: 'row', flexWrap: 'wrap', gap: 1, ...o, children: parts.filter(Boolean) })
   const col = (parts, o = {}) => el.Box({ flexDirection: 'column', ...o, children: parts.filter(Boolean) })
@@ -150,7 +154,9 @@ function draw(el, cfg, vm, h) {
     T(`${L.coordinator || 'Coordinateur'} : ${vm.coordinator || L.no_coordinator || 'aucun'}${vm.mail ? ' · ' + vm.mail : ''}`, { dim: true, tone: /non configuré|erreur/.test(vm.mail) ? 'warn' : undefined }),
     vm.error ? T(`erreur : ${vm.error}`, { tone: 'bad' }) : null,
     vm.reviewsErrors.length ? T(`PR/MR non lues : ${vm.reviewsErrors.join(' ; ')}`, { tone: 'warn' }) : null,
-    row([btn(h.busy === 'tour' ? 'Tour en cours…' : 'Tour maintenant', h.tour), btn('Rafraîchir', h.refresh), vm.alerts.some((a) => !a.acked) ? btn('Ack tout', () => h.ack('all')) : null]),
+    row([btn(h.busy === 'tour' ? 'Tour en cours…' : 'Tour maintenant', h.tour), btn('Rafraîchir', h.refresh), vm.alerts.some((a) => !a.acked) ? btn('Ack tout', () => h.ack('all')) : null,
+      h.nightOn ? btn(h.busy === 'jour' ? '…' : NL.day_button || 'Jour', h.day, true) : btn(h.busy === 'nuit' ? '…' : NL.night_button || 'Nuit', h.night)]),
+    h.nightOn ? T(String(NL.night_on || 'Nuit active depuis {time}').replace('{time}', hmOf(h.nightOn)), { tone: 'info', bold: true }) : null,
     h.msg ? T(h.msg, { dim: true }) : null,
   ], vm.watcher.tone === 'bad' ? 'bad' : 'dim')
 
@@ -169,7 +175,17 @@ function draw(el, cfg, vm, h) {
   ], { marginBottom: 1 })) : [T(L.none || 'Rien à signaler.', { dim: true })]
   const alerts = box(`${L.alerts || 'Alertes'} (${vm.alerts.filter((a) => !a.acked).length})`, items, vm.julian ? 'julian' : 'dim')
   const events = box(L.actions || 'Actions et événements', vm.recent.length ? vm.recent.map((e) => T(eventText(e), { dim: !/merged|woken|mailed|failed|missed/.test(e.kind), tone: /failed|missed/.test(e.kind) ? 'bad' : /merged/.test(e.kind) ? 'ok' : undefined })) : [T('—', { dim: true })])
-  return col([head, alerts, events])
+  // the last night summary (/veille jour), shown for night.show_h hours
+  const sum = h.summary ? box(null, h.summary.lines.map((l, i) => T(l, i ? { dim: true } : { bold: true })), 'info') : null
+  return col([head, sum, alerts, events])
+}
+
+const hmOf = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+
+// The night summary to show: written by /veille jour less than night.show_h hours ago.
+export function shownSummary(night, cfg, nowMs) {
+  const show = ((cfg && cfg.night) || {}).show_h ?? 16
+  return night && Array.isArray(night.lines) && night.lines.length && nowMs - (night.generated || 0) < show * 3600000 ? night : null
 }
 
 // The Export eta tab: export-eta's batch (pending.json), why it is ready, its conversations, « Exporter vers eta »
@@ -218,7 +234,7 @@ export function register(on, raw) {
       await $.command.register({
         name: 'veille', immediate: true,
         description: 'Veille : un panneau, quatre onglets. Alertes (mode du veilleur, alertes, dernier tour, actions), Fil (dernier message de chaque conversation), À archiver (conversations finies), Export eta (lot de conversations terminées à exporter)',
-        argumentHint: 'alertes | fil | archiver | export | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
+        argumentHint: 'alertes | fil | archiver | export | nuit | jour | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
       })
     } catch { /* a name clash must not break the rest */ }
     // /export-eta keeps working when the export-eta mod is not loaded: an alias to the Export eta tab, registered only
@@ -250,6 +266,12 @@ export function register(on, raw) {
       return { text: archiveText(D.archive, now).join('\n') }
     }
     if (TAB_OF[v]) { await openTab($, TAB_OF[v]); return {} }
+    if (v === 'nuit' || v === 'night') { await act($, 'nuit', ['nuit']); return { text: `veille: ${D.msg}` } }
+    if (v === 'jour' || v === 'day') {
+      await act($, 'jour', ['jour'], 60000)
+      const lines = (D.night && Array.isArray(D.night.lines)) ? D.night.lines : []
+      return { text: [...lines, `veille: ${D.msg}`].join('\n') }
+    }
     if (v === 'mode') {
       const m = modeName(D.cfg, rest.join(' '))
       if (!m) return { text: `veille: mode inconnu « ${rest.join(' ')} » (${Object.keys(D.cfg.modes || {}).join(', ')})` }
@@ -336,7 +358,7 @@ export function register(on, raw) {
       const now = Date.now()
       const body = drawFil(el, cfg, D.fil, D.filUi, {
         now, ago, busy: D.busy, msg: D.msg, read: D.read, archive: D.archive,
-        julian: vm.julian,
+        julian: vm.julian, wakes: D.wakes,
         filter: (f) => { D.filUi.filter = f; void saveFilUi($); $.ui.invalidate('ui.render') },
         project: (p) => { D.filUi.project = D.filUi.project === p ? '' : p; void saveFilUi($); $.ui.invalidate('ui.render') },
         toggleProj: (name, open) => { D.filUi.openProj = { ...D.filUi.openProj, [name]: open }; void saveFilUi($); $.ui.invalidate('ui.render') },
@@ -360,6 +382,10 @@ export function register(on, raw) {
       tour: () => void act($, 'tour', ['tour'], 300000),
       refresh: () => { void load($).then(() => $.ui.invalidate('ui.render')) },
       run: (argv) => void runSibling($, argv),
+      nightOn: (D.cfg && D.cfg.night_started) || 0,
+      night: () => void act($, 'nuit', ['nuit']),
+      day: () => void act($, 'jour', ['jour'], 60000),
+      summary: shownSummary(D.night, cfg, D.at || Date.now()),
     })
     return el.Box({ flexDirection: 'column', children: [tabs, alertsView] })
   })
