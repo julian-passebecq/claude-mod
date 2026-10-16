@@ -166,6 +166,50 @@ export function hitsOfSession(j, file = '') {
   return out
 }
 
+// ---- santé and veille errors ----------------------------------------------------------------------------------------------
+
+/** « santé » for every mod record except veille's own, which is « veille ». */
+export const healthSource = mod => (String(mod).toLowerCase() === 'veille' ? 'veille' : 'santé')
+
+/**
+ * Hits from one health record (~/.claude/mods-health/<mod>.json, the shared convention of lib/core/health.mjs): one
+ * `mod_health` hit when its last run failed, keyed by mod and run time so a failed run counts once however often the
+ * collector reads it. `rec` undefined with `invalid` set: the record itself is unreadable.
+ */
+export function hitsOfHealth(rec, mod, file = '', invalid = '') {
+  const name = String(rec?.mod || mod || '').trim()
+  if (!name) return []
+  const base = { session: '', file, sub: false, cwd: '', tool: name, source: healthSource(name), title: `santé ${name}` }
+  if (invalid) return [{ ...base, at: 0, kind: 'mod_health', text: oneLine(`[${name}] fichier santé illisible : ${invalid}`, 300), key: `health:${name}:invalid:${normText(invalid, 60)}` }]
+  if (!rec || typeof rec !== 'object' || !rec.error) return []
+  const at = Date.parse(rec.lastRun ?? '') || 0
+  return [{ ...base, at, kind: 'mod_health', text: oneLine(`[${name}] ${rec.error}`, 300), key: `health:${name}:${rec.lastRun ?? ''}:${normText(rec.error, 60)}` }]
+}
+
+/**
+ * Hits from santé's report (<sante data_dir>/report.json, mods[]): a plugin.json or hooks.json that does not load, a
+ * config file that is not valid JSON, error lines in a log, errors listed inside an output file. Keyed by mod and the
+ * normalised message, so an error that stays counts once, and a new one (another message) counts again.
+ */
+export function hitsOfSante(report, file = '') {
+  const out = []
+  const at = Number(report?.generated) || 0
+  for (const m of Array.isArray(report?.mods) ? report.mods : []) {
+    const name = String(m?.name || '').trim()
+    if (!name) continue
+    const add = text => {
+      const t = oneLine(`[${name}] ${text}`, 300)
+      out.push({ at, session: '', file, sub: false, cwd: '', tool: name, source: healthSource(name), title: `santé ${name}`, kind: 'sante_error', text: t, key: `sante:${name}:${normText(text, 80)}` })
+    }
+    if (m.manifest && m.manifest.ok === false) add(`plugin.json : ${m.manifest.error ?? 'illisible'}`)
+    if (m.hooks && m.hooks.ok === false) add(m.hooks.error ?? 'hooks.json illisible')
+    for (const c of m.configs ?? []) if (c && c.ok === false && c.error !== 'absent') add(`config ${String(c.path ?? '').split('/').pop()} : ${c.error ?? 'JSON invalide'}`)
+    for (const l of m.logs ?? []) if (l && l.errors > 0) add(`journal ${String(l.path ?? '').split('/').pop()} : ${l.last || `${l.errors} erreur(s)`}`)
+    for (const f of m.fields ?? []) if (f && f.count > 0) add(`${String(f.path ?? '').split('/').pop()} ${f.field} : ${f.last || `${f.count} erreur(s)`}`)
+  }
+  return out
+}
+
 // ---- classification -----------------------------------------------------------------------------------------------------
 
 const rx = (s, cache) => {
@@ -328,7 +372,7 @@ export function planLines(hits, problems, rules, now, { maxEvidence = 3, reopen 
     if (!p) {
       const id = nextId(problems, used)
       used = idNum(id)
-      lines.push({ op: 'add', id, at: now, signature: sig, source: 'auto', rule: g.rule.id, first_seen: first.at || now, ...problemFields(first, g.rule), evidence: [] })
+      lines.push({ op: 'add', id, at: now, signature: sig, source: first.source || 'auto', rule: g.rule.id, first_seen: first.at || now, ...problemFields(first, g.rule), evidence: [] })
       p = { id, status: g.rule.status ?? 'ouvert' }
       added.push(id)
     } else if (reopen && p.status === 'corrigé' && (last.at || now) > (p.status_at || p.changed || 0)) {

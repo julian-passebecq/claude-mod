@@ -16,10 +16,14 @@
     "worktree_dirs": [".claude/worktrees", ".worktrees"],
     "max_evidence": 3,
     "reopen_fixed": true,
-    "chunk_mb": 8
+    "chunk_mb": 8,
+    "_health": "Erreurs de Santé et de la Veille : chaque fichier de health_dir (~/.claude/mods-health/<mod>.json, dont veille.json et sante.json) dont le dernier passage a échoué devient un hit mod_health (source veille pour veille.json, santé sinon), une fois par passage raté ; le rapport de Santé (sante_report) donne des hits sante_error (plugin.json, hooks.json ou config illisibles, lignes d'erreur des journaux, erreurs listées dans un fichier de sortie), une fois par message. health: false coupe les deux. MODS_HEALTH_DIR remplace health_dir.",
+    "health": true,
+    "health_dir": "~/.claude/mods-health",
+    "sante_report": "~/.claude/sante-mod/report.json"
   },
   "detect": {
-    "_doc": "Ce que le collecteur repère (types de « hit ») : ask (appel AskUserQuestion), trailing_question (dernière ligne d'une fin de tour de la conversation principale qui finit par ?), blocked (fin de tour avec BLOCKED:), denied (appel refusé : permission), tool_error (outil en erreur), workflow_error (agents_error, Workflow failed), ci_failure (sortie de gh / glab checks ou pipeline avec failed, skipped, canceled), api_error, needs_action (fichier de session : postTurnSummary.needs_action, ce que la fin de tour attend), permission_dir et permission_rule (fichier de session : dossiers et règles accordés pendant la session). Regex modifiables ici.",
+    "_doc": "Ce que le collecteur repère (types de « hit ») : ask (appel AskUserQuestion), trailing_question (dernière ligne d'une fin de tour de la conversation principale qui finit par ?), blocked (fin de tour avec BLOCKED:), denied (appel refusé : permission), tool_error (outil en erreur), workflow_error (agents_error, Workflow failed), ci_failure (sortie de gh / glab checks ou pipeline avec failed, skipped, canceled), api_error, needs_action (fichier de session : postTurnSummary.needs_action, ce que la fin de tour attend), permission_dir et permission_rule (fichier de session : dossiers et règles accordés pendant la session), mod_health et sante_error (erreurs de Santé et de la Veille, voir collect._health). Regex modifiables ici.",
     "blocked_regex": "\\bBLOCKED:\\s*(.+)",
     "question_max_chars": 400,
     "denied_regex": "doesn't want to proceed|tool use was rejected|permission to use .* (?:has been|was) denied|user denied",
@@ -109,6 +113,7 @@
       { "id": "ci-skipped", "kinds": ["ci_failure"], "match": "skipped|0 jobs|no checks reported", "per_app": true, "category": "ci/skipped", "title": "Pipeline ou checks skipped / absents ({app})", "symptom": "{text}", "cause": "Un pipeline skipped ou sans job ne prouve rien ; il ne doit jamais être mergé.", "fix": "Relancer le pipeline ; vérifier les règles du .gitlab-ci.yml." },
       { "id": "ci-gitlab", "kinds": ["ci_failure"], "match": "glab|gitlab", "per_app": true, "category": "ci/gitlab", "title": "Pipeline GitLab en échec ({app})", "symptom": "{text}" },
       { "id": "ci-github", "kinds": ["ci_failure"], "per_app": true, "category": "ci/github", "title": "Checks GitHub en échec ({app})", "symptom": "{text}" },
+      { "id": "mod-error", "kinds": ["mod_health", "sante_error"], "key": "^\\[([^\\]]+)\\]", "by": "text", "category": "mods", "title": "Mod {key} en erreur", "symptom": "{text}", "cause": "Relevé par Santé des mods (fichiers santé et rapport) ou par la Veille.", "fix": "Ouvrir Santé (/sante) pour le détail ; le correctif va dans le mod concerné." },
       { "id": "routine-edit", "kinds": ["tool_error"], "match": "modified since read|Found \\d+ matches of the string|String to replace not found|File has not been read yet|File does not exist", "ignore": true },
       { "id": "seed-rm", "kinds": ["seed"], "match": "critical path|\\brm -rf|dangerous rm", "category": "workflow/rm" },
       { "id": "seed-wrapup", "kinds": ["seed"], "match": "wrap_up|si tu veux|dis-moi si|tell me whether|\\boffers?\\b", "category": "blocages/fin-de-tour" },
@@ -182,7 +187,7 @@
     "more": "… et {n} de plus (filtre pour les voir)",
     "other": "Autres",
     "empty": "rien",
-    "collect_stats": "dernière collecte : {files} fichiers lus, {hits} repérés, {new} nouveaux problèmes, {ignored} ignorés",
+    "collect_stats": "dernière collecte : {files} fichiers lus, {health} relevés santé, {hits} repérés, {new} nouveaux problèmes, {ignored} ignorés",
     "notes_doc": [
       "Collecte sans tokens : transcripts et fichiers de session de l'app, lus en incrémental. Les demandes de permission acceptées ne sont pas dans les transcripts (non vérifié) : seuls les refus et les dossiers ou règles accordés sont comptés.",
       "Statut, correctif, cause : node scanner/problemes_scan.mjs set P-NNN status corrigé --fix \"…\" (le panneau n'écrit que des notes)."

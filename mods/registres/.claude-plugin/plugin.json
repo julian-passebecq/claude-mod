@@ -1,0 +1,9 @@
+{
+  "name": "registres",
+  "version": "0.1.0",
+  "description": "Registres : un seul panneau à onglets Problèmes | Tests réels | Règles | Ménage, en lecture seule. Chaque onglet est dessiné par une copie exacte du code de son mod (lib/, synchronisée par scripts/sync-libs.mjs) sur les mêmes fichiers dans ~/.claude ; son scanner ne tourne que sur ↻ ou quand les données sont plus vieilles que refresh_min. /registres [problemes|tests|regles|menage] ; alias /problemes, /tests, /regles, /menage quand les anciens mods ne sont pas chargés.",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "tabs", "register", "problems", "tests", "rules", "cleanup"]
+}

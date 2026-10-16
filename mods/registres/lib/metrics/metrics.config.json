@@ -1,0 +1,238 @@
+{
+  "_doc": "Réglages du mod metrics (« Les règles marchent ? »). Surcharge n'importe quelle clé dans ~/.claude/metrics-mod/metrics.config.json (fusion profonde) : c'est là que tu mets tes chemins (repos.roots, rules.repo). Une valeur entre <chevrons> compte comme non réglée. Libellés, seuils, cibles et motifs de détection viennent tous d'ici.",
+  "data_dir": "~/.claude/metrics-mod",
+  "projects_dir": "~/.claude/projects",
+  "node": "node",
+  "history_days": 30,
+  "refresh_min": 30,
+  "scan_timeout_s": 600,
+  "flat_pct": 10,
+  "repos": {
+    "_doc": "Repos suivis : chaque dépôt git sous roots (profondeur max_depth) et, si from_transcripts, chaque repo vu comme cwd d'une session, dont le remote origin est sur GitHub ou GitLab. Un remote = un repo (les copies et worktrees comptent pour lui). gitlab_groups : groupes dont les projets (miroirs CI compris) sont aussi lus. include / exclude : slugs owner/nom. pr_author : auteur des PR GitHub comptées (@me = ton compte gh ; vide = tous, y compris les repos amont de tes forks). mr_author : pareil pour GitLab (nom d'utilisateur, vide = tous).",
+    "roots": [
+      "<PROJECTS_ROOT>"
+    ],
+    "max_depth": 2,
+    "from_transcripts": true,
+    "remote": "origin",
+    "include": [],
+    "exclude": [],
+    "github_owners": [],
+    "gitlab_groups": [],
+    "pr_author": "@me",
+    "mr_author": "",
+    "search_limit": 1000,
+    "max_pages": 5,
+    "concurrency": 6,
+    "timeout_s": 60
+  },
+  "rules": {
+    "_doc": "Versions des règles : git log du fichier de règles dans le repo qui le versionne ; une version commence au premier commit dont le sujet la porte (V5.8, V6). grain : minor (V5.8) ou major (V5).",
+    "repo": "<CLAUDE_CONTROL_REPO>",
+    "file": "config/claude/CLAUDE.md",
+    "version_regex": "\\bV(\\d+(?:\\.\\d+)?)\\b",
+    "grain": "minor"
+  },
+  "stall": {
+    "_doc": "Creux : dans la plage CI d'une journée (premier départ → dernière fin de pipeline, tous repos suivis), les trous d'au moins min_gap_min minutes sans aucun pipeline. Approximation : on ne sait pas quel travail était démarrable (non vérifié).",
+    "min_gap_min": 60
+  },
+  "detect": {
+    "_doc": "Motifs cherchés dans les transcripts (expressions régulières, insensibles à la casse). stop : message utilisateur d'arrêt manuel. perm : résultat d'outil refusé après une demande de permission. guard : refus des gardes de l'app (worktree isolé, chemin protégé, hook). blocked : message final d'arrêt (BLOCKED, rouge deux fois). Les attentes de permission elles-mêmes ne laissent pas de trace sûre dans les transcripts (non vérifié) : seuls les refus sont comptés.",
+    "stop": [
+      "^\\s*\\[Request interrupted by user"
+    ],
+    "perm": [
+      "^The user doesn't want to proceed with this tool use"
+    ],
+    "guard": [
+      {
+        "label": "worktree isolé (agent)",
+        "pattern": "^This agent is isolated in the worktree"
+      },
+      {
+        "label": "worktree isolé (session)",
+        "pattern": "^This session is running in an isolated git worktree"
+      },
+      {
+        "label": "worktree refusé",
+        "pattern": "^Refusing to use .* as an isolation worktree"
+      },
+      {
+        "label": "chemin protégé",
+        "pattern": "is blocked\\. This path is protected"
+      },
+      {
+        "label": "hook PreToolUse",
+        "pattern": "^PreToolUse:\\S+ hook error"
+      }
+    ],
+    "blocked": [
+      "^\\s*\\**BLOCKED\\b",
+      "\\bred twice\\b",
+      "\\brouge deux fois\\b"
+    ],
+    "wake_tools": [
+      "Monitor",
+      "CronCreate",
+      "ScheduleWakeup"
+    ],
+    "agent_tools": [
+      "Agent",
+      "Task"
+    ],
+    "workflow_tools": [
+      "Workflow"
+    ],
+    "context_threshold": 250000
+  },
+  "metrics": [
+    {
+      "id": "prs",
+      "label": "PR/MR mergées par jour",
+      "format": "number",
+      "digits": 1,
+      "better": "up",
+      "short": "PR/j"
+    },
+    {
+      "id": "tok_per_pr",
+      "label": "M8 Tokens par PR mergée",
+      "format": "tokens",
+      "better": "down",
+      "short": "tok/PR"
+    },
+    {
+      "id": "usd_per_pr",
+      "label": "M8 Coût équivalent par PR",
+      "format": "usd",
+      "digits": 1,
+      "better": "down",
+      "short": "$/PR"
+    },
+    {
+      "id": "opus_share",
+      "label": "Tours Opus",
+      "format": "pct",
+      "better": "down",
+      "short": "Opus"
+    },
+    {
+      "id": "sonnet_share",
+      "label": "Tours Sonnet",
+      "format": "pct",
+      "better": "none",
+      "short": "Sonnet"
+    },
+    {
+      "id": "haiku_share",
+      "label": "Tours Haiku",
+      "format": "pct",
+      "better": "up",
+      "short": "Haiku"
+    },
+    {
+      "id": "m1_named",
+      "label": "M1 Appels d'agent avec modèle",
+      "format": "pct",
+      "better": "up",
+      "target": 100,
+      "short": "M1 nommé"
+    },
+    {
+      "id": "m2_big",
+      "label": "M2 Tours principaux ≥ 250 K",
+      "format": "pct",
+      "digits": 1,
+      "better": "down",
+      "target": 5,
+      "short": "M2 ≥250K"
+    },
+    {
+      "id": "stops",
+      "label": "Arrêts manuels par jour",
+      "format": "number",
+      "better": "down",
+      "short": "arrêts"
+    },
+    {
+      "id": "perm",
+      "label": "M10 Refus de permission par jour",
+      "format": "number",
+      "better": "down",
+      "target": 0,
+      "short": "refus"
+    },
+    {
+      "id": "guard",
+      "label": "Gardes de l'app par jour",
+      "format": "number",
+      "better": "down",
+      "short": "gardes"
+    },
+    {
+      "id": "stall_h",
+      "label": "Creux CI par jour",
+      "format": "number",
+      "unit": "h",
+      "better": "down",
+      "short": "creux"
+    },
+    {
+      "id": "blocked",
+      "label": "Arrêts BLOCKED par jour",
+      "format": "number",
+      "better": "down",
+      "short": "BLOCKED"
+    },
+    {
+      "id": "wake",
+      "label": "M6 Réveils (Monitor, Cron) par jour",
+      "format": "number",
+      "better": "down",
+      "target": 0,
+      "short": "réveils"
+    },
+    {
+      "id": "compact",
+      "label": "Compactages par jour",
+      "format": "number",
+      "better": "down",
+      "short": "compacts"
+    }
+  ],
+  "summary_metrics": [
+    "prs",
+    "tok_per_pr",
+    "opus_share",
+    "m1_named",
+    "guard",
+    "stall_h"
+  ],
+  "max_versions": 12,
+  "spark": "▁▂▃▄▅▆▇█",
+  "spark_gap": "·",
+  "marker": "│",
+  "labels": {
+    "pane_title": "Les règles marchent ?",
+    "subtitle": "lecture seule · {repos} repos ({github} GitHub, {gitlab} GitLab) · {days} jours · forges lues {forge_at}",
+    "curves": "Courbes par jour",
+    "versions": "Versions des règles",
+    "before_after": "Avant / après {version}",
+    "all_versions": "Toutes les versions (moyennes de chaque période)",
+    "col_metric": "Mesure",
+    "col_target": "cible",
+    "col_days": "jours",
+    "short": "période courte (< {h} h) : à lire avec prudence",
+    "short_hours": 12,
+    "first_scan": "Premier calcul en cours : lecture des transcripts des {days} derniers jours et des PR/MR (quelques minutes la première fois).",
+    "notes": [
+      "Tokens par PR : tokens des sessions dont le dossier appartient à un repo suivi ÷ PR/MR mergées de ces repos.",
+      "M1 sur les Workflows : appels agent() repérés dans le script et « model: » avant l'appel suivant (approximation, non vérifié).",
+      "Creux : trous ≥ {gap} min sans pipeline entre le premier et le dernier pipeline du jour (approximation, non vérifié).",
+      "Attentes de permission : pas de trace sûre dans les transcripts (non vérifié) ; seuls les refus sont comptés.",
+      "Une journée compte dans la version active à son heure ; le tableau compare chaque période à la précédente."
+    ]
+  },
+  "prices": {}
+}

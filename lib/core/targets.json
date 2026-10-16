@@ -43,6 +43,35 @@
     ["lib/core/transcripts.mjs", "mods/cockpit/lib/usage/lib/transcripts.mjs"],
 
     ["mods/export-eta/lib/mask.mjs", "mods/problemes/lib/eta/mask.mjs"],
-    ["mods/export-eta/lib/etagit.mjs", "mods/problemes/lib/eta/etagit.mjs"]
+    ["mods/export-eta/lib/etagit.mjs", "mods/problemes/lib/eta/etagit.mjs"],
+
+    ["mods/problemes/problemes.config.json", "mods/registres/lib/problemes/problemes.config.json"],
+    ["mods/problemes/hooks/view.mjs", "mods/registres/lib/problemes/hooks/view.mjs"],
+    ["mods/problemes/lib/core.mjs", "mods/registres/lib/problemes/lib/core.mjs"],
+    ["mods/problemes/lib/export.mjs", "mods/registres/lib/problemes/lib/export.mjs"],
+    ["mods/export-eta/lib/mask.mjs", "mods/registres/lib/problemes/lib/eta/mask.mjs"],
+    ["mods/export-eta/lib/etagit.mjs", "mods/registres/lib/problemes/lib/eta/etagit.mjs"],
+    ["mods/problemes/scanner/problemes_scan.mjs", "mods/registres/lib/problemes/scanner/problemes_scan.mjs"],
+    ["lib/core/health.mjs", "mods/registres/lib/problemes/scanner/health.mjs"],
+    ["mods/tests-reels/tests-reels.config.json", "mods/registres/lib/tests-reels/tests-reels.config.json"],
+    ["mods/tests-reels/hooks/view.mjs", "mods/registres/lib/tests-reels/hooks/view.mjs"],
+    ["mods/tests-reels/lib/registry.mjs", "mods/registres/lib/tests-reels/lib/registry.mjs"],
+    ["mods/tests-reels/lib/secrets.mjs", "mods/registres/lib/tests-reels/lib/secrets.mjs"],
+    ["mods/tests-reels/lib/recover.mjs", "mods/registres/lib/tests-reels/lib/recover.mjs"],
+    ["mods/tests-reels/lib/io.mjs", "mods/registres/lib/tests-reels/lib/io.mjs"],
+    ["mods/tests-reels/scanner/recover.mjs", "mods/registres/lib/tests-reels/scanner/recover.mjs"],
+    ["mods/metrics/metrics.config.json", "mods/registres/lib/metrics/metrics.config.json"],
+    ["mods/metrics/hooks/view.mjs", "mods/registres/lib/metrics/hooks/view.mjs"],
+    ["mods/metrics/hooks/pane.mjs", "mods/registres/lib/metrics/hooks/pane.mjs"],
+    ["mods/metrics/lib/collect.mjs", "mods/registres/lib/metrics/lib/collect.mjs"],
+    ["mods/metrics/scanner/metrics_scan.mjs", "mods/registres/lib/metrics/scanner/metrics_scan.mjs"],
+    ["lib/core/health.mjs", "mods/registres/lib/metrics/scanner/health.mjs"],
+    ["lib/core/transcripts.mjs", "mods/registres/lib/usage/lib/transcripts.mjs"],
+    ["lib/core/prices.json", "mods/registres/lib/usage/lib/prices.json"],
+    ["mods/menage/menage.config.json", "mods/registres/lib/menage/menage.config.json"],
+    ["mods/menage/hooks/view.mjs", "mods/registres/lib/menage/hooks/view.mjs"],
+    ["mods/menage/lib/classify.mjs", "mods/registres/lib/menage/lib/classify.mjs"],
+    ["mods/menage/scanner/menage_scan.mjs", "mods/registres/lib/menage/scanner/menage_scan.mjs"],
+    ["mods/menage/scanner/sizes.ps1", "mods/registres/lib/menage/scanner/sizes.ps1"]
   ]
 }
