@@ -1,6 +1,7 @@
 // control mod with the Claude Code test kit: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/control
 import { expect, mock, test } from 'claude-code/testing'
 
+import { pageOf, searchConfig, sizeText, toggle } from '../hooks/config_view'
 import { ageText, big, deepMerge, inSession, isStale, labelOf, parseArgs, stateColor, versionOf } from '../hooks/view'
 
 const OUT = 'C:/Users/me/.claude/effort-board/control'
@@ -64,9 +65,31 @@ const practices = (v6: object) => JSON.stringify({
   reference_md: '# PRACTICES: how we work\n\n## 2. GOOD practices', history_md: '# Claude Control: history of the rule versions',
 })
 
+const cfgItem = (id: string, name: string, extra = {}) => ({
+  id, name, path: `C:/Users/me/.claude/${name}`, exists: true, size: 2048, mtime: 1, changed: '2030-01-01 10:00', kind: 'md', chars: 10,
+  meta: [['model', 'opus']], summary: `summary of ${name}`, flags: [], badge: '', shard: 0, ...extra,
+})
+const configData = (generated: string) => JSON.stringify({
+  generated, project: 'C:/code/app', changes_days: 7, shards: ['config-claude.content.0.json'], counts: {},
+  changes: [{ id: 'i2', name: 'coder', path: 'C:/Users/me/.claude/agents/coder.md', changed: '2030-01-01 10:00', mtime: 1, where: '2. Agents › User' }],
+  categories: [
+    { id: 'rules', title: '1. Règles et instructions', count: 1, badge: '', subs: [{ id: 'rules.global', title: 'CLAUDE.md global', items: [cfgItem('i1', 'CLAUDE.md', { meta: [['version', 'Team Rules V9.1']] })] }] },
+    { id: 'agents', title: '2. Agents', count: 2, badge: '', subs: [{ id: 'agents.user', title: 'User', items: [
+      cfgItem('i2', 'coder'),
+      cfgItem('i3', 'Explore · intégré', { kind: 'none', shard: null, badge: 'intégré', path: '' }),
+    ] }] },
+    { id: 'settings', title: '4. Réglages', count: 1, badge: '', subs: [{ id: 'settings.effective', title: 'Valeurs effectives', items: [
+      cfgItem('i4', 'env.MY_TOKEN', { kind: 'json', meta: [['valeur', '•••• (masqué)'], ['défini par', 'user']] }),
+    ] }] },
+    { id: 'control', title: '10. Claude Control', count: 0, badge: '1 écarts', subs: [] },
+  ],
+})
+const CONTENT = JSON.stringify({ i1: '# Team Rules V9.1\n\nAgents decide.', i2: '---\nname: coder\n---\nBuilds one package with zebra-word inside.', i4: '"•••• (masqué)"' })
+
 const CONFIG = {
   paths: { out_dir: '~/.claude/effort-board/control', user_config: '~/.claude/effort-board/control.config.json' },
   scan: { stale_minutes: 60, windows: [] },
+  config_claude: { viewer_chars: 60000, labels: { title: 'Config Claude', raw: 'Brut', rendered: 'Rendu', changes: 'Changements', days: 'jours', results: 'résultats', path: 'chemin' } },
   labels: {
     mod_states: { loaded: 'chargé', installed: 'installé, non chargé' },
     pane: {
@@ -85,6 +108,8 @@ function world(on: any, generated = FRESH) {
     [`${OUT}/usage.json`]: usage(generated),
     [`${OUT}/setup.json`]: setup(generated),
     [`${OUT}/practices.json`]: practices({ state: 'none', source: 'origin/main:docs/V6-CHANGES.md' }),
+    [`${OUT}/config-claude.json`]: configData(generated === OLD ? OLD : FRESH),
+    [`${OUT}/config-claude.content.0.json`]: CONTENT,
     'C:/Users/me/.claude/effort-board/control.config.json': JSON.stringify({ labels: { pane: { mods: 'Mods chargés (override)' } } }),
   }
   const runs: string[][] = []
@@ -186,8 +211,9 @@ test('/control rescans only when the data is stale or asked; Rescan runs the sca
 
   w.files[`${OUT}/usage.json`] = usage(FRESH)
   w.files[`${OUT}/setup.json`] = setup(FRESH)
+  w.files[`${OUT}/config-claude.json`] = configData(FRESH)
   const again = await $.command.run({ command: 'control', args: '' } as any)
-  expect(again.text).toMatch(/opened SETUP, USAGE, PRACTICES, HISTORY · .* · data/)
+  expect(again.text).toMatch(/opened SETUP, USAGE, PRACTICES, HISTORY, CONFIG · .* · data/)
   await w.clock.advance(1)
   expect(w.runs.length).toBe(1)
 
@@ -206,6 +232,65 @@ test('a hook shows in a red Blockers section at the top of SETUP', async ($, on)
   await pane.unmount()
 })
 
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`CONFIG: tree, item detail, rendered or raw, search (${surface})`, async ($, on) => {
+    world(on)
+    const pane = await mount($, 'control-config', surface)
+    expect(await pane.find({ type: 'Text', text: /Config Claude · project C:\/code\/app/ })).toBeDefined()
+    expect(await pane.find({ type: 'Button', text: /▸ Changements \(7 jours\) \(1\)/ })).toBeDefined()
+    expect(await pane.find({ type: 'Button', text: /▸ 10\. Claude Control \(0\) · 1 écarts/ })).toBeDefined()
+    // category -> sub-category -> item
+    expect(await pane.find({ type: 'Button', text: /coder/ })).toBeUndefined()
+    await pane.press({ key: 'cat-agents' })
+    await pane.press({ key: 'sub-agents.user' })
+    expect(await pane.find({ type: 'Button', text: /Explore · intégré · intégré/ })).toBeDefined()
+    await pane.press({ key: 'it-i2' })
+    expect(await pane.find({ type: 'Text', text: /chemin : C:\/Users\/me\/\.claude\/coder/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /modified 2030-01-01 10:00 · size 2\.0 KB/ })).toBeDefined()
+    expect(await pane.find({ type: 'Markdown', text: /zebra-word/ })).toBeDefined()
+    await pane.press({ key: 'raw-i2' })
+    expect(await pane.find({ type: 'Markdown', text: /zebra-word/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Code' })).toBeDefined()
+    // a masked setting shows the mask, never a value
+    await pane.press({ key: 'cat-settings' })
+    await pane.press({ key: 'sub-settings.effective' })
+    await pane.press({ key: 'it-i4' })
+    expect(await pane.find({ type: 'Text', text: /•••• \(masqué\)/ })).toBeDefined()
+    // search across names, fields and full text
+    await pane.input({ key: 'q', text: 'zebra', kind: 'change' })
+    expect(await pane.find({ type: 'Text', text: /1 résultats/ })).toBeDefined()
+    expect(await pane.find({ type: 'Button', text: /coder · 2\. Agents › User/ })).toBeDefined()
+    await pane.press({ key: 'clear' })
+    expect(await pane.find({ type: 'Text', text: /résultats/ })).toBeUndefined()
+    // Changes list
+    await pane.press({ key: 'changes' })
+    expect(await pane.find({ type: 'Button', text: /2030-01-01 10:00 · coder · 2\. Agents › User/ })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('/config-claude opens CONFIG and scans only the config when stale or asked', async ($, on) => {
+  const w = world(on)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'config-claude', args: '' } as any)
+  expect(r.text).toMatch(/CONFIG ouvert · données/)
+  await w.clock.advance(1)
+  expect(w.runs.length).toBe(0)
+  const s = await $.command.run({ command: 'config-claude', args: 'scan' } as any)
+  expect(s.text).toMatch(/scan en cours/)
+  await w.clock.advance(1)
+  expect(w.runs.length).toBe(1)
+  expect(w.runs[0]!.join(' ')).toMatch(/control_scan\.py config --config .*config\.json --project C:\/code\/app/)
+})
+
+test('CONFIG with no data yet says to rescan', async ($, on) => {
+  const w = world(on)
+  delete w.files[`${OUT}/config-claude.json`]
+  const pane = await mount($, 'control-config', 'terminal')
+  expect(await pane.find({ type: 'Text', text: /config-claude\.json : appuie sur Rescan/ })).toBeDefined()
+  await pane.unmount()
+})
+
 test('a pane with no data yet says to rescan', async ($, on) => {
   const w = world(on)
   delete w.files[`${OUT}/usage.json`]
@@ -215,7 +300,20 @@ test('a pane with no data yet says to rescan', async ($, on) => {
 })
 
 test('view helpers', async () => {
-  expect(parseArgs('')).toEqual({ panes: ['setup', 'usage', 'practices', 'history'], scan: false })
+  expect(parseArgs('')).toEqual({ panes: ['setup', 'usage', 'practices', 'history', 'config'], scan: false })
+  expect(parseArgs('config')).toEqual({ panes: ['config'], scan: false })
+  expect(toggle(['a'], 'b')).toEqual(['a', 'b'])
+  expect(toggle(['a', 'b'], 'a')).toEqual(['b'])
+  expect(pageOf('abcdef', 1, 4)).toEqual({ text: 'ef', page: 1, pages: 2 })
+  expect(pageOf('abc', 9, 4)).toEqual({ text: 'abc', page: 0, pages: 1 })
+  expect(sizeText(2048)).toBe('2.0 KB')
+  const data = JSON.parse(configData(FRESH))
+  const found = searchConfig(data, JSON.parse(CONTENT), 'ZEBRA-word')
+  expect(found.total).toBe(1)
+  expect(found.hits[0]!.item.name).toBe('coder')
+  expect(found.hits[0]!.snippet).toMatch(/zebra-word/)
+  expect(searchConfig(data, {}, 'opus').total).toBe(2)
+  expect(searchConfig(data, {}, '').total).toBe(0)
   expect(parseArgs('usage scan')).toEqual({ panes: ['usage'], scan: true })
   expect(isStale(undefined, 0, 60)).toBe(true)
   expect(isStale('2026-10-09T15:00:00Z', Date.parse('2026-10-09T15:30:00Z'), 60)).toBe(false)

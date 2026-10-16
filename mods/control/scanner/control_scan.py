@@ -1,4 +1,5 @@
-"""Scanner behind the `control` mod: python -I control_scan.py [usage|setup|practices|all] [--config PATH] [--out DIR]
+"""Scanner behind the `control` mod: python -I control_scan.py [usage|setup|practices|config|all] [--config PATH] [--out DIR]
+[--project DIR]
 
 usage      transcripts (~/.claude/projects/**/*.jsonl, subagents included) -> usage.json: counters per window and
            the metrics of config.json with a red/amber/green state. Counting follows
@@ -10,6 +11,9 @@ setup      everything that shapes a session, read live (settings env names and h
            Settings values are never written except for the names in config secrets.show_values.
 practices  the live ~/.claude/CLAUDE.md headings, each line with the evidence it cites, + usage.json metrics, the audit
            REPORT.md and the rules repo's pending V6-CHANGES.md (git show <ref>:path) -> practices.json.
+config     everything in Claude Code (rules, agents, skills, settings by precedence, defaults, hooks, mods, MCP, desktop
+           preferences, Claude Control deploy drift) with full contents, secrets masked -> config-claude.json
+           (config_scan.py).
 Standard library only; read-only except the files it writes in --out."""
 import collections
 import csv
@@ -1289,6 +1293,11 @@ def main(argv):
         setup = scan_setup(cfg, out)
     if what in ('practices', 'all', 'usage', 'setup'):
         scan_practices(cfg, out, usage, setup)
+    if what in ('config', 'all'):
+        if HERE not in sys.path:  # python -I leaves the script's folder off sys.path
+            sys.path.insert(0, HERE)
+        import config_scan  # the CONFIG view (/config-claude); imports this module, so loaded here
+        config_scan.scan_config(cfg, out, project=argv[argv.index('--project') + 1] if '--project' in argv else None)
     print(json.dumps({'ok': True, 'what': what, 'out': out.replace('\\', '/')}))
 
 

@@ -11,7 +11,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
-import type { Evidence, Metric, PracticesData, SetupData, SetupItem, UsageData, UsageWindow } from '../types'
+import type { ConfigData, ConfigItem, Evidence, Metric, PracticesData, SetupData, SetupItem, UsageData, UsageWindow } from '../types'
+import { languageOf, pageOf, searchConfig, sizeText, toggle } from './config_view'
 import type { CommandSeen } from './view'
 import {
   PANES,
@@ -41,6 +42,27 @@ const windowId = atom({ plugin: 'control', key: 'window' } as const, '7d')
 const section = atom({ plugin: 'control', key: 'section' } as const, '')
 const showReference = atom({ plugin: 'control', key: 'showReference' } as const, false)
 const ruleOpen = atom({ plugin: 'control', key: 'rule' } as const, '')
+const cfgOpen = atom({ plugin: 'control', key: 'cfgOpen' } as const, [] as string[])
+const cfgItem = atom({ plugin: 'control', key: 'cfgItem' } as const, '')
+const cfgQuery = atom({ plugin: 'control', key: 'cfgQuery' } as const, '')
+const cfgRaw = atom({ plugin: 'control', key: 'cfgRaw' } as const, false)
+const cfgPage = atom({ plugin: 'control', key: 'cfgPage' } as const, 0)
+
+// CONFIG content shards, kept while the index's `generated` stays the same.
+let shardCache: { generated: string; shards: Map<number, Record<string, string>> } = { generated: '', shards: new Map() }
+const shard = async ($: EngineInterface, out: string, data: ConfigData, n: number): Promise<Record<string, string>> => {
+  if (shardCache.generated !== data.generated) shardCache = { generated: data.generated, shards: new Map() }
+  const hit = shardCache.shards.get(n)
+  if (hit) return hit
+  const got = (await readJson<Record<string, string>>($, `${out}/${data.shards[n]}`)) ?? {}
+  shardCache.shards.set(n, got)
+  return got
+}
+const allContents = async ($: EngineInterface, out: string, data: ConfigData) => {
+  const all: Record<string, string> = {}
+  for (let i = 0; i < data.shards.length; i++) Object.assign(all, await shard($, out, data, i))
+  return all
+}
 
 type Config = {
   paths: { out_dir: string; user_config?: string }
@@ -78,16 +100,19 @@ const loadConfig = async ($: EngineInterface) => {
   return { cfg, out, stale: cfg?.scan.stale_minutes ?? 60, L: labelOf(pane), pane, modStates: cfg?.labels?.mod_states ?? {} }
 }
 
-// One scan at a time per module copy; the atoms carry what the panes show.
+// One scan at a time per module copy; the atoms carry what the panes show. `what` is 'all' or 'config' (CONFIG only:
+// no transcripts, about a second). The session's folder is the project whose settings the CONFIG precedence uses.
 let running = false
-const scan = async ($: EngineInterface) => {
+let projectDir = ''
+const scan = async ($: EngineInterface, what: 'all' | 'config' = 'all') => {
   if (running) return
   running = true
   await update($, scanning, () => true)
   let problem = ''
   try {
     const r = await $.process.run(
-      ['python', '-I', `${root($)}/scanner/control_scan.py`, 'all', '--config', `${root($)}/config.json`],
+      ['python', '-I', `${root($)}/scanner/control_scan.py`, what, '--config', `${root($)}/config.json`,
+        ...(projectDir ? ['--project', projectDir] : [])],
       { timeoutMs: 600000 },
     )
     if (r.exitCode !== 0) problem = cut((r.stderr.trim().split('\n').pop() ?? '') || `exit ${r.exitCode}`, 200)
@@ -100,12 +125,12 @@ const scan = async ($: EngineInterface) => {
   await update($, tick, n => n + 1)
   if (problem) $.ui.toast(`control: scan failed: ${problem}`)
 }
-const scanSoon = ($: EngineInterface) => {
-  $.clock.after(0, () => void scan($))
+const scanSoon = ($: EngineInterface, what: 'all' | 'config' = 'all') => {
+  $.clock.after(0, () => void scan($, what))
 }
 
 // The line every pane starts with: scan age, last error, Rescan.
-const header = async ($: EngineInterface, e: ResolveInput, generated?: string) => {
+const header = async ($: EngineInterface, e: ResolveInput, generated?: string, what: 'all' | 'config' = 'all') => {
   const { Box, Text, Button } = $.ui.resolve(e)
   const busy = await read($, scanning)
   const problem = await read($, error)
@@ -115,7 +140,7 @@ const header = async ($: EngineInterface, e: ResolveInput, generated?: string) =
         {busy ? 'scan en cours…' : `scan ${ageText(generated, Date.now())}`}
         {problem ? ` · dernier scan en échec : ${problem}` : ''}
       </Text>
-      <Button key="rescan" hotkey="r" plain dimColor onPress={() => scanSoon($)}>
+      <Button key="rescan" hotkey="r" plain dimColor onPress={() => scanSoon($, what)}>
         Rescan
       </Button>
     </Box>
@@ -124,12 +149,32 @@ const header = async ($: EngineInterface, e: ResolveInput, generated?: string) =
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    projectDir = String((e as { cwd?: string }).cwd ?? '').replace(/\\/g, '/')
     await $.command.register({
       name: 'control',
-      description: 'Claude Control: SETUP (règles actives, mods chargés), USAGE, PRACTICES, HISTORY (args: setup | usage | practices | history | scan)',
-      argumentHint: '[setup|usage|practices|history] [scan] | close',
+      description: 'Claude Control: SETUP (règles actives, mods chargés), USAGE, PRACTICES, HISTORY, CONFIG (args: setup | usage | practices | history | config | scan)',
+      argumentHint: '[setup|usage|practices|history|config] [scan] | close',
+    })
+    await $.command.register({
+      name: 'config-claude',
+      description: 'Config Claude : toute la config de Claude Code en lecture seule (règles, agents, skills, réglages par priorité, défauts, hooks, mods, MCP, app, Claude Control), avec recherche',
+      argumentHint: '[scan] | close',
     })
     return next(e)
+  })
+
+  on('command.run', { command: 'config-claude' }, async ($, e) => {
+    const words = (e.args ?? '').trim().toLowerCase().split(/\s+/)
+    if (words.includes('close')) {
+      await $.ui.close({ id: PANES.config.id })
+      return {}
+    }
+    await $.ui.open({ id: PANES.config.id, title: PANES.config.title })
+    const { out, stale } = await loadConfig($)
+    const data = await readJson<ConfigData>($, `${out}/config-claude.json`)
+    const go = words.includes('scan') || isStale(data?.generated, Date.now(), stale)
+    if (go) scanSoon($, 'config')
+    return { text: `config-claude: CONFIG ouvert · ${go ? 'scan en cours' : `données ${ageText(data?.generated, Date.now())}`}` }
   })
 
   on('command.run', { command: 'control' }, async ($, e) => {
@@ -142,7 +187,9 @@ export const register: Register = on => {
     const { out, stale } = await loadConfig($)
     const usage = await readJson<UsageData>($, `${out}/usage.json`)
     const setup = await readJson<SetupData>($, `${out}/setup.json`)
-    const old = isStale(usage?.generated, Date.now(), stale) || isStale(setup?.generated, Date.now(), stale)
+    const conf = panes.includes('config') ? await readJson<ConfigData>($, `${out}/config-claude.json`) : undefined
+    const old = isStale(usage?.generated, Date.now(), stale) || isStale(setup?.generated, Date.now(), stale) ||
+      (panes.includes('config') && isStale(conf?.generated, Date.now(), stale))
     if (force || old) scanSoon($)
     return {
       text:
@@ -446,6 +493,163 @@ export const register: Register = on => {
           {`${ref ? '▾' : '▸'} ${L('reference')}`}
         </Button>
         {ref && (data.reference_md ? <Markdown text={data.reference_md} /> : <Text dimColor>{L('reference_missing')}</Text>)}
+      </Box>
+    )
+  })
+
+  // ------------------------------------------------------------------ CONFIG
+  // Top to bottom, as wide as the side panel: search box, Changes, then category -> sub-category -> item; an open item
+  // shows its path, time, size, fields and its full text (Markdown rendered or raw, one page of viewer_chars at a time).
+  on('ui.render', { component: 'Pane', requestId: PANES.config.id }, async ($, e) => {
+    const { Box, Text, Button, Input, Markdown, Code } = $.ui.resolve(e)
+    await read($, tick)
+    const open = await read($, cfgOpen)
+    const current = await read($, cfgItem)
+    const query = await read($, cfgQuery)
+    const raw = await read($, cfgRaw)
+    const page = await read($, cfgPage)
+    const { out, cfg } = await loadConfig($)
+    const cc = ((cfg as Record<string, unknown> | undefined)?.config_claude ?? {}) as { labels?: Record<string, unknown>; viewer_chars?: number }
+    const C = labelOf(cc.labels)
+    const data = await readJson<ConfigData>($, `${out}/config-claude.json`)
+    if (!data) {
+      return (
+        <Box flexDirection="column">
+          {await header($, e, undefined, 'config')}
+          <Text wrap="wrap">Pas encore de données dans {out}/config-claude.json : appuie sur Rescan.</Text>
+        </Box>
+      )
+    }
+    const size = Math.max(2000, cc.viewer_chars ?? 60000)
+    const flip = (id: string) => void update($, cfgOpen, cur => toggle(cur, id))
+    const pick = (id: string) => {
+      void update($, cfgItem, cur => (cur === id ? '' : id))
+      void update($, cfgPage, () => 0)
+    }
+
+    const detail = async (it: ConfigItem) => {
+      const text = it.shard != null ? (await shard($, out, data, it.shard))[it.id] ?? '' : ''
+      const pg = pageOf(text, page, size)
+      const markdown = it.kind === 'md' && !raw
+      return (
+        <Box flexDirection="column" paddingLeft={2} marginBottom={1}>
+          {it.path ? <Text dimColor wrap="wrap">{`${C('path')} : ${it.path}`}</Text> : null}
+          {it.changed || it.size != null ? (
+            <Text dimColor>{[it.changed ? `${C('modified')} ${it.changed}` : '', it.size != null ? `${C('size')} ${sizeText(it.size)}` : ''].filter(Boolean).join(' · ')}</Text>
+          ) : null}
+          {it.meta.map(([k, v]) => (
+            <Text wrap="wrap">
+              <Text bold>{k} : </Text>
+              {v}
+            </Text>
+          ))}
+          {it.summary && !it.meta.some(([, v]) => v === it.summary) ? <Text wrap="wrap" dimColor>{it.summary}</Text> : null}
+          {it.flags.map(f => (
+            <Text color="warning" wrap="wrap">! {f.text}</Text>
+          ))}
+          {it.kind === 'none' || !text ? (
+            it.kind === 'none' ? null : <Text dimColor>{C('no_content')}</Text>
+          ) : (
+            <Box flexDirection="column">
+              <Box flexDirection="row" gap={1}>
+                {it.kind === 'md' ? (
+                  <Button key={`raw-${it.id}`} plain dimColor onPress={() => void update($, cfgRaw, v => !v)}>
+                    {raw ? C('rendered') : C('raw')}
+                  </Button>
+                ) : null}
+                {pg.pages > 1 ? <Text dimColor>{`${pg.page + 1}/${pg.pages}`}</Text> : null}
+                {pg.page > 0 ? (
+                  <Button key={`prev-${it.id}`} plain dimColor onPress={() => void update($, cfgPage, p => Math.max(0, p - 1))}>
+                    {C('previous')}
+                  </Button>
+                ) : null}
+                {pg.page < pg.pages - 1 ? (
+                  <Button key={`next-${it.id}`} plain dimColor onPress={() => void update($, cfgPage, p => p + 1)}>
+                    {C('more')}
+                  </Button>
+                ) : null}
+              </Box>
+              {markdown ? <Markdown text={pg.text} /> : <Code source={pg.text} language={languageOf(it)} />}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+    const itemRow = async (it: ConfigItem, label?: string) => (
+      <Box flexDirection="column">
+        <Button key={`it-${it.id}`} plain onPress={() => pick(it.id)}>
+          {`${current === it.id ? '▾' : '▸'} ${label ?? it.name}${it.badge ? ` · ${it.badge}` : ''}${it.flags.length ? ' !' : ''}`}
+        </Button>
+        {current === it.id ? await detail(it) : null}
+      </Box>
+    )
+    const byId = new Map<string, ConfigItem>()
+    for (const c of data.categories) for (const s of c.subs) for (const it of s.items) byId.set(it.id, it)
+
+    const body: unknown[] = []
+    if (query.trim().length >= 2) {
+      const { hits, total } = searchConfig(data, await allContents($, out, data), query)
+      body.push(<Text bold>{`${total} ${C('results')}${total > hits.length ? ` (${hits.length} affichés)` : ''}`}</Text>)
+      for (const hit of hits) {
+        body.push(await itemRow(hit.item, `${hit.item.name} · ${hit.where}`))
+        if (hit.snippet && current !== hit.item.id) body.push(<Text dimColor wrap="wrap">{`    ${hit.snippet}`}</Text>)
+      }
+    } else {
+      const ch = open.includes('changes')
+      body.push(
+        <Button key="changes" plain onPress={() => flip('changes')}>
+          {`${ch ? '▾' : '▸'} ${C('changes')} (${data.changes_days} ${C('days')}) (${data.changes.length})`}
+        </Button>,
+      )
+      if (ch)
+        for (const x of data.changes) {
+          const it = byId.get(x.id)
+          if (it) body.push(await itemRow(it, `${x.changed} · ${x.name} · ${x.where}`))
+        }
+      for (const c of data.categories) {
+        const co = open.includes(`cat:${c.id}`)
+        body.push(
+          <Button key={`cat-${c.id}`} plain onPress={() => flip(`cat:${c.id}`)}>
+            {`${co ? '▾' : '▸'} ${c.title} (${c.count})${c.badge ? ` · ${c.badge}` : ''}`}
+          </Button>,
+        )
+        if (!co) continue
+        for (const s of c.subs) {
+          const so = open.includes(`sub:${s.id}`)
+          body.push(
+            <Box paddingLeft={2}>
+              <Button key={`sub-${s.id}`} plain onPress={() => flip(`sub:${s.id}`)}>
+                {`${so ? '▾' : '▸'} ${s.title} (${s.items.length})`}
+              </Button>
+            </Box>,
+          )
+          if (!so) continue
+          for (const it of s.items) body.push(<Box paddingLeft={4}>{await itemRow(it)}</Box>)
+        }
+      }
+    }
+    return (
+      <Box flexDirection="column">
+        {await header($, e, data.generated, 'config')}
+        <Text bold wrap="wrap">
+          {C('title')}
+          <Text dimColor>{data.project ? ` · ${C('project')} ${data.project}` : ''}</Text>
+        </Text>
+        <Box flexDirection="row">
+          <Box flexGrow={1}>
+            <Input
+              key="q"
+              label="/ "
+              placeholder={C('search')}
+              submitLabel={C('search')}
+              value={query}
+              onInput={(v: string) => void update($, cfgQuery, () => v)}
+              onSubmit={(v: string) => void update($, cfgQuery, () => v)}
+            />
+          </Box>
+          {query ? <Button key="clear" plain dimColor onPress={() => void update($, cfgQuery, () => '')}>×</Button> : null}
+        </Box>
+        {body as never}
       </Box>
     )
   })
