@@ -1,23 +1,32 @@
-// control mod: three panes over the JSON that scanner/control_scan.py writes (config.json says where).
-//   SETUP      everything that shapes a session, hidden rules first
-//   USAGE      1/7/30-day and 2-9 Oct model, effort and delegation mix, each metric against its rule target
-//   PRACTICES  our way of working from ~/.claude/CLAUDE.md (V5) and the 9 Oct audit, followed or not; docs/PRACTICES.md
-//   HISTORY    docs/HISTORY.md: every rule version V1-V4.9 and why it was dropped
-// /control opens all four (or `/control usage`), `/control scan` rescans first. Drawing never runs the scanner:
-// scans start from the command or a Rescan button, on a timer so they outlive the dispatch.
+// control mod: four panes over the JSON that scanner/control_scan.py writes (config.json says where).
+//   SETUP      the live rules (title line and version of ~/.claude/CLAUDE.md), blockers, hidden rules, mods loaded or
+//              not, and everything else that shapes a session (settings env names and hooks, agents, skills, workflows)
+//   USAGE      1/7/30-day model, effort and delegation mix, each metric against the live rule line it measures
+//   PRACTICES  one section per heading of the live CLAUDE.md, each line with the evidence it cites and its measured
+//              state; a "V6 en attente" panel when the rules repo has V6-CHANGES.md on its main branch
+//   HISTORY    docs/HISTORY.md
+// Nothing here names a rules version: the scanner reads it at each scan. Read-only: no tool call is touched and no
+// text is added to prompts. /control opens all four (or `/control usage`), `/control scan` rescans first. Drawing never
+// runs the scanner: scans start from the command or a Rescan button, on a timer so they outlive the dispatch.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
-import type { Metric, PracticesData, SetupData, SetupItem, UsageData, UsageWindow } from '../types'
+import type { Evidence, Metric, PracticesData, SetupData, SetupItem, UsageData, UsageWindow } from '../types'
+import type { CommandSeen } from './view'
 import {
   PANES,
   ageText,
   big,
   cut,
+  deepMerge,
+  inSession,
   expandHome,
   isStale,
   kb,
+  labelOf,
   metricValue,
+  modColor,
+  modMark,
   parseArgs,
   pct,
   stateColor,
@@ -31,8 +40,13 @@ const error = atom({ plugin: 'control', key: 'error' } as const, '')
 const windowId = atom({ plugin: 'control', key: 'window' } as const, '7d')
 const section = atom({ plugin: 'control', key: 'section' } as const, '')
 const showReference = atom({ plugin: 'control', key: 'showReference' } as const, false)
+const ruleOpen = atom({ plugin: 'control', key: 'rule' } as const, '')
 
-type Config = { paths: { out_dir: string }; scan: { stale_minutes: number; windows: { id: string; label: string }[] } }
+type Config = {
+  paths: { out_dir: string; user_config?: string }
+  scan: { stale_minutes: number; windows: { id: string; label: string }[] }
+  labels?: { pane?: Record<string, unknown>; mod_states?: Record<string, string> }
+}
 
 const safe = async <T,>(work: Promise<T>, fallback: T): Promise<T> => {
   try {
@@ -55,10 +69,13 @@ const readJson = async <T,>($: EngineInterface, path: string): Promise<T | undef
 const root = ($: EngineInterface) => $.plugin.root.replace(/\\/g, '/')
 
 const loadConfig = async ($: EngineInterface) => {
-  const cfg = await readJson<Config>($, `${root($)}/config.json`)
   const home = (await safe($.env.get('USERPROFILE'), undefined)) ?? (await safe($.env.get('HOME'), undefined)) ?? ''
+  const base = await readJson<Config>($, `${root($)}/config.json`)
+  const user = base?.paths.user_config ? await readJson<Config>($, expandHome(base.paths.user_config, home)) : undefined
+  const cfg = (user ? deepMerge(base, user) : base) as Config | undefined
   const out = expandHome(cfg?.paths.out_dir ?? '~/.claude/effort-board/control', home)
-  return { cfg, out, stale: cfg?.scan.stale_minutes ?? 60 }
+  const pane = (cfg?.labels?.pane ?? {}) as Record<string, unknown>
+  return { cfg, out, stale: cfg?.scan.stale_minutes ?? 60, L: labelOf(pane), pane, modStates: cfg?.labels?.mod_states ?? {} }
 }
 
 // One scan at a time per module copy; the atoms carry what the panes show.
@@ -95,8 +112,8 @@ const header = async ($: EngineInterface, e: ResolveInput, generated?: string) =
   return (
     <Box flexDirection="row" gap={1}>
       <Text dimColor>
-        {busy ? 'scanning…' : `scanned ${ageText(generated, Date.now())}`}
-        {problem ? ` · last scan failed: ${problem}` : ''}
+        {busy ? 'scan en cours…' : `scan ${ageText(generated, Date.now())}`}
+        {problem ? ` · dernier scan en échec : ${problem}` : ''}
       </Text>
       <Button key="rescan" hotkey="r" plain dimColor onPress={() => scanSoon($)}>
         Rescan
@@ -109,7 +126,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'control',
-      description: 'Claude Control panes: SETUP, USAGE, PRACTICES, HISTORY (args: setup | usage | practices | history | scan)',
+      description: 'Claude Control: SETUP (règles actives, mods chargés), USAGE, PRACTICES, HISTORY (args: setup | usage | practices | history | scan)',
       argumentHint: '[setup|usage|practices|history] [scan] | close',
     })
     return next(e)
@@ -130,6 +147,7 @@ export const register: Register = on => {
     return {
       text:
         `control: opened ${panes.map(k => PANES[k].title).join(', ')}` +
+        (setup?.live?.title ? ` · ${setup.live.title}` : '') +
         (force || old ? ` · scanning (data ${ageText(usage?.generated, Date.now())})` : ` · data ${ageText(usage?.generated, Date.now())}`),
     }
   })
@@ -139,14 +157,16 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     await read($, tick)
     const open = await read($, section)
-    const { out } = await loadConfig($)
+    const { out, L, modStates } = await loadConfig($)
     const data = await readJson<SetupData>($, `${out}/setup.json`)
     const width = Math.max(40, e.props.bodyColumns)
     if (!data) {
       return (
         <Box flexDirection="column">
           {await header($, e)}
-          <Text>No setup.json yet in {out}: press Rescan.</Text>
+          <Text>
+            {L('no_data')} {out}/setup.json : {L('press_rescan')}.
+          </Text>
         </Box>
       )
     }
@@ -165,7 +185,7 @@ export const register: Register = on => {
         </Text>
         <Text wrap="wrap">  {cut(it.what, width * 2)}</Text>
         {it.flags.map(f => (
-          <Text color={f.kind === 'stale_clause' || f.kind === 'blocker' ? 'error' : 'warning'} wrap="wrap">
+          <Text color={f.kind === 'stale_clause' || f.kind === 'blocker' || f.kind === 'missing' ? 'error' : 'warning'} wrap="wrap">
             {'  '}! {cut(f.text, width * 2)}
           </Text>
         ))}
@@ -173,27 +193,62 @@ export const register: Register = on => {
       </Box>
     )
     const flagged = (s: SetupData['sections'][number]) => s.items.filter(it => it.flags.length).length
+    const live = data.live
+    const mods = data.mods?.items ?? []
+    // Same source as the band's Mods button bar: the slash commands registered in this session (local, no model call).
+    const cmds = await safe<CommandSeen[]>(
+      (async () => (await $.command.list()).map(c => ({ name: c.name, ...(c.plugin ? { plugin: c.plugin } : {}) })))(),
+      [],
+    )
     return (
       <Box flexDirection="column">
         {await header($, e, data.generated)}
-        <Text bold>{data.rules_version}</Text>
+        <Text>
+          <Text bold>{L('live')} : </Text>
+          <Text bold color="success">
+            {live?.title || data.rules_version || L('no_title')}
+          </Text>
+          {live?.version ? <Text dimColor>{` · ${L('version')} ${live.version}`}</Text> : null}
+          {live?.changed ? <Text dimColor>{` · ${L('changed')} ${live.changed}`}</Text> : null}
+        </Text>
+        {live ? (
+          <Text dimColor wrap="wrap">
+            {`${L('sources')} : ${live.claude_md} (${live.sections} sections) · env ${live.env_names.join(', ') || '—'} · hooks ${live.settings_hooks} · agents ${live.agents} · skills ${live.skills} · workflows ${live.workflows} · mods ${live.mods_loaded}/${live.mods_total}`}
+          </Text>
+        ) : null}
         {(data.blockers ?? []).length === 0 ? (
-          <Text bold color="success">● Blockers: none (V5 §6: no hook, mod or script blocks or rewrites a tool call)</Text>
+          <Text bold color="success">● {L('blockers_none')}</Text>
         ) : (
           <Box flexDirection="column">
             <Text bold color="error">
-              ○ Blockers ({data.active_blockers ?? 0} active, {(data.blockers ?? []).length} found): V5 §6 expects none
+              ○ {L('blockers_some')} ({data.active_blockers ?? 0} {L('active')}, {(data.blockers ?? []).length} {L('found')}) : {L('blockers_expect')}
             </Text>
             {(data.blockers ?? []).map(it => row(it))}
           </Box>
         )}
         <Text> </Text>
+        <Text bold>
+          {L('mods')} ({mods.filter(m => m.state === 'loaded').length}/{mods.length})
+        </Text>
+        {mods.length === 0 ? <Text dimColor>{L('mods_none')}</Text> : null}
+        {mods.map(m => (
+          <Text wrap="wrap">
+            <Text color={modColor(m.state)}>{modMark(m.state)} </Text>
+            <Text bold>{m.name}</Text>
+            <Text dimColor>{m.version ? ` ${m.version}` : ''}</Text>
+            <Text color={modColor(m.state)}>{` · ${modStates[m.state] ?? m.state}`}</Text>
+            {m.state === 'loaded' && inSession(cmds, m.name) ? <Text color="success">{` · ${L('in_session')}`}</Text> : null}
+            <Text dimColor>{m.sources.length ? ` (${m.sources.join(', ')})` : ''}{` · ${m.path}`}</Text>
+          </Text>
+        ))}
+        {data.mods?.differ ? <Text color="warning" wrap="wrap">! {L('mods_differ')}</Text> : null}
+        <Text> </Text>
         <Text bold color="warning">
-          Hidden rules ({data.hidden.length}): they change behaviour without being in CLAUDE.md
+          {L('hidden')} ({data.hidden.length}) : {L('hidden_why')}
         </Text>
         {data.hidden.map(it => row(it, true))}
         <Text> </Text>
-        <Text bold>Sections (press one to list it)</Text>
+        <Text bold>{L('sections')}</Text>
         {data.sections.map(s => (
           <Box flexDirection="column">
             <Button
@@ -201,7 +256,7 @@ export const register: Register = on => {
               plain
               onPress={() => void update($, section, cur => (cur === s.id ? '' : s.id))}
             >
-              {`${open === s.id ? '▾' : '▸'} ${s.title} (${s.items.length}${flagged(s) ? `, ${flagged(s)} flagged` : ''})`}
+              {`${open === s.id ? '▾' : '▸'} ${s.title} (${s.items.length}${flagged(s) ? `, ${flagged(s)} ${L('flagged')}` : ''})`}
             </Button>
             {open === s.id && s.items.map(it => row(it))}
           </Box>
@@ -215,14 +270,16 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     await read($, tick)
     const wid = await read($, windowId)
-    const { out } = await loadConfig($)
+    const { out, L } = await loadConfig($)
     const data = await readJson<UsageData>($, `${out}/usage.json`)
     const w: UsageWindow | undefined = data?.windows.find(x => x.id === wid) ?? data?.windows[0]
     if (!data || !w) {
       return (
         <Box flexDirection="column">
           {await header($, e)}
-          <Text>No usage.json yet in {out}: press Rescan.</Text>
+          <Text>
+            {L('no_data')} {out}/usage.json : {L('press_rescan')}.
+          </Text>
         </Box>
       )
     }
@@ -279,7 +336,10 @@ export const register: Register = on => {
           Read-only calls: {Object.entries(s.readonly).map(([k, v]) => `${k} ${big(v)}`).join(', ')} · plan mode {s.tools.plan_mode} · /goal {s.tools.goal} · /loop {s.tools.loop} · Monitor {s.tools.monitor} · CronCreate {s.tools.cron} · auto-compactions {s.tools.compact_auto} vs hand-offs {s.tools.handoff} · turns ≥300K {big(s.context.main_300k ?? 0)}
         </Text>
         <Text> </Text>
-        <Text bold>Against the rules (V4.8 routing, V4.9)</Text>
+        <Text bold>
+          {L('against_rules')}
+          {data.rules_version ? ` (${data.rules_version})` : ''}
+        </Text>
         {w.metrics.map(metric)}
         <Text> </Text>
         <Text bold>Top repos by $</Text>
@@ -294,13 +354,16 @@ export const register: Register = on => {
     const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     await read($, tick)
     const ref = await read($, showReference)
-    const { out } = await loadConfig($)
+    const opened = await read($, ruleOpen)
+    const { out, L, pane } = await loadConfig($)
     const data = await readJson<PracticesData>($, `${out}/practices.json`)
     if (!data) {
       return (
         <Box flexDirection="column">
           {await header($, e)}
-          <Text>No practices.json yet in {out}: press Rescan.</Text>
+          <Text>
+            {L('no_data')} {out}/practices.json : {L('press_rescan')}.
+          </Text>
         </Box>
       )
     }
@@ -309,47 +372,80 @@ export const register: Register = on => {
         <Text bold color={color}>
           {title}
         </Text>
-        {items.length ? items.map((x, i) => <Text wrap="wrap">{`${i + 1}. ${x}`}</Text>) : <Text dimColor>none</Text>}
+        {items.length ? items.map((x, i) => <Text wrap="wrap">{`${i + 1}. ${x}`}</Text>) : <Text dimColor>—</Text>}
       </Box>
     )
+    const ev = (x: Evidence) => (
+      <Text wrap="wrap" color={x.state === 'info' ? undefined : stateColor(x.state)} dimColor={x.kind === 'cite'}>
+        {'     '}→ {x.kind === 'cite' ? `(${x.text})` : x.text}
+      </Text>
+    )
+    const groupNames = (pane.v6_groups ?? {}) as Record<string, string>
+    const v6 = data.v6
     return (
       <Box flexDirection="column">
         {await header($, e, data.generated)}
-        <Text dimColor>
-          {data.rules_version} · measured on {data.window ?? 'no usage data'}
+        <Text>
+          <Text bold>{L('practices_title')} : </Text>
+          <Text bold color="success">
+            {data.rules_version || L('no_title')}
+          </Text>
+          <Text dimColor>{` · ${L('measured_on')} ${data.window ?? L('no_usage')}`}</Text>
         </Text>
-        {data.practices.map(p => (
-          <Box flexDirection="column">
-            <Text>
-              <Text color={stateColor(p.state)}>{stateMark(p.state)} </Text>
-              <Text bold>{p.title}</Text>
-              <Text dimColor> · {p.state}</Text>
+        {v6?.state === 'pending' ? (
+          <Box flexDirection="column" borderStyle="round" borderColor="warning" paddingX={1}>
+            <Text bold color="warning">
+              {L('v6_title')} : {v6.title ?? ''}
             </Text>
-            <Text dimColor wrap="wrap">
-              {'   '}rule: {p.rule_line}
-            </Text>
-            {p.evidence.map(x => (
-              <Text wrap="wrap">
-                {'   '}→ {x}
-              </Text>
+            <Text dimColor>{v6.source}</Text>
+            {Object.entries(v6.groups ?? {}).map(([g, x]) => (
+              <Box flexDirection="column">
+                <Text bold>{`${groupNames[g] ?? g} (${x.count})`}</Text>
+                {x.items.map(t => (
+                  <Text wrap="wrap">{`  · ${t}`}</Text>
+                ))}
+              </Box>
             ))}
           </Box>
-        ))}
+        ) : (
+          <Text dimColor>{v6?.state === 'no_repo' ? L('v6_no_repo') : `${L('v6_none')}${v6?.source ? ` (${v6.source})` : ''}`}</Text>
+        )}
+        <Text> </Text>
+        {(data.sections ?? []).map(s => {
+          const key = s.num || s.heading
+          return (
+            <Box flexDirection="column">
+              <Button key={`rule-${key}`} plain onPress={() => void update($, ruleOpen, cur => (cur === key ? '' : key))}>
+                {`${opened === key ? '▾' : '▸'} ${stateMark(s.state)} §${s.num ? `${s.num} ` : ' '}${s.title} · ${s.lines.length} lignes · ${s.evidence} ${L('evidence')} · ${s.state === 'not measured' ? L('not_measured') : s.state}`}
+              </Button>
+              {opened === key &&
+                s.lines.map(ln => (
+                  <Box flexDirection="column">
+                    <Text wrap="wrap">
+                      <Text color={stateColor(ln.state)}>{`   ${stateMark(ln.state)} `}</Text>
+                      {ln.text}
+                    </Text>
+                    {ln.evidence.map(ev)}
+                  </Box>
+                ))}
+            </Box>
+          )
+        })}
         <Box flexDirection="row" gap={1}>
           <Button key="to-usage" plain dimColor onPress={() => void $.ui.open({ id: PANES.usage.id, title: PANES.usage.title })}>
-            Open USAGE for the numbers
+            {L('open_usage')}
           </Button>
         </Box>
         <Text> </Text>
-        {list('5 best habits (measured)', data.best, 'success')}
-        {list('5 worst habits (measured)', data.worst, 'error')}
-        {list('Audit 9 Oct: what we do right', data.audit_right, 'success')}
-        {list('Audit 9 Oct: what we do wrong', data.audit_wrong, 'error')}
+        {list(L('best'), data.best, 'success')}
+        {list(L('worst'), data.worst, 'error')}
+        {list(L('audit_right'), data.audit_right, 'success')}
+        {list(L('audit_wrong'), data.audit_wrong, 'error')}
         <Text> </Text>
         <Button key="reference" plain onPress={() => void update($, showReference, v => !v)}>
-          {`${ref ? '▾' : '▸'} Reference: docs/PRACTICES.md (good and bad practices with evidence, Anthropic guidance)`}
+          {`${ref ? '▾' : '▸'} ${L('reference')}`}
         </Button>
-        {ref && (data.reference_md ? <Markdown text={data.reference_md} /> : <Text dimColor>docs/PRACTICES.md not found</Text>)}
+        {ref && (data.reference_md ? <Markdown text={data.reference_md} /> : <Text dimColor>{L('reference_missing')}</Text>)}
       </Box>
     )
   })

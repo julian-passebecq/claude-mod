@@ -422,10 +422,10 @@ Factory views: a "Ça t'attend" strip (green PRs not merged, sessions waiting on
 
 #### control
 
-Claude Control panes: SETUP (everything that shapes a session, hidden rules flagged), USAGE (1/7/30-day model, effort and delegation mix with rule targets) and PRACTICES (our way of working, followed or not). /control
+Claude Control, read live: SETUP (rules version from ~/.claude/CLAUDE.md, settings env names and hooks, agents, skills, workflows, mods loaded or not, blockers and hidden rules), USAGE (model, effort and delegation mix against the live rule lines), PRACTICES (one section per CLAUDE.md heading with the evidence it cites, plus pending V6 changes). /control
 
-- **État** : stable · version 0.1.0 · métriques et pratiques encore V5, réécriture V6 prévue
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : settings, CLAUDE.md, agents, skills, hooks, mémoire, transcripts (scanner Python) · aucun blocage
+- **État** : stable · version 0.2.0 · plus rien d'écrit en dur pour V5 : version et règles lues en direct. Valeurs des settings jamais affichées (noms seulement, sauf la liste secrets.show_values). Qu'une nouvelle session Desktop prenne CLAUDE_CODE_PLUGIN_DIRS de settings.json au démarrage : documenté pour l'env de settings, non vérifié pour les sessions déjà ouvertes.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : règles actives lues à chaque scan (~/.claude/CLAUDE.md : ligne de titre et version, sections, preuves citées), settings.json (noms des variables env seulement, hooks), agents, skills, workflows, mods de CLAUDE_CODE_PLUGIN_DIRS (chargé / installé non chargé), mémoire, transcripts (scanner Python), docs/V6-CHANGES.md sur la branche main du dépôt des règles (git show) · aucun blocage
 - **Fonctionnalités** : commandes `/control` · affiche : panneau, toasts · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/control` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/control`
 - **Tests** : `python -I -m unittest discover -s mods/control/tests -p "test_*.py"` · `claude plugin test mods/control`
