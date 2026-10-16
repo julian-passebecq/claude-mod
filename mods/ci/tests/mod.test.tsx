@@ -89,6 +89,16 @@ test('/ci route writes through ci.py with who set it; /ci shows the route; /ci c
   expect(w.routes[CWD]).toBeUndefined()
 })
 
+test('/ci close closes the pane and runs nothing (the Jauge Mods bar uses it)', async ($, on) => {
+  const w = world(on)
+  const closed: string[] = []
+  on('ui.close', ($: any, e: any) => (closed.push(e.id), { value: undefined }))
+  const r = await $.command.run({ command: 'ci', args: 'close' } as any)
+  expect(r.text).toBeUndefined()
+  expect(closed).toEqual(['ci-routing'])
+  expect(w.runs.length).toBe(0)
+})
+
 test('/ci with no status yet starts one background check', async ($, on) => {
   const w = world(on, null)
   const r = await $.command.run({ command: 'ci', args: '' } as any)

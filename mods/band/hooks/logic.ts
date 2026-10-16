@@ -26,6 +26,7 @@ export type Config = {
   worktree_markers: string[]
   band: { items: string[]; scopes: string[] }
   status_line: { items: string[]; scopes: string[] }
+  launcher?: Launcher
   context: {
     window_fallback: number
     autocompact_pct_fallback: number
@@ -394,3 +395,47 @@ export const compactLabel = (c: Compaction, labels: Record<string, string>, idle
   if (c.trigger === 'auto') return L(labels, 'trigger_auto')
   return c.trigger === '?' ? L(labels, 'trigger_unknown') : c.trigger
 }
+
+// ---------- launcher (the Mods button bar) ----------
+
+export type LauncherItem = { label: string; mod: string; command: string }
+export type Launcher = { enabled?: boolean; close_args?: string; items?: LauncherItem[] }
+/** One slash command as $.command.list() gives it (name, and the plugin that registered it when known). */
+export type CommandSeen = { name: string; plugin?: string }
+export type LauncherButton = LauncherItem & { loaded: boolean; open: boolean; hint?: string }
+export type LauncherAction = { run: { command: string; args?: string }; open: boolean } | { toast: string }
+
+/** A mod counts as loaded when its command is in this session and, where the engine names the plugin, it is that mod. */
+export const isLoaded = (item: LauncherItem, commands: readonly CommandSeen[]) =>
+  commands.some(c => c.name === item.command && (!c.plugin || c.plugin === item.mod || c.plugin.startsWith(`${item.mod}@`)))
+
+/** The buttons to draw, in config order; empty when the launcher is off or lists nothing. */
+export const launcherButtons = (
+  l: Launcher | undefined,
+  commands: readonly CommandSeen[],
+  open: readonly string[],
+  labels: Record<string, string>,
+): LauncherButton[] => {
+  if (!l || l.enabled === false) return []
+  return (l.items ?? [])
+    .filter(i => i && i.label && i.mod && i.command)
+    .map(i => {
+      const loaded = isLoaded(i, commands)
+      return {
+        ...i,
+        loaded,
+        open: loaded && open.includes(i.mod),
+        ...(loaded ? {} : { hint: (labels.launcher_missing ?? 'not loaded: add mods/{mod} to CLAUDE_CODE_PLUGIN_DIRS').replace('{mod}', i.mod) }),
+      }
+    })
+}
+
+/** What a press does: a mod not loaded explains itself; else open (/<command>) or, when open, close (/<command> <close_args>). */
+export const launcherPress = (b: LauncherButton, closeArgs = 'close'): LauncherAction => {
+  if (!b.loaded) return { toast: b.hint ?? b.mod }
+  return b.open ? { run: { command: b.command, args: closeArgs }, open: false } : { run: { command: b.command }, open: true }
+}
+
+/** The open list after a press on `mod`. */
+export const toggleOpen = (open: readonly string[], mod: string, isOpen: boolean) =>
+  isOpen ? (open.includes(mod) ? [...open] : [...open, mod]) : open.filter(m => m !== mod)

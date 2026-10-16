@@ -71,12 +71,16 @@ export const register: Register = (on, raw) => {
     await $.command.register({
       name: 'scenarios',
       description: "Scénarios d'agents: roles -> model, effort, unit, max parallel, with ready-to-paste snippets (args: [S1..] [prompt|agent|workflow|frontmatter|env])",
-      argumentHint: '[scenario id] [prompt|agent|workflow|frontmatter|env]',
+      argumentHint: '[scenario id] [prompt|agent|workflow|frontmatter|env] | close',
     })
     return next(e)
   })
 
   on('command.run', { command: 'scenarios' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      await $.ui.close({ id: PANE.id })
+      return {}
+    }
     const { catalog, errors } = await load($, options)
     const ids = catalog.scenarios.map(s => s.id)
     const args = parseArgs(e.args ?? '', ids)

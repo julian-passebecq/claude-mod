@@ -6,7 +6,7 @@
   "timeout_seconds": 8,
   "max_repo_checks": 10,
   "status_line": true,
-  "prompt_note": true,
+  "prompt_note": false,
   "hosts": {
     "github.com": { "kind": "github", "cli": "gh", "token_env": ["GH_TOKEN", "GITHUB_TOKEN"] },
     "gitlab.com": { "kind": "gitlab", "cli": "glab", "token_env": ["GITLAB_TOKEN"], "api": "https://gitlab.com/api/v4" }

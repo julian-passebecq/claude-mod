@@ -386,7 +386,7 @@ def show(cfg, cwd=None, session=None, refresh=False, check=False):
         'config': cfg['_path'].replace('\\', '/'),
         'routing_file': cfg['routing_file'],
         'labels': cfg.get('labels', {}),
-        'options': {'status_line': cfg.get('status_line', True), 'prompt_note': cfg.get('prompt_note', True)},
+        'options': {'status_line': cfg.get('status_line', True), 'prompt_note': cfg.get('prompt_note', False)},
         'backends': backends,
         'routes': [{'key': k, **r} for k, r in sorted(routes.items(), key=lambda kv: kv[1].get('set_at', ''), reverse=True)],
         'current': current,

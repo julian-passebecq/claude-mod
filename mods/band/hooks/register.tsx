@@ -2,6 +2,9 @@
 // Above the prompt: this conversation's context against auto-compact and the RESUME hand-off threshold, the burn rate
 // at the scopes the settings list, and the week's rate-limit use. /jauge opens the pane: per-scope table, hottest
 // sessions, projects, 30-minute sparklines with compaction markers, and each conversation's compactions.
+// Under the band, a Mods button bar (launcher in band.config.json): a press runs the other mod's slash command, which
+// opens that mod's own pane ($.ui.open draws only the caller's panes, so a mod cannot open another's directly); a
+// second press runs /<command> close. A mod whose command is not in the session is greyed out.
 // Sources: $.session.usage() / session.measure for this conversation (the status line's figures), and
 // scanner/scan.mjs, an incremental tail of ~/.claude/projects/**/*.jsonl run every refresh_s. Nothing here blocks or
 // rewrites a tool call or a prompt.
@@ -21,15 +24,19 @@ import {
   fmtTok,
   fmtUsd,
   hhmm,
+  launcherButtons,
+  launcherPress,
   markerLine,
   sparkline,
+  toggleOpen,
 } from './logic'
-import type { BandPart, Config, Ctx, View } from './logic'
+import type { BandPart, Config, Ctx, LauncherButton, View } from './logic'
 
 const PANE = { id: 'jauge' }
 const viewAtom = atom({ plugin: 'band', key: 'view' } as const, null)
 const engineAtom = atom({ plugin: 'band', key: 'engine' } as const, null)
 const errorAtom = atom({ plugin: 'band', key: 'error' } as const, '')
+const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { commands: [], open: [] })
 
 type Options = { config?: string; band?: string; status_line?: string }
 
@@ -135,6 +142,37 @@ const statusLine = async ($: EngineInterface) => {
   $.ui.status(bandText(bandParts(v ?? undefined, ctx, e?.week, c.status_line, c)) || undefined)
 }
 
+// The slash commands of this session, to grey out the mods that are not loaded. Local: no model call.
+const seeCommands = async ($: EngineInterface) => {
+  try {
+    const list = await $.command.list()
+    const commands = list.map(c => ({ name: c.name, ...(c.plugin ? { plugin: c.plugin } : {}) }))
+    await update($, launcherAtom, l => ({ ...l, commands }))
+  } catch {}
+}
+
+const buttonsOf = async ($: EngineInterface, c: Config) => {
+  const l = await read($, launcherAtom)
+  return launcherButtons(c.launcher, l.commands, l.open, c.labels)
+}
+
+// A press: open the mod (/<command>) or close it (/<command> close). $.command.run queues the command until the
+// session is idle, so it is not awaited here; while Claude works a toast says it is queued.
+const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) => {
+  const c = await loadConfig($)
+  const a = launcherPress(b, c.launcher?.close_args || 'close')
+  if ('toast' in a) {
+    $.ui.toast(a.toast)
+    return
+  }
+  await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, b.mod, a.open) }))
+  if (isWorking) $.ui.toast(`${b.label} : ${c.labels.launcher_queued ?? 'queued'}`)
+  $.command.run(a.run).catch(async (err: unknown) => {
+    await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, b.mod, !a.open) }))
+    $.ui.toast(`/${b.command} : ${String(err).slice(0, 160)}`)
+  })
+}
+
 const refresh = async ($: EngineInterface) => {
   if (scanning) return
   scanning = true
@@ -170,6 +208,7 @@ const refresh = async ($: EngineInterface) => {
     }
     await figures($)
     await statusLine($)
+    await seeCommands($)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -193,8 +232,23 @@ export const register: Register = (on, raw) => {
     const c = await loadConfig($)
     timer?.cancel()
     timer = $.clock.every(Math.max(5, c.refresh_s) * 1000, () => void refresh($))
+    void seeCommands($)
     void refresh($)
     return started
+  })
+
+  // Observe only: a launcher mod's command typed by the person keeps the button's open state in step. Passes through.
+  on('command.run', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      const c = await loadConfig($)
+      const item = c.launcher?.items?.find(i => i.command === e.command)
+      if (item) {
+        const closing = (e.args ?? '').trim() === (c.launcher?.close_args || 'close')
+        await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, item.mod, !closing) }))
+      }
+    } catch {}
+    return r
   })
 
   on('session.measure', async ($, e, next) => {
@@ -222,16 +276,37 @@ export const register: Register = (on, raw) => {
     const v = await read($, viewAtom)
     const en = await read($, engineAtom)
     const parts = bandParts(v ?? undefined, ctxOf(c, en, v, v?.now ?? Date.now()), en?.week, c.band, c)
-    if (!parts.length) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    const buttons = await buttonsOf($, c)
+    if (!parts.length && !buttons.length) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
+    const isWorking = e.props.isWorking
     return (
-      <Box flexDirection="row" flexWrap="wrap">
-        {parts.map((p, i) => (
-          <Text key={`b${i}`} {...(color(p) ? { color: color(p) } : { dimColor: true })}>
-            {`${i ? ' · ' : ''}${p.text}`}
-          </Text>
-        ))}
+      <Box flexDirection="column">
+        {parts.length ? (
+          <Box flexDirection="row" flexWrap="wrap">
+            {parts.map((p, i) => (
+              <Text key={`b${i}`} {...(color(p) ? { color: color(p) } : { dimColor: true })}>
+                {`${i ? ' · ' : ''}${p.text}`}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
+        {buttons.length ? (
+          <Box flexDirection="row" flexWrap="wrap" gap={1}>
+            <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
+            {buttons.map(b => (
+              <Button
+                key={`mod-${b.mod}`}
+                {...(b.loaded ? {} : { dimColor: true })}
+                {...(b.open ? { variant: 'primary' as const } : {})}
+                onPress={() => press($, b, isWorking)}
+              >
+                {b.open ? `${b.label} ✕` : b.label}
+              </Button>
+            ))}
+          </Box>
+        ) : null}
       </Box>
     )
   }).catch(($, e, next) => next(e))
@@ -364,9 +439,25 @@ export const register: Register = (on, raw) => {
       </Box>
     ) : null
 
+    const buttons = await buttonsOf($, c)
+    const mods = buttons.length ? (
+      <Box flexDirection="column">
+        <Text bold>{c.labels.launcher ?? 'Mods'}</Text>
+        {buttons.map(b => (
+          <Box key={`ml-${b.mod}`} flexDirection="row" gap={1}>
+            <Button key={`mp-${b.mod}`} {...(b.loaded ? {} : { dimColor: true })} onPress={() => press($, b, false)}>
+              {b.open ? `${b.label} ✕` : b.label}
+            </Button>
+            <Text dimColor>{b.loaded ? `/${b.command}${b.open ? ' · ouvert' : ''}` : (b.hint ?? '')}</Text>
+          </Box>
+        ))}
+      </Box>
+    ) : null
+
     return (
       <Box flexDirection="column" gap={1}>
         {head}
+        {mods}
         {err ? <Text color={c.colors.bad}>{`erreur : ${err}`}</Text> : null}
         {cfgProblem ? <Text color={c.colors.bad}>{cfgProblem}</Text> : null}
         {conv}

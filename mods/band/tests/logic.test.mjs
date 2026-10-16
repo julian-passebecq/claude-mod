@@ -17,9 +17,13 @@ import {
   deepMerge,
   fmtTok,
   growthTpm,
+  isLoaded,
+  launcherButtons,
+  launcherPress,
   rateOf,
   repoKey,
   sparkline,
+  toggleOpen,
 } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, parseLines } from '../hooks/parse.ts'
 import { scan, sharedLib } from '../scanner/scan.mjs'
@@ -231,4 +235,27 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
+  const L = CFG.launcher
+  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide'])
+  const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
+  assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
+  assert.equal(isLoaded(L.items[4], cmds), true)
+  let open = []
+  let bs = launcherButtons(L, cmds, open, CFG.labels)
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false])
+  assert.equal(bs[5].hint, 'non chargé : ajouter mods/guide à CLAUDE_CODE_PLUGIN_DIRS')
+  assert.deepEqual(launcherPress(bs[5]), { toast: bs[5].hint })
+  const a = launcherPress(bs[1], L.close_args)
+  assert.deepEqual(a, { run: { command: 'conso' }, open: true })
+  open = toggleOpen(open, 'usage', a.open)
+  bs = launcherButtons(L, cmds, open, CFG.labels)
+  assert.equal(bs[1].open, true)
+  const b = launcherPress(bs[1], L.close_args)
+  assert.deepEqual(b, { run: { command: 'conso', args: 'close' }, open: false })
+  assert.deepEqual(toggleOpen(open, 'usage', b.open), [])
+  assert.deepEqual(launcherButtons({ ...L, enabled: false }, cmds, [], CFG.labels), [])
+  assert.equal(launcherButtons(L, [], ['usage'], CFG.labels)[1].open, false, 'a mod not loaded is never shown open')
 })

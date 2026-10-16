@@ -110,12 +110,16 @@ export const register: Register = on => {
     await $.command.register({
       name: 'control',
       description: 'Claude Control panes: SETUP, USAGE, PRACTICES, HISTORY (args: setup | usage | practices | history | scan)',
-      argumentHint: '[setup|usage|practices|history] [scan]',
+      argumentHint: '[setup|usage|practices|history] [scan] | close',
     })
     return next(e)
   })
 
   on('command.run', { command: 'control' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      for (const key of Object.keys(PANES) as (keyof typeof PANES)[]) await $.ui.close({ id: PANES[key].id })
+      return {}
+    }
     const { panes, scan: force } = parseArgs(e.args ?? '')
     for (const key of panes) await $.ui.open({ id: PANES[key].id, title: PANES[key].title })
     const { out, stale } = await loadConfig($)
