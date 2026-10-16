@@ -1,0 +1,16 @@
+{
+  "name": "sante",
+  "version": "0.1.0",
+  "description": "Santé des mods : une ligne verte / orange / rouge en haut, puis chaque mod chargé par CLAUDE_CODE_PLUGIN_DIRS ou installé : chargé ou non, version, commandes enregistrées, dernier rafraîchissement de ses caches, erreurs, durée et CPU de ses scans (fiches ~/.claude/mods-health), taille des caches, JSON de config invalides, version de Claude Code face au minimum. Lecture seule. /sante",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "pane", "health", "diagnostics", "plugins"],
+  "userConfig": {
+    "config": {
+      "type": "string",
+      "title": "Settings file",
+      "description": "Path to your own JSON deep-merged over sante.config.json (mods, cache paths, thresholds, labels, colors; ~ allowed). Empty: shipped settings plus ~/.claude/sante-mod/sante.config.json if present.",
+      "default": ""
+    }
+  }
+}

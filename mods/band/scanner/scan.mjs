@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 import { buildView, deepMerge, expandHome, repoKey } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, ownUsage, parseLines, prune } from '../hooks/parse.ts'
+import { writeHealth } from './health.mjs'
 
 const CHUNK = 8 * 1024 * 1024
 
@@ -211,8 +212,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const req = loadRequest(process.argv.slice(2))
     process.stdout.write(JSON.stringify(scan(req, await sharedLib(req.cfg))))
+    writeHealth('band')
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: String(err?.stack ?? err).slice(0, 800) }))
     process.exitCode = 1
+    writeHealth('band', String(err?.message ?? err))
   }
 }

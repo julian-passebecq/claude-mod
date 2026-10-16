@@ -18,8 +18,11 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
+
+_HEALTH_T0 = time.time()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MOD = os.path.dirname(HERE)
@@ -432,5 +435,54 @@ def main(argv=None):
     return 0
 
 
+def write_health(mod, error=None, env=None, now=None):
+    """Health record for « Santé des mods » (convention in mods/sante/README.md), best effort, never raises.
+
+    ~/.claude/mods-health/<mod>.json: lastRun, durationMs (this process), cpuMs, error, lastOk, rolling 24 h window.
+    MODS_HEALTH_DIR moves the folder (tests); MODS_HEALTH=0 turns it off.
+    """
+    env = os.environ if env is None else env
+    try:
+        if env.get('MODS_HEALTH') == '0':
+            return None
+        d = env.get('MODS_HEALTH_DIR') or os.path.join(os.path.expanduser('~'), '.claude', 'mods-health')
+        f = os.path.join(d, mod + '.json')
+        try:
+            with open(f, encoding='utf-8') as fh:
+                p = json.load(fh) or {}
+        except (OSError, ValueError):
+            p = {}
+        now = time.time() if now is None else now
+        iso = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(now)) + '.%03dZ' % int((now % 1) * 1000)
+        cpu = int(time.process_time() * 1000)
+        dur = int((now - _HEALTH_T0) * 1000)
+        w = p.get('window') or {}
+        try:
+            import calendar
+            start = calendar.timegm(time.strptime(w.get('start', '')[:19], '%Y-%m-%dT%H:%M:%S'))
+        except (TypeError, ValueError):
+            start = 0
+        if not start or now - start >= 86400:
+            w = {'start': iso, 'runs': 0, 'cpuMs': 0, 'durationMs': 0, 'errors': 0}
+        rec = {'mod': mod, 'lastRun': iso, 'durationMs': dur, 'cpuMs': cpu,
+               'error': str(error)[:500] if error else None, 'lastOk': p.get('lastOk') if error else iso,
+               'window': {'start': w['start'], 'runs': w.get('runs', 0) + 1, 'cpuMs': w.get('cpuMs', 0) + cpu,
+                          'durationMs': w.get('durationMs', 0) + dur, 'errors': w.get('errors', 0) + (1 if error else 0)}}
+        os.makedirs(d, exist_ok=True)
+        tmp = '%s.%d.tmp' % (f, os.getpid())
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(rec, fh)
+        os.replace(tmp, f)
+        return rec
+    except Exception:  # noqa: BLE001 - a health record must never break the scanner
+        return None
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        _rc = main()
+    except Exception as _err:
+        write_health('ci', repr(_err))
+        raise
+    write_health('ci', None if not _rc else 'exit %s' % _rc)
+    sys.exit(_rc)

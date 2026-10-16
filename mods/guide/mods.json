@@ -33,7 +33,7 @@
       "state": "building",
       "data": "transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json ; onglet Codex : ~/.codex/sessions/**/rollout-*.jsonl (token_count, turn_context), jamais auth.json ni config.toml",
       "note": "tokens par 1 % calibrés sur ce PC seulement (non vérifié) ; % Codex lus seulement s'ils sont écrits dans les sessions (Codex 0.142+ via app-server : non vérifié), coût Codex non calculé",
-      "tests": ["node --test mods/usage/tests/logic.test.mjs", "node --test mods/usage/tests/codex.test.mjs", "claude plugin test mods/usage"]
+      "tests": ["node --test mods/usage/tests/logic.test.mjs", "node --test mods/usage/tests/health.test.mjs", "node --test mods/usage/tests/codex.test.mjs", "claude plugin test mods/usage"]
     },
     {
       "dir": "guide",
@@ -45,10 +45,10 @@
       "dir": "band",
       "name": "band (Jauge, bandeau V6)",
       "state": "building",
-      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Ligne orange « Passation conseillée » à 250 K ou si l'auto-compact est prévu dans 20 min : boutons « Préparer RESUME » (/handoff) et « Ouvrir RESUME » (âge du fichier), rien ne se lance seul ; 3 derniers relais et compactages dans /jauge. Sous la jauge, une barre Mods : un bouton par mod (Usine, Conso, Scénarios, CI, Control, Guide) qui lance sa commande pour ouvrir son panneau, un second clic le ferme ; grisé si le mod n'est pas chargé. Reprend context-meter et le bandeau de cc-control.",
+      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Ligne orange « Passation conseillée » à 250 K ou si l'auto-compact est prévu dans 20 min : boutons « Préparer RESUME » (/handoff) et « Ouvrir RESUME » (âge du fichier), rien ne se lance seul ; 3 derniers relais et compactages dans /jauge. Sous la jauge, une barre Mods : un bouton par mod (Usine, Conso, Scénarios, CI, Control, Guide, Santé) qui lance sa commande pour ouvrir son panneau, un second clic le ferme ; grisé si le mod n'est pas chargé. Reprend context-meter et le bandeau de cc-control.",
       "data": "$.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json",
       "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée ; « relais lancés » = /handoff vus dans cette session seulement.",
-      "tests": ["node --test mods/band/tests/logic.test.mjs", "claude plugin test mods/band"]
+      "tests": ["node --test mods/band/tests/logic.test.mjs", "node --test mods/band/tests/health.test.mjs", "claude plugin test mods/band"]
     },
     {
       "dir": "../vendor/filetree",
@@ -75,7 +75,15 @@
       "description": "Mesure si les règles de Claude Control aident, par jour et par version des règles : PR/MR mergées, tokens et coût par PR (M8), part des tours Opus / Sonnet / Haiku, appels d'agent avec modèle nommé (M1), tours ≥ 250 K (M2), arrêts manuels, refus de permission (M10), gardes de l'app, creux CI, arrêts BLOCKED, réveils (M6), compactages. Courbes par jour avec les versions en repères et tableau avant / après.",
       "data": "transcripts ~/.claude/projects (lecture incrémentale, parseur de mods/usage/lib), git remote de tes repos, gh search prs / gh run list et glab mr list / glab ci list (lecture seule, au plus toutes les 30 min), git log du fichier de règles ; caches dans ~/.claude/metrics-mod",
       "note": "aucun texte envoyé au modèle (la commande ouvre un panneau). Non vérifié : les attentes de permission (seuls les refus sont comptés), le modèle des agent() de Workflow (lu dans le script), les creux CI (le travail démarrable n'est pas connu).",
-      "tests": ["node --test mods/metrics/tests/logic.test.mjs", "claude plugin test mods/metrics"]
+      "tests": ["node --test mods/metrics/tests/logic.test.mjs", "node --test mods/metrics/tests/health.test.mjs", "claude plugin test mods/metrics"]
+    },
+    {
+      "dir": "sante",
+      "name": "sante (Santé des mods)",
+      "state": "building",
+      "data": "CLAUDE_CODE_PLUGIN_DIRS, $.command.list() et $.session.version() ; pour chaque mod : plugin.json, hooks.json, JSON de config, caches (taille, dernière modification), journaux, fiches ~/.claude/mods-health/<mod>.json ; ~/.claude/mods et ~/.claude/plugins/installed_plugins.json ; rapport dans ~/.claude/sante-mod (scanner Node, seulement quand le panneau est demandé)",
+      "note": "rien n'est supprimé : les commandes de nettoyage sont affichées avec un bouton Copier. Convention proposée : ~/.claude/mods-health/<mod>.json (lastRun, durationMs, cpuMs, error, lastOk, fenêtre 24 h), écrite par band, usage, metrics, ci et machine. Non vérifié : champ de version minimale dans plugin.json (absent de la doc), format de installed_plugins.json, plugin toujours renseigné par $.command.list().",
+      "tests": ["node --test mods/sante/tests/logic.test.mjs", "claude plugin test mods/sante", "claude plugin validate mods/sante"]
     }
   ],
   "archived": [

@@ -16,6 +16,7 @@ import { loadCache, saveCache, scanProjects } from '../lib/scan-node.mjs'
 import { scanCodex } from '../lib/codex-scan.mjs'
 import { CV, codexEnabled, codexView } from '../lib/codex.mjs'
 import { deepMerge, expandHome, fmtPct, fmtTokens, fmtUsd, model, outcome } from '../hooks/logic.mjs'
+import { writeHealth } from './health.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
@@ -145,8 +146,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     } else if (cmd === 'report') report(ctx, now)
     else if (cmd === 'codex') console.log(JSON.stringify(codexScan(ctx, now)))
     else throw new Error(`unknown command ${cmd}`)
+    writeHealth('usage')
   } catch (err) {
     console.error(String((err && err.stack) || err))
+    writeHealth('usage', String((err && err.message) || err))
     process.exit(1)
   }
 }
