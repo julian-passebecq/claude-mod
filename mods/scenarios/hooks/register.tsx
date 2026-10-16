@@ -9,6 +9,9 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Checked, ScenarioFile } from '../types'
 import { applyScenario, readApplied } from './apply_io'
 import { drawScenarios } from './draw'
+import type { VsFile } from './versus'
+import { versusText } from './versus'
+import { drawVersus } from './versus_draw'
 import { check, expandHome, merge, parseArgs, snippet } from './logic'
 import type { Kind } from './logic'
 
@@ -28,8 +31,17 @@ const io = ($: EngineInterface) => ({
 const kind = atom({ plugin: 'scenarios', key: 'kind' } as const, 'prompt')
 const copied = atom({ plugin: 'scenarios', key: 'copied' } as const, '')
 const applyMsg = atom({ plugin: 'scenarios', key: 'applyMsg' } as const, '')
+const tab = atom({ plugin: 'scenarios', key: 'tab' } as const, 'scenarios' as 'scenarios' | 'versus')
+const bench = atom({ plugin: 'scenarios', key: 'bench' } as const, '')
 
-type Options = { file?: string; warn_no_model?: string }
+type Options = { file?: string; warn_no_model?: string; versus_file?: string }
+
+/** versus.json beside the mod, or the user's copy (userConfig versus_file) when set. */
+const loadVersus = async ($: EngineInterface, options: Options): Promise<VsFile | undefined> => {
+  const own = options.versus_file?.trim()
+  const path = own ? expandHome(own, await home($)) : `${$.plugin.root.replace(/\\/g, '/')}/versus.json`
+  return (await readJson($, path)).data as unknown as VsFile | undefined
+}
 
 const readJson = async ($: EngineInterface, path: string): Promise<{ data?: ScenarioFile; problem?: string }> => {
   let text = ''
@@ -81,7 +93,7 @@ export const register: Register = (on, raw) => {
     await $.command.register({
       name: 'scenarios',
       description: "Scénarios d'agents: roles -> model, effort, unit, max parallel, with ready-to-paste snippets (args: [S1..] [prompt|agent|workflow|frontmatter|env])",
-      argumentHint: '[scenario id] [prompt|agent|workflow|frontmatter|env] | close',
+      argumentHint: '[scenario id] [prompt|agent|workflow|frontmatter|env] | vs [benchmark id] | close',
     })
     return next(e)
   })
@@ -91,6 +103,17 @@ export const register: Register = (on, raw) => {
       await $.ui.close({ id: PANE.id })
       return {}
     }
+    const words = (e.args ?? '').trim().split(/\s+/).filter(Boolean)
+    const first = (words[0] ?? '').toLowerCase()
+    if (first === 'vs' || first === 'versus' || first === 'gpt') {
+      const f = await loadVersus($, options)
+      const b = words[1] && (f?.benchmarks ?? []).some(x => x.id === words[1]) ? words[1] : ''
+      if (b) await update($, bench, () => b)
+      await update($, tab, () => 'versus' as const)
+      await $.ui.open({ id: PANE.id, title: PANE.title })
+      return { text: versusText(f, b || (await read($, bench)) || undefined) }
+    }
+    await update($, tab, () => 'scenarios' as const)
     const { catalog, errors } = await load($, options)
     const ids = catalog.scenarios.map(s => s.id)
     const args = parseArgs(e.args ?? '', ids)
@@ -119,9 +142,31 @@ export const register: Register = (on, raw) => {
   }).catch(($, e, next) => next(e)) // fail open: a failing warning never stops a spawn
 
   on('ui.render', { component: 'Pane', requestId: 'scenarios' }, async ($, e) => {
+    const ui = $.ui.resolve(e)
+    const { Box, Button } = ui
+    const current = await read($, tab)
+    const vf = await loadVersus($, options)
+    const VL = { tab_scenarios: 'Scénarios', tab_versus: 'Claude vs GPT', ...(vf?.labels ?? {}) }
+    const tabs = (
+      <Box flexDirection="row" gap={1}>
+        {(['scenarios', 'versus'] as const).map(t => (
+          <Button key={`tab-${t}`} plain bold={current === t} dimColor={current !== t} onPress={() => update($, tab, () => t)}>
+            {`${current === t ? '▸ ' : ''}${t === 'scenarios' ? VL.tab_scenarios : VL.tab_versus}`}
+          </Button>
+        ))}
+      </Box>
+    )
+    if (current === 'versus') {
+      return (
+        <Box flexDirection="column">
+          {tabs}
+          {drawVersus(ui, { surface: e.surface, file: vf, bench: await read($, bench), onBench: id => update($, bench, () => id) })}
+        </Box>
+      )
+    }
     const { catalog, errors, warnings } = await load($, options)
     const claudeDir = `${(await home($)).replace(/\\/g, '/')}/.claude`
-    return drawScenarios($.ui.resolve(e), {
+    const body = drawScenarios(ui, {
       catalog, errors, warnings,
       selected: await read($, selected),
       kind: ((await read($, kind)) as Kind) || 'prompt',
@@ -146,5 +191,11 @@ export const register: Register = (on, raw) => {
         await update($, applyMsg, () => msg)
       },
     })
+    return (
+      <Box flexDirection="column">
+        {tabs}
+        {body}
+      </Box>
+    )
   })
 }

@@ -5,6 +5,8 @@
 //   /ci clear <target>
 //   /ci diagramme [refresh] [claude|codex|inconnu|tout] [hote|app|conv]
 //                               the « Diagramme » tab: repo → CI host → stages/jobs → result, last runs, who made them
+//   /ci relais [refresh]        Claude ↔ Codex per repo/PR (who opened, fixed, merged, hand-offs, CI pass rate per agent),
+//                               from scanner/relais.mjs, written to ~/.claude/ci-cache/interactions.json for the Cockpit
 // Everything runs through scanner/ci.py (standard library). The mod shows and informs: it never denies,
 // blocks or rewrites a tool call. Its only writes are the routing file (/ci route, /ci clear, a Clear button)
 // and its caches. The Diagramme reads gh/glab (GET only), git log and local transcripts; no polling.
@@ -13,7 +15,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupBy, Snapshot, WhoFilter } from '../types'
-import { diagramText, parseDiagram, parseDiagramWords } from './diagram'
+import { diagramText, effectiveWho, parseDiagram, parseDiagramWords } from './diagram'
 import { drawCi } from './draw'
 import { PANE, parseArgs, parseSnapshot, promptNote, resolveTarget, summary } from './view'
 
@@ -23,7 +25,8 @@ const error = atom({ plugin: 'ci', key: 'error' } as const, '')
 const tab = atom({ plugin: 'ci', key: 'tab' } as const, 'routing' as 'routing' | 'diagram')
 const diagram = atom({ plugin: 'ci', key: 'diagram' } as const, '')
 const fetching = atom({ plugin: 'ci', key: 'fetching' } as const, false)
-const who = atom({ plugin: 'ci', key: 'who' } as const, 'all' as WhoFilter)
+// '' = the config default (pipelines.default_who, Claude Code when absent); a filter button or word sets it
+const who = atom({ plugin: 'ci', key: 'who' } as const, '' as WhoFilter | '')
 const group = atom({ plugin: 'ci', key: 'group' } as const, 'host' as GroupBy)
 const foldedA = atom({ plugin: 'ci', key: 'folded' } as const, [] as string[])
 
@@ -120,12 +123,43 @@ const fetchSoon = ($: EngineInterface, force = false) => {
   })
 }
 
+/** `node scanner/relais.mjs --summary [args]` → its text, or the error; never a throw. */
+const relais = async ($: EngineInterface, args: string[], timeoutMs = 20000): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
+  try {
+    const r = await $.process.run(['node', `${root($)}/scanner/relais.mjs`, '--summary', ...args], { timeoutMs })
+    let json: any
+    try {
+      json = JSON.parse(r.stdout)
+    } catch {
+      json = undefined
+    }
+    if (r.exitCode !== 0 || !json?.text) return { ok: false, error: json?.error ?? (r.stderr.trim().split('\n').pop() || `exit ${r.exitCode}`) }
+    return { ok: true, text: json.text }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
+let relaisBusy = false
+const relaisSoon = ($: EngineInterface) => {
+  if (relaisBusy) return
+  relaisBusy = true
+  $.clock.after(0, async () => {
+    try {
+      const r = await relais($, [], 600000)
+      $.ui.toast(r.ok ? r.text.split('\n')[0]! : `ci relais: ${r.error}`)
+    } finally {
+      relaisBusy = false
+    }
+  })
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ci',
       description: 'CI routing: backends, their status, and which repo or conversation uses which (route / clear)',
-      argumentHint: '[refresh] | diagramme [refresh] [claude|codex|inconnu|tout] [hote|app|conv] | close | route <repo|session|here> <backend-id> | clear <repo|session|here>',
+      argumentHint: '[refresh] | diagramme [refresh] [claude|codex|inconnu|tout] [hote|app|conv] | relais [refresh] | close | route <repo|session|here> <backend-id> | clear <repo|session|here>',
     })
     const ran = await next(e)
     // the route for the status line and the prompt note; cache only, no network at start
@@ -138,6 +172,16 @@ export const register: Register = on => {
       await $.ui.close({ id: PANE.id })
       return {}
     }
+    const relaisWords = (e.args ?? '').trim().toLowerCase().split(/\s+/)
+    if (relaisWords[0] === 'relais' || relaisWords[0] === 'codex-claude') {
+      // Claude <-> Codex dataset (scanner/relais.mjs, read-only, written to ~/.claude/ci-cache/interactions.json)
+      if (relaisWords[1] === 'refresh') {
+        relaisSoon($)
+        return { text: 'ci relais: lecture gh/glab et des transcripts en arrière-plan (1-3 min), puis /ci relais' }
+      }
+      const r = await relais($, ['--cached'])
+      return { text: r.ok ? r.text : `ci relais: ${r.error}` }
+    }
     const p = parseArgs(e.args ?? '')
     if (p.kind === 'usage') return { text: p.text }
     if (p.kind === 'diagram') {
@@ -149,7 +193,7 @@ export const register: Register = on => {
       const d = await loadDiagram($, 'cache')
       if (!d) return { text: `ci: ${await read($, error)}` }
       if (w.refresh || d.stale) fetchSoon($, w.refresh)
-      return { text: diagramText(w.refresh ? { ...d, stale: true } : d, await read($, who), await read($, group), Date.now()) }
+      return { text: diagramText(w.refresh ? { ...d, stale: true } : d, effectiveWho(await read($, who), d), await read($, group), Date.now()) }
     }
     const { cwd, id } = await where($)
     if (p.kind === 'route' || p.kind === 'clear') {
@@ -185,15 +229,16 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE.id }, async ($, e) => {
+    const dg = parseDiagram(await read($, diagram))
     return drawCi($.ui.resolve(e), {
       surface: e.surface,
       tab: await read($, tab),
       snapshot: parseSnapshot(await read($, snapshot)),
-      diagram: parseDiagram(await read($, diagram)),
+      diagram: dg,
       error: await read($, error),
       checking: await read($, checking),
       fetching: await read($, fetching),
-      who: await read($, who),
+      who: effectiveWho(await read($, who), dg),
       group: await read($, group),
       folded: await read($, foldedA),
       now: Date.now(),

@@ -105,10 +105,11 @@
     }
   ],
   "pipelines": {
-    "_readme": "Diagramme view (/ci diagramme): which repos to draw and how runs are attributed. roots: folders whose git clones (max_depth deep) are drawn, plus every repo with a route. repos: extra local paths, or {\"github\": \"owner/name\"} / {\"gitlab\": \"group/name\", \"host\": \"gitlab.com\"} without a clone. A GitLab remote of a clone (a CI mirror) is drawn with it. Read-only: gh run list/view, glab api (GET), git log, local transcripts. Labels and colors are yours to change.",
+    "_readme": "Diagramme view (/ci diagramme): which repos to draw and how runs are attributed. roots: folders whose git clones (max_depth deep) are drawn, plus every repo with a route. repos: extra local paths, or {\"github\": \"owner/name\"} / {\"gitlab\": \"group/name\", \"host\": \"gitlab.com\"} without a clone. A GitLab remote of a clone (a CI mirror) is drawn with it. Read-only: gh run list/view, glab api (GET), git log, local transcripts. default_who: the filter the Diagramme opens on (claude, codex, all or unknown; claude when absent). Labels and colors are yours to change.",
     "roots": [
       "<PROJECTS_ROOT>"
     ],
+    "default_who": "claude",
     "max_depth": 2,
     "repos": [],
     "runs_per_repo": 15,
@@ -182,6 +183,21 @@
       "line": "#8c959f",
       "text": "#8c959f",
       "box": "#2f81f7"
+    }
+  },
+  "relais": {
+    "_readme": "/ci relais and scanner/relais.mjs: the Claude <-> Codex dataset per repo/PR (who opened, who fixed, who merged, hand-offs, dependencies, CI pass rate per agent), read-only (gh pr list, glab api GET, git remote, merge commands in local transcripts), written to out for the Cockpit. Repos come from pipelines.roots / repos; attribution patterns from pipelines.attribution plus the keys below.",
+    "days": 30,
+    "max_prs": 60,
+    "out": "~/.claude/ci-cache/interactions.json",
+    "claude_projects": "~/.claude/projects",
+    "codex_sessions": "~/.codex/sessions",
+    "attribution": {
+      "claude_body": "generated with \\[claude code\\]",
+      "codex_body": "(generated|created|opened) (with|by) codex|chatgpt-codex",
+      "claude_authors": [
+        "claude"
+      ]
     }
   }
 }

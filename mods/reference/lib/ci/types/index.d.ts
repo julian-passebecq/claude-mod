@@ -124,6 +124,8 @@ export type Diagram = {
   labels: DiagramLabels
   colors?: Partial<Record<RunStatus, string>>
   svg_colors?: Record<string, string>
+  /** filter the Diagramme opens on (config pipelines.default_who; 'claude' when absent) */
+  default_who?: WhoFilter
   summary: Summary | null
   apps: App[]
   conversations: (Conv & { runs: number })[]
@@ -140,8 +142,9 @@ declare module 'claude-code' {
       diagram: string
       /** a pipelines fetch (gh/glab) is running */
       fetching: boolean
-      /** Diagramme filters: who made the run, and how lanes are grouped */
-      who: WhoFilter
+      /** Diagramme filters: who made the run ('' = the config default, Claude Code unless pipelines.default_who says
+       *  otherwise), and how lanes are grouped */
+      who: WhoFilter | ''
       group: GroupBy
       /** keys of the Diagramme sections folded by the viewer; `gantt:<lane>` keys are lanes unfolded to their Gantt */
       folded: string[]

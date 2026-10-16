@@ -582,7 +582,9 @@ def summarize(runs, now, tz_offset_min=0):
 def look(cfg):
     """Labels and colors from the config (the view has French defaults for anything left out)."""
     p = cfg.get('pipelines') or {}
-    return {'labels': p.get('labels', {}), 'colors': p.get('colors', {}), 'svg_colors': p.get('svg_colors', {})}
+    who = p.get('default_who', 'claude')
+    return {'labels': p.get('labels', {}), 'colors': p.get('colors', {}), 'svg_colors': p.get('svg_colors', {}),
+            'default_who': who if who in ('all', 'claude', 'codex', 'unknown') else 'claude'}
 
 
 def build(cfg, apps, fetched, convs, status_checks, now, run=None, history=None):

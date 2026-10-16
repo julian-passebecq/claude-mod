@@ -68,6 +68,10 @@ declare module 'claude-code' {
       copied: string
       /** outcome of the last « Appliquer ce scénario » press */
       applyMsg: string
+      /** pane tab: scenarios or versus (« Claude vs GPT ») */
+      tab: 'scenarios' | 'versus'
+      /** benchmark id the « Claude vs GPT » tab shows ('' = the first one) */
+      bench: string
     }
   }
 }

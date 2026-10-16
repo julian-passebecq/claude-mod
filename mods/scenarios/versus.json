@@ -1,0 +1,55 @@
+{
+  "_readme": "« Claude vs GPT » tab of /scenarios (/scenarios vs). One row = one model on one benchmark, or one price. Every number carries its source URL and the date of that source (published, or read on: accessed). A row without a source is shown « non confirmé » and never drawn as a point. Never invent numbers: add a row only from a page you read. Vendor-reported scores use each vendor's own harness and effort; compare within one benchmark only. Edit this file or point userConfig versus_file at your own copy (same shape).",
+  "schema": 1,
+  "checked": "2026-10-16",
+  "blend": { "_doc": "Cost axis: a blended $ per million tokens = (input x in + output x out) / (in + out). Change the weights to match your traffic.", "in": 3, "out": 1 },
+  "benchmarks": [
+    { "id": "tb4", "label": "Terminal-Bench 4.0", "unit": "%", "about": "terminal tasks run by an agent; 8 h per task", "url": "https://www.tbench.ai/news/terminal-bench-4-0" },
+    { "id": "frontiercode", "label": "FrontierCode v1.1 (Main)", "unit": "%", "about": "coding tasks, figures from Anthropic's launch page", "url": "https://www.anthropic.com/news/claude-opus-5-5" }
+  ],
+  "models": [
+    { "id": "opus-5-5", "vendor": "anthropic", "label": "Claude Opus 5.5", "released": "2026-09-22", "released_url": "https://www.anthropic.com/news/claude-opus-5-5" },
+    { "id": "sonnet-5-5", "vendor": "anthropic", "label": "Claude Sonnet 5.5", "released": "2026-09-28", "released_url": "https://www.anthropic.com/news/claude-sonnet-5-5" },
+    { "id": "haiku-5-5", "vendor": "anthropic", "label": "Claude Haiku 5.5" },
+    { "id": "fable-5-1", "vendor": "anthropic", "label": "Claude Fable 5.1" },
+    { "id": "opus-5", "vendor": "anthropic", "label": "Claude Opus 5" },
+    { "id": "gpt-6-astra", "vendor": "openai", "label": "GPT-6 Astra" },
+    { "id": "gpt-5-6-sol", "vendor": "openai", "label": "GPT-5.6 Sol" }
+  ],
+  "prices": [
+    { "model": "opus-5-5", "in": 4, "out": 20, "source_url": "https://claude.com/pricing", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "sonnet-5-5", "in": 2, "out": 10, "source_url": "https://claude.com/pricing", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "haiku-5-5", "in": 0.1, "out": 0.5, "note": "prompts up to 100K tokens; above: $0.50 / $2.50", "source_url": "https://claude.com/pricing", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "fable-5-1", "in": 10, "out": 50, "source_url": "https://claude.com/pricing", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "opus-5", "in": 5, "out": 25, "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "gpt-6-astra", "in": 10, "out": 50, "note": "prompts over 272K input tokens: 2x input, 1.5x output", "source_url": "https://developers.openai.com/api/docs/models/gpt-6-astra", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "gpt-5-6-sol", "in": 4, "out": 20, "note": "promotional rate, at least through 2026-11-21; the standard rate is not published", "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol", "source_date": "2026-10-16", "date_kind": "accessed" }
+  ],
+  "scores": [
+    { "model": "opus-5-5", "bench": "tb4", "value": 66.4, "effort": "xhigh", "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "sonnet-5-5", "bench": "tb4", "value": 70.6, "effort": "non précisé", "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-sonnet-5-5", "source_date": "2026-09-28", "date_kind": "published" },
+    { "model": "fable-5-1", "bench": "tb4", "value": 55.8, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "opus-5", "bench": "tb4", "value": 52.3, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "gpt-6-astra", "bench": "tb4", "value": 57.9, "effort": "high", "reported_by": "OpenAI (repris par Anthropic)", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "gpt-5-6-sol", "bench": "tb4", "value": 37.3, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "haiku-5-5", "bench": "tb4", "value": null, "reported_by": "", "source_url": "", "source_date": "" },
+    { "model": "sonnet-5-5", "bench": "tb4", "value": 63.6, "effort": "max", "reported_by": "Artificial Analysis (indépendant)", "source_url": "https://artificialanalysis.ai/evaluations/terminalbench-v4-0", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "opus-5-5", "bench": "tb4", "value": 59.6, "effort": "xhigh", "reported_by": "Artificial Analysis (indépendant)", "source_url": "https://artificialanalysis.ai/evaluations/terminalbench-v4-0", "source_date": "2026-10-16", "date_kind": "accessed" },
+    { "model": "gpt-6-astra", "bench": "tb4", "value": null, "effort": "xhigh", "reported_by": "Artificial Analysis (indépendant)", "note": "59.6 % cité par un résumé de recherche, pas lu sur la page", "source_url": "", "source_date": "" },
+    { "model": "opus-5-5", "bench": "frontiercode", "value": 54.4, "effort": "max", "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "fable-5-1", "bench": "frontiercode", "value": 50.3, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "opus-5", "bench": "frontiercode", "value": 48.0, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "gpt-6-astra", "bench": "frontiercode", "value": 53.3, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" },
+    { "model": "gpt-5-6-sol", "bench": "frontiercode", "value": 47.5, "reported_by": "Anthropic", "source_url": "https://www.anthropic.com/news/claude-opus-5-5", "source_date": "2026-09-22", "date_kind": "published" }
+  ],
+  "labels": {
+    "tab_scenarios": "Scénarios",
+    "tab_versus": "Claude vs GPT",
+    "unconfirmed": "non confirmé",
+    "cost": "$/M tok (mélange)",
+    "score": "score",
+    "price": "prix in/out $/M",
+    "source": "source",
+    "per_point": "$/M par point"
+  }
+}

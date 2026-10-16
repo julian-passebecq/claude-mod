@@ -43,7 +43,15 @@ export const labelsOf = (d: Pick<Diagram, 'labels'> | undefined) => ({
 export type L = ReturnType<typeof labelsOf>
 export const colorOf = (d: Pick<Diagram, 'colors'> | undefined, s: RunStatus): string => d?.colors?.[s] ?? DEFAULT_COLORS[s]
 
-export const WHO_FILTERS: WhoFilter[] = ['all', 'claude', 'codex', 'unknown']
+/** Filter buttons, Claude Code first (the default), then the Codex button, then everything and the unattributed. */
+export const WHO_FILTERS: WhoFilter[] = ['claude', 'codex', 'all', 'unknown']
+/** Claude only unless the config (pipelines.default_who) says otherwise. */
+export const DEFAULT_WHO: WhoFilter = 'claude'
+/** The filter in use: the viewer's choice, else the config default, else Claude only. */
+export const effectiveWho = (chosen: WhoFilter | '' | undefined, d: Pick<Diagram, 'default_who'> | undefined): WhoFilter =>
+  chosen && (WHO_FILTERS as string[]).includes(chosen) ? chosen
+    : d?.default_who && (WHO_FILTERS as string[]).includes(d.default_who) ? d.default_who
+    : DEFAULT_WHO
 export const GROUPS: GroupBy[] = ['host', 'app', 'conv']
 export const whoLabel = (L: L, w: WhoFilter): string => (w === 'all' ? L.all : L[w])
 export const groupLabel = (L: L, g: GroupBy): string => (g === 'host' ? L.by_host : g === 'app' ? L.by_app : L.by_conv)

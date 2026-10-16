@@ -2,6 +2,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { SHIPPED } from './shipped'
+import { VERSUS } from './versus_shipped'
 
 const PANE = { title: 'x', isFocused: true, bodyColumns: 110, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} } as const
 const USER = 'C:/Users/me/my-scenarios.json'
@@ -15,6 +16,7 @@ function world(on: any, extra?: string) {
     const p = String(e.path).replace(/\\/g, '/')
     if (p === USER && extra !== undefined) return { value: extra }
     if (p.endsWith('/scenarios.json')) return { value: SHIPPED }
+    if (p.endsWith('/versus.json')) return { value: VERSUS }
     throw new Error('ENOENT ' + p)
   })
   on('command.register', () => ({ value: undefined }))
@@ -90,4 +92,31 @@ test('agent.spawn: no toast when warn_no_model is off', { options: { warn_no_mod
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a1' }))
   await $.agent.spawn({ tool_use_id: 't', prompt: 'p', description: 'd', subagentType: 'x', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'm', background: true, fork: false } as any)
   expect(w.toasts.length).toBe(0)
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Claude vs GPT tab lists sourced scores and marks the rest « non confirmé » (${surface})`, async ($, on) => {
+    world(on)
+    const pane = await mount($, surface)
+    await pane.press({ key: 'tab-versus' })
+    expect(await pane.find({ type: 'Button', text: /Terminal-Bench 4\.0/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Claude Opus 5\.5 · 66\.4 % \(xhigh, Anthropic\)/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /GPT-6 Astra · 57\.9 %/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Claude Haiku 5\.5 · non confirmé/ })).toBeDefined()
+    expect(await pane.find({ type: 'Link', href: 'https://www.anthropic.com/news/claude-opus-5-5' } as any)).toBeDefined()
+    await pane.press({ key: 'vs-frontiercode' })
+    expect(await pane.find({ type: 'Text', text: /FrontierCode v1\.1 \(Main\) · 5 score/ })).toBeDefined()
+    await pane.press({ key: 'tab-scenarios' })
+    expect(await pane.find({ type: 'Button', text: /S1 Standard V6/ })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('/scenarios vs answers with the sourced table', async ($, on) => {
+  world(on)
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/x', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'scenarios', args: 'vs tb4' } as any)
+  expect(r.text).toMatch(/Claude vs GPT · Terminal-Bench 4\.0 · vérifié le 2026-10-16/)
+  expect(r.text).toMatch(/Claude Sonnet 5\.5 · 70\.6 %/)
 })
