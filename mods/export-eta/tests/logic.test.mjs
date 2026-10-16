@@ -70,6 +70,20 @@ test('mask: config patterns and pattern files (tests-reels) add rules', () => {
   assert.equal(f.counts['tests-reels'], 1)
 })
 
+test('tests-reels: everything its secret finder flags is masked here (its patterns are covered)', async () => {
+  const { findSecrets } = await import('../../tests-reels/lib/secrets.mjs')
+  const samples = [
+    `GH ${SECRETS.github}`, `GL ${SECRETS.gitlab}`, `K ${SECRETS.anthropic}`, `O ${SECRETS.openai}`, `A ${SECRETS.aws}`, SECRETS.key, `J ${SECRETS.jwt}`, SECRETS.bearer,
+    'password: Tr0ub4dor-Zq9', 'mot de passe = Qw3rty-Lm81x', 'client_secret="aV3bW4cX5dY6eZ7f"', 'cf-access-client-secret: Kf8sLq2Wm9Zp4Rt7',
+    'refresh_token=Mn4Bv7Cx1Zq8Lp5K', 'cookie=Ab12Cd34Ef56Gh78', 'AccountKey: Pq9Rs8Tu7Vw6Xy5Z', 'api_key: Hj6Kl3Mn9Pq2Rs5T',
+  ]
+  for (const t of samples) {
+    assert.ok(findSecrets(t).length > 0, `tests-reels flags: ${t.slice(0, 20)}`)
+    const m = mask(t, {})
+    assert.deepEqual(findSecrets(m.text), [], `still flagged after masking: ${m.text}`)
+  }
+})
+
 test('held back: what cannot be masked is reported (half a private key)', () => {
   const half = '-----BEGIN ' + 'OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA (coupé)'
   const m = mask(half, {})
