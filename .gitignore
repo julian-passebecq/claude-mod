@@ -4,3 +4,4 @@ node_modules/
 .claude-plugin/types/
 *.jsonl
 *cache*.json
+mods/ci/ci.config.json

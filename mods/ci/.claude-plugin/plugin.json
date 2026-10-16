@@ -1,0 +1,7 @@
+{
+  "name": "ci",
+  "version": "0.1.0",
+  "description": "CI routing: which CI backends exist (from a config file), whether they are usable (token, runners, jobs), and which repo or conversation uses which. /ci, /ci route, /ci clear",
+  "author": { "name": "Julian Passebecq" },
+  "types": "./types/index.d.ts"
+}
