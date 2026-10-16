@@ -1,7 +1,9 @@
 {
   "name": "ci",
-  "version": "0.1.0",
-  "description": "CI routing: which CI backends exist (from a config file), whether they are usable (token, runners, jobs), and which repo or conversation uses which. /ci, /ci route, /ci clear",
-  "author": { "name": "Julian Passebecq" },
+  "version": "0.2.0",
+  "description": "CI routing and pipeline diagram: which CI backends exist (from a config file), whether they are usable, which repo or conversation uses which, and a Diagramme tab (repo -> CI host -> stages/jobs -> result, Gantt, ETA, filters Claude Code / Codex / app / conversation). /ci, /ci diagramme, /ci route, /ci clear",
+  "author": {
+    "name": "Julian Passebecq"
+  },
   "types": "./types/index.d.ts"
 }

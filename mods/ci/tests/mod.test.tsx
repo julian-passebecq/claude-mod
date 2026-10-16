@@ -3,6 +3,38 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { parseArgs, promptNote, resolveTarget, summary } from '../hooks/view'
+import { etaText, gantt, groups, headline, isRed, logCommand, overviewSvg, parseDiagramWords, segsText, laneSegs, labelsOf } from '../hooks/diagram'
+
+// Invented pipelines: app-one (GitHub, red lint by Claude), app-two (GitLab mirror on the local runner, running, Codex).
+const T = (min: number) => new Date(Date.parse('2026-10-16T20:00:00Z') - min * 60000).toISOString()
+const NOW_MS = Date.parse('2026-10-16T20:00:00Z')
+const DIAGRAM: any = {
+  generated: '2026-10-16T20:00:00Z', stale: true, labels: {}, colors: {}, svg_colors: {},
+  hosts: [{ id: 'github-hosted', label: 'GitHub Actions', kind: 'github', runner_tag: '', status: 'active' },
+    { id: 'gitlab-local', label: 'GitLab runner on this PC', kind: 'gitlab', runner_tag: 'local-windows', status: 'active' }],
+  summary: { queue: { backend: 'gitlab-local', label: 'GitLab runner on this PC', tag: 'local-windows', running: 6, pending: 1, runners_online: 1, pipelines_open: 1, concurrent: 18, wait_s: 45, wait_n: 4 } },
+  apps: [
+    { app: 'app-one', path: '', github: 'acme/app-one', gitlab: [], fetched: true, runs: [
+      { forge: 'github', slug: 'acme/app-one', backend: 'github-hosted', id: 11, url: 'u11', branch: 'claude/fix-lint', sha: 'a1', event: 'pull_request', title: '', workflow: 'tests',
+        status: 'failed', created: T(30), duration_s: 300, queued_s: 0, mr: null, app: 'app-one', who: 'claude',
+        conv: { id: 'sess-aaa-1111', title: 'LINT FIX lane', project: 'C--code-app-one' },
+        jobs: [{ id: 111, name: 'lint', stage: 'tests', status: 'failed', duration_s: 120, started: T(30), finished: T(28), url: 'j111' },
+          { id: 112, name: 'docs', stage: 'tests', status: 'failed', allow_failure: true, duration_s: 10, started: T(30), finished: T(29) }] },
+      { forge: 'github', slug: 'acme/app-one', backend: 'github-hosted', id: 10, url: 'u10', branch: 'main', sha: 'a0', event: 'push', title: '', workflow: 'tests',
+        status: 'success', created: T(120), duration_s: 60, queued_s: 0, mr: null, app: 'app-one', who: 'unknown', conv: null, jobs: null },
+    ] },
+    { app: 'app-two', path: '', github: 'acme/app-two', gitlab: ['gitlab.com/mirrors/app-two'], fetched: true, runs: [
+      { forge: 'gitlab', slug: 'mirrors/app-two', backend: 'gitlab-local', id: 501, url: 'w501', branch: 'codex/speed', sha: 'b1', event: 'push', title: '', workflow: '',
+        status: 'running', created: T(6), duration_s: null, queued_s: null, mr: null, app: 'app-two', who: 'codex', conv: null,
+        jobs: [{ id: 9001, name: 'build', stage: 'build', status: 'success', duration_s: 120, queued_s: 60, created: T(6), started: T(5), finished: T(3) },
+          { id: 9002, name: 'test', stage: 'test', status: 'running', duration_s: null, queued_s: 60, created: T(3), started: T(2), finished: null }],
+        estimate: { eta: new Date(NOW_MS + 4 * 60000).toISOString(), basis: 'jobs', samples: 5,
+          jobs: { test: { n: 5, median_s: 360, start: T(2), end: new Date(NOW_MS + 4 * 60000).toISOString() } } } },
+    ] },
+    { app: 'app-three', path: '', github: 'acme/app-three', gitlab: [], fetched: false, runs: [] },
+  ],
+  conversations: [{ id: 'sess-aaa-1111', title: 'LINT FIX lane', project: 'C--code-app-one', runs: 1 }],
+}
 
 const CWD = 'C:/code/app-one'
 const backends = [
@@ -34,7 +66,8 @@ function world(on: any, generated: string | null = '2026-10-16T08:00:00Z') {
     const opt = (k: string) => { const i = rest.indexOf(k); return i >= 0 ? rest[i + 1]! : '' }
     let out: any
     let code = 0
-    if (cmd === 'show') out = snap(opt('--cwd'), opt('--session'))
+    if (cmd === 'pipelines') out = rest.includes('--refresh') || rest.includes('--check') ? { ...DIAGRAM, stale: false } : DIAGRAM
+    else if (cmd === 'show') out = snap(opt('--cwd'), opt('--session'))
     else if (cmd === 'route') {
       const [target, backend] = rest
       if (!backends.some(b => b.id === backend)) { code = 2; out = { error: `unknown backend '${backend}'` } }
@@ -138,4 +171,72 @@ test('view helpers', async () => {
   expect(promptNote(s)).toBeUndefined()
   const note = promptNote({ ...s, current: { key: 'sess-1', kind: 'session', match: 'session', backend: 'gitlab-local', set_by: 'lead', set_at: 't' } })!
   expect(note).toMatch(/CI backend "gitlab-local": GitLab runner on this PC \(gitlab, gitlab.com, runner tag local-windows\)/)
+})
+
+test('/ci diagramme answers with the headline, opens the Diagramme tab and fetches in the background when stale', async ($, on) => {
+  const w = world(on)
+  const r = await $.command.run({ command: 'ci', args: 'diagramme codex app' } as any)
+  expect(r.text).toMatch(/Diagramme/)
+  expect(r.text).toMatch(/Codex · par app/)
+  expect(r.text).toMatch(/1 pipeline en cours/)
+  await w.clock.advance(1)
+  expect(w.runs.some(a => a[3] === 'pipelines' && a.includes('--check'))).toBe(true)
+  // no write and no model: only ci.py with read verbs
+  expect(w.runs.every(a => a[0] === 'python' && a[1] === '-I')).toBe(true)
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`Diagramme pane: headline, filters as buttons, red with its log command, live ETA and Gantt (${surface})`, async ($, on) => {
+    world(on)
+    await $.command.run({ command: 'ci', args: 'diagramme tout hote' } as any)
+    const pane = await mount($, surface)
+    expect(await pane.find({ type: 'Text', text: /1 pipeline en cours, 1 rouge dans app-one \(job lint\), runner local à 6\/18/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /vert ou rouge vers \d\d:\d\d \(médiane des jobs, 5 runs au moins\)/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /log : gh run view 11 -R acme\/app-one --log-failed/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /fin ~\d\d:\d\d \(n=5\)/ })).toBeDefined()
+    // Codex filter: app-one's Claude red disappears
+    await pane.press({ key: 'who-codex' })
+    expect(await pane.find({ type: 'Text', text: /1 pipeline en cours, aucun rouge/ })).toBeDefined()
+    // group by conversation (Tout again): the conversation title is a group
+    await pane.press({ key: 'who-all' })
+    await pane.press({ key: 'group-conv' })
+    expect(await pane.find({ type: 'Text', text: /LINT FIX lane/ })).toBeDefined()
+    expect(await pane.find({ text: /sans conversation connue/ })).toBeDefined() // a section header (button)
+    // routing tab is still one click away
+    await pane.press({ key: 'tab-routing' })
+    expect(await pane.find({ type: 'Text', text: /This conversation/ })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('diagram helpers: words, headline, red only for real failures, ETA, Gantt, log commands, svg', async () => {
+  expect(parseDiagramWords(['refresh', 'codex', 'conv'])).toEqual({ refresh: true, who: 'codex', group: 'conv' })
+  expect(parseDiagramWords(['inconnu', 'hôte'])).toEqual({ refresh: false, who: 'unknown', group: 'host' })
+  expect(parseArgs('diagramme refresh')).toEqual({ kind: 'diagram', words: ['refresh'] })
+  expect(headline(DIAGRAM, 'all')).toBe('1 pipeline en cours, 1 rouge dans app-one (job lint), runner local à 6/18, attente runner ~45s (médiane de 4 jobs)')
+  const red = DIAGRAM.apps[0].runs[0]
+  expect(isRed(red.jobs[0])).toBe(true)
+  expect(isRed(red.jobs[1])).toBe(false) // allow_failure: orange, never red
+  const L = labelsOf(DIAGRAM)
+  const lane = groups(DIAGRAM, 'all', 'app').find(g => g.key === 'app-one')!.lanes[0]!
+  const segs = laneSegs(L, lane, NOW_MS)
+  expect(segsText(segs)).toMatch(/^app-one ──▶ GitHub Actions ──▶ \[tests: lint ✘ 2m00, docs ✘ 10s\] ──▶ ✘ rouge 5m00 · il y a 30 min$/)
+  expect(segs.filter(s => s.status === 'failed').length).toBe(2) // lint + the run result; docs is not red
+  expect(logCommand(red)).toBe('gh run view 11 -R acme/app-one --log-failed')
+  const live = DIAGRAM.apps[1].runs[0]
+  expect(logCommand(live, live.jobs[1])).toBe('glab ci trace 9002 -R mirrors/app-two')
+  expect(etaText(live)).toMatch(/^vert ou rouge vers \d\d:\d\d \(médiane des jobs, 5 runs au moins\)$/)
+  expect(etaText({ ...live, estimate: { eta: null, basis: null, samples: 2, jobs: {}, reason: "pas assez d'historique" } }))
+    .toBe("pas assez d'historique (2 run(s) connus, 3 au moins)")
+  const g = gantt(live, NOW_MS, 20)
+  expect(g.rows.map(r => r.name)).toEqual(['build', 'test'])
+  const bar = (i: number) => g.rows[i]!.cells.map(c => c.text).join('')
+  expect(bar(0)).toHaveLength(20)
+  expect(bar(0)).toMatch(/^░+█+·+│?·*$/) // queue then run, before now
+  expect(bar(1)).toMatch(/░█+┄+/) // running: solid until now, dashed estimated tail
+  expect(g.rows[1]!.text).toMatch(/^fin ~\d\d:\d\d \(n=5\)$/)
+  expect(g.rows[0]!.text).toBe('✔ 2m00 + 1m00 en file')
+  const svg = overviewSvg(DIAGRAM, 'all')
+  expect(svg.startsWith('<svg')).toBe(true)
+  expect(svg).toMatch(/GitLab runner on this PC/)
 })

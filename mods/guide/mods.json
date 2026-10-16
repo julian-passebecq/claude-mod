@@ -18,8 +18,8 @@
     {
       "dir": "ci",
       "state": "building",
-      "data": "~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners)",
-      "note": "note dans le prompt système désactivée par défaut (prompt_note: false) ; /ci close ferme le panneau",
+      "data": "~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners) ; onglet Diagramme (/ci diagramme) : gh run list / gh run view --json jobs, glab api en GET (pipelines et jobs des projets et miroirs GitLab), git log -1 du clone local (trailer Co-Authored-By), transcripts ~/.claude/projects/*/*.jsonl (sortie de gh pr create / glab mr create, titre de la conversation), caches ~/.claude/ci-pipelines-cache.json et ci-conversations-cache.json",
+      "note": "note dans le prompt système désactivée par défaut (prompt_note: false) ; /ci close ferme le panneau ; Diagramme : une phrase en tête (pipelines en cours, rouges avec leur job, runner local N/concurrent), filtres en boutons Tout · Claude Code · Codex · inconnu et groupes par hôte · par app · par conversation, sections repliables, Gantt texte par pipeline (file ░, exécution █, fin estimée ┄, maintenant │), heure de fin estimée = médiane d'au moins 3 runs réussis du même job (sinon médiane des pipelines, sinon « pas assez d'historique »), commande de log par job rouge (montrée, jamais lancée) ; rouge seulement pour un vrai échec (allow_failure en orange) ; attribution Claude / Codex par branche, trailer ou auteur, « inconnu » sinon ; lecture gh/glab seulement sur Rafraîchir ou cache plus vieux que cache_minutes ; titre de conversation lu dans custom-title (ai-title non vérifié)",
       "tests": ["python -I -m unittest discover -s mods/ci/tests -p \"test_*.py\"", "claude plugin test mods/ci"]
     },
     {

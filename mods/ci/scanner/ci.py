@@ -5,6 +5,7 @@
     python -I ci.py route   <repo-path|session> <backend-id> [--by WHO] [--cwd DIR]  writes the routing file
     python -I ci.py clear   <repo-path|session> [--cwd DIR]
     python -I ci.py resolve [--cwd DIR] [--session ID]                            the route that applies here
+    python -I ci.py pipelines [--refresh] [--check]                               the Diagramme view (pipelines.py)
 
 Read-only on everything but its own two files (the routing file and the status cache).
 A token value is never printed, stored or logged: only "present yes/no" and where it came from.
@@ -26,6 +27,8 @@ _HEALTH_T0 = time.time()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MOD = os.path.dirname(HERE)
+sys.path.insert(0, HERE)  # -I leaves the script's folder out of sys.path
+import pipelines  # noqa: E402
 YES, NO, UNKNOWN = 'yes', 'no', 'unknown'
 
 
@@ -396,11 +399,19 @@ def show(cfg, cwd=None, session=None, refresh=False, check=False):
     }
 
 
+def pipelines_view(cfg, refresh=False, check=False, run_fn=None, now=None):
+    """The Diagramme view's JSON (pipelines.py), with this module's runner, file helpers and cached status."""
+    t = max(cfg['timeout_seconds'], 15)
+    runner = run_fn or (lambda argv: run(argv, t))
+    return pipelines.collect(cfg, load_routes(cfg), cached_status(cfg).get('checks', {}), runner,
+                             (expand, read_json, write_json, is_placeholder), refresh=refresh, check=check, now=now)
+
+
 # ------------------------------------------------------------------ CLI
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='ci.py', description=__doc__.split('\n')[0])
-    ap.add_argument('command', choices=['show', 'status', 'route', 'clear', 'resolve', 'config'])
+    ap.add_argument('command', choices=['show', 'status', 'route', 'clear', 'resolve', 'config', 'pipelines'])
     ap.add_argument('args', nargs='*')
     ap.add_argument('--config')
     ap.add_argument('--cwd')
@@ -416,6 +427,8 @@ def main(argv=None):
             out = show(cfg, cwd, a.session, refresh=a.refresh, check=a.check)
         elif a.command == 'status':
             out = status(cfg, refresh=a.refresh)
+        elif a.command == 'pipelines':
+            out = pipelines_view(cfg, refresh=a.refresh, check=a.check)
         elif a.command == 'config':
             out = {k: v for k, v in cfg.items() if not k.startswith('_')}
         elif a.command == 'resolve':

@@ -7,9 +7,10 @@ export type Parsed =
   | { kind: 'show'; refresh: boolean }
   | { kind: 'route'; target: string; backend: string }
   | { kind: 'clear'; target: string }
+  | { kind: 'diagram'; words: string[] }
   | { kind: 'usage'; text: string }
 
-export const USAGE = 'usage: /ci [refresh] · /ci route <repo-path|session-id|here|session> <backend-id> · /ci clear <repo-path|session-id|here|session>'
+export const USAGE = 'usage: /ci [refresh] · /ci diagramme [refresh] [claude|codex|inconnu|tout] [hote|app|conv] · /ci route <repo-path|session-id|here|session> <backend-id> · /ci clear <repo-path|session-id|here|session>'
 
 /** `/ci`, `/ci refresh`, `/ci route <target> <backend>`, `/ci clear <target>`. Quotes keep a path with spaces whole. */
 export const parseArgs = (args: string): Parsed => {
@@ -18,6 +19,7 @@ export const parseArgs = (args: string): Parsed => {
   const v = verb.toLowerCase()
   if (v === '' || v === 'show' || v === 'status') return { kind: 'show', refresh: false }
   if (v === 'refresh' || v === 'check') return { kind: 'show', refresh: true }
+  if (v === 'diagramme' || v === 'diagram' || v === 'diag' || v === 'pipelines') return { kind: 'diagram', words: rest }
   if (v === 'route' || v === 'set') {
     if (rest.length !== 2) return { kind: 'usage', text: USAGE }
     return { kind: 'route', target: rest[0]!, backend: rest[1]! }
