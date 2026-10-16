@@ -8,13 +8,22 @@
   "login_match": "\\b(login|log in|sign[- ]?in|connexion|se connecter|2FA|MFA|OTP|tenant|Cloudflare Access|accès cloud|cloud access|mot de passe|password|identifiants?|credentials?)\\b",
   "categories": {
     "config": "Configuration",
+    "claude_control": "Claude Control",
     "decisions": "Décisions",
     "logins": "Connexions / 2FA",
     "secrets": "Secrets à ranger",
     "manual": "Tests manuels",
     "questions": "Questions des conversations"
   },
-  "order": ["config", "decisions", "logins", "secrets", "manual", "questions"],
+  "order": [
+    "config",
+    "claude_control",
+    "decisions",
+    "logins",
+    "secrets",
+    "manual",
+    "questions"
+  ],
   "_open": "Categories unfolded when the pane opens: nonempty (every category with something to do), all, none, or a list of ids.",
   "open": "nonempty",
   "priorities": {
@@ -23,7 +32,20 @@
     "comfort": "confort"
   },
   "sources": {
-    "manual_checks": { "enabled": true, "file": "~/.claude/effort-board/manual-checks.md" },
+    "manual_checks": {
+      "enabled": true,
+      "file": "~/.claude/effort-board/manual-checks.md"
+    },
+    "claude_control": {
+      "enabled": true,
+      "_doc": "Ta liste (file vide : claude-control.md dans home, ~/.claude/a-faire) Claude Control (pas liée à une conversation ni à un projet) : lignes « - [ ] échéance · priorité · quoi · pourquoi · comment », échéance AAAA-MM-JJ ou —, [x] = fait. Triée par échéance ; prios : haute/moyenne/basse vers now/feature/comfort.",
+      "file": "",
+      "prios": {
+        "haute": "feature",
+        "moyenne": "comfort",
+        "basse": "comfort"
+      }
+    },
     "questions": {
       "enabled": true,
       "file": "~/.claude/effort-board/questions.md",
@@ -39,15 +61,28 @@
     "prs": {
       "enabled": true,
       "_doc": "Your open PRs (gh search prs --author @me) that carry one of labels, or one sentence of the title or body naming Julian (name) and a verb (verbs). Cached ttl_min minutes; tokens stay with gh.",
-      "labels": ["needs-julian", "julian", "needs-decision"],
+      "labels": [
+        "needs-julian",
+        "julian",
+        "needs-decision"
+      ],
       "name": "\\bJulian\\b",
       "verbs": "approv|decid|décid|valid|tranch",
       "ttl_min": 30,
       "limit": 100
     },
-    "veille": { "enabled": true, "home": "~/.claude/veille" },
-    "smtp": { "enabled": true },
-    "task": { "enabled": true, "name": "ClaudeVeille", "fire_every_min": 5 },
+    "veille": {
+      "enabled": true,
+      "home": "~/.claude/veille"
+    },
+    "smtp": {
+      "enabled": true
+    },
+    "task": {
+      "enabled": true,
+      "name": "ClaudeVeille",
+      "fire_every_min": 5
+    },
     "mods": {
       "enabled": true,
       "_roots": "Folders holding mod folders (each with .claude-plugin/plugin.json). Empty: the folder this mod sits in.",
@@ -55,15 +90,29 @@
       "ignore": [],
       "settings": "~/.claude/settings.json"
     },
-    "secrets": { "enabled": true, "registry": "~/.claude/tests-reels/registry.json", "match": "ranger" }
+    "secrets": {
+      "enabled": true,
+      "registry": "~/.claude/tests-reels/registry.json",
+      "match": "ranger"
+    }
   },
   "veille_feed": {
     "_doc": "The veille watcher pushes new items of these priorities once each (Windows notification, and the e-mail digest when smtp.json works).",
     "enabled": true,
-    "prios": ["now", "feature"],
+    "prios": [
+      "now",
+      "feature"
+    ],
     "max_per_tour": 5
   },
-  "colors": { "now": "#f85149", "feature": "#d29922", "comfort": "#8b949e", "bad": "#f85149", "ok": "#3fb950", "dim": "#8b949e" },
+  "colors": {
+    "now": "#f85149",
+    "feature": "#d29922",
+    "comfort": "#8b949e",
+    "bad": "#f85149",
+    "ok": "#3fb950",
+    "dim": "#8b949e"
+  },
   "labels": {
     "title": "À toi",
     "counter": "À toi",
@@ -82,6 +131,9 @@
     "unread": "Sources non lues",
     "scanning": "Lecture des sources…",
     "never": "jamais lu",
-    "feed_prefix": "À faire"
+    "feed_prefix": "À faire",
+    "due": "échéance",
+    "overdue": "dépassée",
+    "today": "aujourd’hui"
   }
 }

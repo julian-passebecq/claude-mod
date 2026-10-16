@@ -4,6 +4,8 @@
 Connexions / 2FA, Secrets à ranger, Tests manuels, Questions des conversations), each with why it blocks, the exact
 steps (**Copier**), since when, its source, **Fait** and **Plus tard**. Read-only except its own `~/.claude/a-faire`.
 
+**Claude Control** (category `claude_control`): Julian's own list in `~/.claude/a-faire/claude-control.md` (`sources.claude_control.file`; empty = that file in the a-faire home), one line per task `- [ ] échéance · priorité · quoi · pourquoi · comment` (échéance `YYYY-MM-DD` or `—`, priorité haute / moyenne / basse mapped by `sources.claude_control.prios`; `[x]` or struck = done). Sorted by deadline first (« échéance 2026-11-05 (J-19) »), then priority.
+
 Commands: `/afaire [refresh | close]`, and `/a-toi` (same) registered only when the session has no `/a-toi` yet
 (checked with `$.command.list()` 2 s after the session starts).
 

@@ -7,7 +7,7 @@
 //   prio  now (bloque une conversation maintenant) | feature (bloque une fonction) | comfort (confort)
 //   auto  true when the scanner can tell by itself that it is done (the item then disappears with its cause)
 
-export const CATS = ['config', 'decisions', 'logins', 'secrets', 'manual', 'questions']
+export const CATS = ['config', 'claude_control', 'decisions', 'logins', 'secrets', 'manual', 'questions']
 export const PRIOS = ['now', 'feature', 'comfort']
 
 export function deepMerge(a, b) {
@@ -62,6 +62,31 @@ export function parseManualChecks(text, { file = '', href = '', loginRe = null, 
       title: oneLine(`${project || ''} : ${what || ''}`),
       why: project ? `Vérification que seul toi peux faire (${oneLine(project, 60)})` : 'Vérification que seul toi peux faire',
       steps: how ? stepsOf(how) : [], since: dayMs(date), source: { label: file || 'manual-checks.md', href }, auto: false,
+    })
+  }
+  return items
+}
+
+// ---- claude-control.md: « - [ ] échéance · priorité · quoi · pourquoi · comment »; [x] or struck lines are done ------
+// échéance is a date (YYYY-MM-DD) or « — » (none); priorité haute | moyenne | basse (prios maps it to now | feature |
+// comfort). Items carry `due` (ms, 09:00 local) so the category sorts by deadline first.
+
+export const DEFAULT_CC_PRIOS = { haute: 'feature', high: 'feature', moyenne: 'comfort', medium: 'comfort', basse: 'comfort', low: 'comfort' }
+
+export function parseClaudeControl(text, { file = '', href = '', prios = DEFAULT_CC_PRIOS, sinceMs = null } = {}) {
+  const items = []
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const m = /^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/.exec(raw)
+    if (!m || m[1] !== ' ' || /^\s*~~/.test(m[2])) continue
+    const [due = '', prio = '', what = '', why = '', ...how] = m[2].split(/\s+·\s+/)
+    if (!what.trim()) continue
+    const dueMs = /^\d{4}-\d{2}-\d{2}$/.test(due.trim()) ? dayMs(due.trim()) : null
+    const p = (prios || {})[clean(prio).toLowerCase()] || 'comfort'
+    items.push({
+      id: `cc:${hash(what.trim())}`, src: 'claude_control', cat: 'claude_control', prio: PRIOS.includes(p) ? p : 'comfort',
+      title: oneLine(what), why: oneLine(why, 220) || 'À faire pour Claude Control',
+      steps: how.length ? stepsOf(how.join(' · ')) : [], since: sinceMs, due: dueMs, dueDay: dueMs ? due.trim() : '',
+      source: { label: file || 'claude-control.md', href }, auto: false,
     })
   }
   return items
@@ -291,9 +316,12 @@ export function pruneState(state, items, now) {
 
 // ---- order, groups, counts -----------------------------------------------------------------------------------------
 
+// Items with a deadline (`due`, Claude Control) come first, earliest first; then priority, oldest, title.
 export function sortItems(items) {
   const r = (p) => { const i = PRIOS.indexOf(p); return i < 0 ? 9 : i }
-  return [...items].sort((a, b) => r(a.prio) - r(b.prio) || (a.since || Infinity) - (b.since || Infinity) || a.title.localeCompare(b.title))
+  const d = (x) => (Number.isFinite(x.due) ? x.due : Number.MAX_SAFE_INTEGER)
+  const s = (x) => (Number.isFinite(x.since) ? x.since : Number.MAX_SAFE_INTEGER)
+  return [...items].sort((a, b) => d(a) - d(b) || r(a.prio) - r(b.prio) || s(a) - s(b) || a.title.localeCompare(b.title))
 }
 
 export function groups(items, order = CATS) {

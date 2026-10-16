@@ -1,6 +1,15 @@
 {
   "_doc": "Référence hub. Everything the pane shows is set here; ~/.claude/reference-mod/reference.config.json is deep-merged on top, and userConfig `config` names another override file. Paths take ~ for the home folder. The tabs draw with synced copies of the owners' view code (lib/<mod>/, made by scripts/sync-libs.mjs) and read the owners' caches.",
-  "tabs": ["config", "guide", "scenarios", "sante", "ci"],
+  "tabs": [
+    "config",
+    "guide",
+    "scenarios",
+    "sante",
+    "ci",
+    "essais",
+    "rd",
+    "repos"
+  ],
   "start_tab": "config",
   "python": "python",
   "node": "node",
@@ -12,7 +21,8 @@
     "_scenarios_file": "Your own scenarios JSON, added after the shipped ones (same shape as scenarios.json). Empty: shipped only.",
     "scenarios_file": "",
     "_ci_pipelines_cache": "Read when the ci mod's scanner is not beside this mod (Diagramme from its cache only).",
-    "ci_pipelines_cache": "~/.claude/ci-pipelines-cache.json"
+    "ci_pipelines_cache": "~/.claude/ci-pipelines-cache.json",
+    "reference_dir": "~/.claude/reference-mod"
   },
   "sante_refresh_min": 10,
   "labels": {
@@ -25,6 +35,249 @@
     "no_owner": "Le mod {mod} n'est pas à côté de celui-ci : lecture seule de son cache, sans {what}.",
     "rescan": "rescan",
     "refresh": "rafraîchissement",
-    "routing": "routage"
+    "routing": "routage",
+    "tab_essais": "À essayer",
+    "tab_rd": "R&D",
+    "tab_repos": "Repos",
+    "state_jamais": "jamais",
+    "state_en test": "en test",
+    "state_adopté": "adopté",
+    "state_écarté": "écarté",
+    "sec_en test": "Ce qu'on fait (en test)",
+    "sec_jamais": "À essayer",
+    "sec_adopté": "Adopté",
+    "sec_écarté": "Écarté",
+    "todo": "Ce qu'on doit tester",
+    "test": "test",
+    "cost": "coût",
+    "risk": "risque",
+    "interest": "intérêt",
+    "alternative": "plutôt",
+    "refresh_btn": "↻",
+    "open": "Ouvrir",
+    "export_eta": "Exporter vers eta",
+    "audit_export": "Exporter pour audit",
+    "update": "Mettre à jour",
+    "export": "Exporter",
+    "github": "Ouvrir sur GitHub",
+    "folder": "Dossier",
+    "busy": "en cours…",
+    "no_path": "chemin non réglé (repo_paths dans ~/.claude/reference-mod/reference.config.json)",
+    "missing_dir": "dossier introuvable",
+    "prs": "PR ouvertes",
+    "no_prs": "aucune PR ouverte",
+    "ideas": "idées"
+  },
+  "_repos": "« Repos » : chaque dépôt avec son dossier (path, ou repo_paths[name] dans ~/.claude/reference-mod/reference.config.json ; @self = le dépôt de ces mods), main (branche du checkout principal), github (owner/nom ; vide : lu depuis origin), post_update (commande lancée dans le dépôt après « Mettre à jour »), export (audit : « Exporter » fait l'export pour audit ; eta : il exporte les recherches vers eta). Les boutons n'agissent qu'au clic ; « Mettre à jour » refuse une autre branche que main ou des fichiers modifiés.",
+  "repos": [
+    {
+      "name": "claude-control",
+      "path": "",
+      "main": "main",
+      "github": "",
+      "post_update": [
+        "python",
+        "tools/deploy.py"
+      ],
+      "export": "audit"
+    },
+    {
+      "name": "claude-mod",
+      "path": "@self",
+      "main": "main",
+      "github": "",
+      "post_update": [],
+      "export": "audit"
+    },
+    {
+      "name": "datapass-claude-eta",
+      "path": "",
+      "main": "main",
+      "github": "",
+      "post_update": [],
+      "export": "eta"
+    }
+  ],
+  "repo_paths": {},
+  "repos_prs_ttl_min": 10,
+  "open_command": [],
+  "_open_command": "Ouvre un dossier ou un fichier (« Ouvrir ») : argv avant le chemin. Vide : explorer.exe sous Windows, open sous macOS, xdg-open ailleurs.",
+  "essais": {
+    "_doc": "« À essayer » : une ligne par ligne de tableau des documents de recherche (sources : repo + dir + match, ou path). Une table compte quand elle a une colonne nom et une colonne test, intérêt ou « on l'utilise ». L'état par défaut vient de state_rules (dans l'ordre), puis presets (par nom), puis ton choix (bouton d'état), gardé dans state_file. Coût et risque : la colonne si elle existe, sinon les mots du rang qui matchent infer.",
+    "sources": [
+      {
+        "repo": "claude-control",
+        "dir": "docs/v6-research",
+        "match": "^(features-a-essayer|jev-et-galerie|veille-web-.*|data-goblin-idees)\\.md$"
+      }
+    ],
+    "state_file": "~/.claude/reference-mod/essais.json",
+    "columns": {
+      "name": [
+        "fonction",
+        "idée",
+        "quoi",
+        "vue galerie"
+      ],
+      "what": [
+        "ce que c'est",
+        "équivalent"
+      ],
+      "test": [
+        "test proposé",
+        "à construire"
+      ],
+      "interest": [
+        "intérêt"
+      ],
+      "cost": [
+        "coût",
+        "effort"
+      ],
+      "risk": [
+        "risque",
+        "risques"
+      ],
+      "used": [
+        "on l'utilise ?",
+        "on l'a ?"
+      ],
+      "source": [
+        "source",
+        "repo"
+      ]
+    },
+    "state_rules": [
+      {
+        "field": "test",
+        "match": "^ne pas",
+        "state": "écarté",
+        "why": "le document dit de ne pas tester"
+      },
+      {
+        "field": "used",
+        "match": "non par choix|contraire",
+        "state": "écarté",
+        "why": "écarté par une règle"
+      },
+      {
+        "field": "interest",
+        "match": "^nul",
+        "state": "écarté",
+        "why": "sans objet"
+      },
+      {
+        "field": "used",
+        "match": "^(oui|fait)",
+        "state": "adopté",
+        "why": "déjà utilisé"
+      },
+      {
+        "field": "interest",
+        "match": "^fait",
+        "state": "adopté",
+        "why": "déjà utilisé"
+      },
+      {
+        "field": "used",
+        "match": "^partiel",
+        "state": "en test",
+        "why": "utilisé en partie"
+      }
+    ],
+    "infer": {
+      "cost": "\\d+(?:[.,]\\d+)?\\s?\\$|\\$\\s?\\d+|usage credits|payant|~?\\d+x tokens|quota|\\b\\d+\\s?(?:h|j)\\b|\\bcoût\\b",
+      "risk": "expérimental|aperçu|bêta|beta|preview|cloud|non confirmé|réécrit|bloquant|hook"
+    },
+    "skip_sections": "^Comparaison avec les mods",
+    "presets": [],
+    "extra": [
+      {
+        "id": "extra:jev",
+        "name": "JEV (routeur de modèle par score, TypeSafe AI)",
+        "state": "écarté",
+        "doc": "jev-et-galerie.md",
+        "what": "Routeur externe qui choisit le modèle de chaque sous-agent",
+        "test": "au plus, mesurer hors ligne le score sur nos prompts",
+        "cost": "clé TypeSafe ou OpenRouter",
+        "risk": "envoie le texte des tâches à un service tiers ; hook qui réécrit l'appel",
+        "why": "déconseillé : doublon du modèle fixé par rôle",
+        "alternative": "/advisor"
+      }
+    ],
+    "manual_checks": "~/.claude/effort-board/manual-checks.md",
+    "tests_reels_dir": "~/.claude/tests-reels"
+  },
+  "rd": {
+    "_doc": "« R&D » : index des dossiers de recherche (date du nom, du titre ou du fichier ; sujet = premier titre ; summary_lines lignes de résumé ; sources = liens). « Exporter vers eta » copie ces documents, masqués, dans le dépôt eta sous eta.dest_dir par PR, avec le flux git d'export-eta (lib/eta/, copie synchronisée) et son réglage eta.repo de ~/.claude/export-eta/config.json.",
+    "dirs": [
+      {
+        "repo": "claude-control",
+        "dir": "docs/v6-research",
+        "label": "Recherches V6"
+      },
+      {
+        "repo": "claude-control",
+        "dir": "docs/audits",
+        "label": "Audits"
+      },
+      {
+        "path": "~/.claude/effort-board/audits",
+        "label": "Audits locaux"
+      }
+    ],
+    "extensions": [
+      ".md",
+      ".html"
+    ],
+    "depth": 2,
+    "summary_lines": 3,
+    "summary_width": 160,
+    "eta": {
+      "dest_dir": "sources/recherches",
+      "branch": "export/recherches-{day}-{hm}",
+      "worktree_dir": ".claude/worktrees/recherches-{day}-{hm}"
+    }
+  },
+  "audit": {
+    "_doc": "« Exporter pour audit » et /audit-export : un zip daté sous out_dir avec MANIFEST.md (mods, version, commit, chargé ou non), les fichiers suivis des mods, ~/.claude/*.config.json et les config.json des dossiers config_dirs, CLAUDE_CODE_PLUGIN_DIRS, les clés env de settings, claude_files et claude_dirs, rules_inventory, l'état de la Veille. Chaque fichier est masqué puis revérifié ; un secret restant retient le fichier (nommé dans le manifeste). Jamais smtp.json, .credentials.json, jetons, transcripts (*.jsonl, projects/) ni données brutes ; deny ajoute des motifs.",
+    "out_dir": "~/.claude/audit-exports",
+    "config_dirs": [
+      "a-faire",
+      "band",
+      "cockpit",
+      "effort-board",
+      "export-eta",
+      "menage-mod",
+      "metrics-mod",
+      "problemes",
+      "reference-mod",
+      "sante-mod",
+      "scenarios",
+      "tests-reels",
+      "usage-mod",
+      "veille"
+    ],
+    "claude_files": [
+      "CLAUDE.md"
+    ],
+    "claude_dirs": [
+      "agents",
+      "skills",
+      "workflows"
+    ],
+    "rules_inventory": {
+      "repo": "claude-control",
+      "file": "docs/RULES-INVENTORY.md"
+    },
+    "veille_home": "~/.claude/veille",
+    "veille_files": [
+      "state.json",
+      "config.json",
+      "heartbeat.json"
+    ],
+    "settings": "~/.claude/settings.json",
+    "max_file_kb": 512,
+    "deny": ["^claude/skills/synced/"]
   }
 }
