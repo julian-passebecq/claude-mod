@@ -282,3 +282,14 @@ test('build: a re-export with fewer parts removes only its own stale parts', () 
   assert.deepEqual(r.stale, ['sources/conversations/app/2026-10-16-lane-a-tests-aaaaaaaa.part2.md'])
   assert.equal(r.files.length, 1)
 })
+
+test('health record text: one line, credentials in URLs and token-like words masked', async () => {
+  const { healthText } = await import('../exporter/export.mjs')
+  assert.equal(healthText(null), null)
+  const at = '@' // built at run time so the repo's confidentiality scan does not read an e-mail address here
+  const t = healthText(`run_failed: push https://demo:s3cret${at}git.example.test/o/eta.git refused\n token ghp_ABCDEF123456 and glpat-xyz789`)
+  assert.equal(t.includes('s3cret'), false)
+  assert.equal(t.includes('ABCDEF123456'), false)
+  assert.equal(t.includes('xyz789'), false)
+  assert.equal(t, `run_failed: push https://***${at}git.example.test/o/eta.git refused token ghp_*** and glpat-***`)
+})

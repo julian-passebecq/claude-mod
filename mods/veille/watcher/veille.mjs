@@ -23,6 +23,8 @@ import {
 } from '../lib/core.mjs'
 import { compose, digest, sendMail, smtpProblem } from '../lib/mail.mjs'
 import { age } from '../lib/core/waiting.mjs'
+import { attendJulian } from '../lib/core/veille.mjs'
+import { writeHealth } from '../lib/core/health.mjs'
 import { julianAlerts } from '../lib/fil.mjs'
 import { writeFil } from './fil.mjs'
 import { writeArchive } from './archive.mjs'
@@ -69,9 +71,19 @@ function writeAtomic(file, data) {
   }
 }
 
+// Errors of this run (watcher, scan, fil, export, mail, toast...), written once at exit as the health record
+// ~/.claude/mods-health/veille.json (lib/core/health.mjs), which Santé and the Problèmes register read.
+export const ERRORS = []
+export const isError = (kind) => /_failed$/.test(String(kind || ''))
+export function healthError(errors) {
+  const list = [...new Set((errors || []).filter(Boolean))]
+  return list.length ? list.join(' | ').slice(0, 500) : null
+}
+
 function logEvent(cfg, ev, secrets = []) {
   const p = P(cfg)
   const line = scrub(JSON.stringify({ at: Date.now(), ...ev }), secrets)
+  if (isError(ev.kind)) ERRORS.push(`${ev.kind}: ${String(JSON.parse(line).error || ev.reason || '').slice(0, 160)}`)
   try {
     fs.mkdirSync(p.home, { recursive: true })
     try { if (fs.statSync(p.events).size > 5 * 1024 * 1024) fs.renameSync(p.events, p.events + '.1') } catch { /* no file yet */ }
@@ -141,6 +153,7 @@ async function toast(cfg, title, body) {
   if (process.platform !== 'win32') return false
   const r = await run([tp.powershell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script],
     { timeoutMs: 20000, env: { ...process.env, VEILLE_TITLE: String(title).slice(0, 120), VEILLE_BODY: String(body).slice(0, 400) } })
+  if (r.code !== 0) ERRORS.push(`toast_failed: ${String(r.err || r.out || 'exit ' + r.code).trim().split(/\r?\n/).pop().slice(0, 160)}`)
   return r.code === 0
 }
 
@@ -399,7 +412,9 @@ async function julianPass(cfg) {
     console.log(`veille: fil: ${rows.length} conversation(s) attendent Julian, ${fresh.length} nouvelle(s)`)
     return 0
   } catch (e) {
-    console.error(`veille: fil failed: ${scrub(String(e && e.message || e), secrets).slice(0, 300)}`)
+    const msg = scrub(String(e && e.message || e), secrets).slice(0, 300)
+    ERRORS.push(`fil_failed: ${msg.slice(0, 160)}`)
+    console.error(`veille: fil failed: ${msg}`)
     return 1
   } finally {
     dropLock(cfg)
@@ -478,16 +493,16 @@ function copyTree(files, dest) {
 
 export const BIN_FILES = [
   'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
-  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
+  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'veille/lib/core/veille.mjs', 'veille/lib/core/health.mjs', 'veille/lib/export-view.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
   'veille/watcher/export-batch.mjs',
-  'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs',
+  'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs', 'export-eta/lib/core/health.mjs',
   'export-eta/lib/render.mjs', 'export-eta/lib/etagit.mjs', 'export-eta/export-eta.config.json',
   'problemes/lib/export.mjs', 'problemes/lib/eta/mask.mjs', 'problemes/lib/eta/etagit.mjs',
 ]
 // The a-faire mod's feed, copied when that mod sits beside veille (pushes « À faire par Julian » items once each).
-export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/afaire.config.json']
+export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/lib/mods-check.mjs', 'a-faire/lib/core/mods.mjs', 'a-faire/afaire.config.json']
 BIN_FILES.push(...OPTIONAL_BIN)
 
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -581,7 +596,7 @@ function status(cfg) {
   const out = {
     mode: mode.name, may: mode.may, interval_min: mode.interval_min, task: taskLine, watcher: ws.state,
     last_fire: hb.last_fire ? new Date(hb.last_fire).toISOString() : null, last_tour: hb.last_tour ? new Date(hb.last_tour).toISOString() : null,
-    last_error: hb.last_error || '', alerts: alerts.length, julian: alerts.filter((a) => a.julian && !a.acked).length,
+    last_error: hb.last_error || '', alerts: alerts.length, julian: attendJulian(st, readAcks(cfg)),
     mail: smtpProblem(readJson(p.smtp, null)) ? 'e-mail non configuré' : 'e-mail configuré', wake: cfg.wake.enabled ? 'on' : 'off',
     coordinator: cfg.coordinator_session || null, missing_paths: missing,
   }
@@ -665,8 +680,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const deadline = setTimeout(() => {
     for (const c of children) { try { c.kill() } catch { /* gone */ } }
     try { logEvent(cfg0, { kind: 'tour_failed', error: 'délai du tour dépassé' }); dropLock(cfg0) } catch { /* nothing more to do */ }
+    writeHealth('veille', healthError(ERRORS) || 'tour_failed: délai du tour dépassé')
     process.exit(2)
   }, (cfg0.tour_deadline_s || 480) * 1000)
   deadline.unref()
-  main(process.argv.slice(2)).then((code) => { process.exitCode = code }, (e) => { console.error(`veille: ${scrub(String(e && e.stack || e))}`); process.exitCode = 1 })
+  // health only for the runs that look at the world (not mode/ack/status...): the scheduled fire, tours, fil, archive
+  const watched = ['fire', 'tour', 'julian', 'fil', 'archiver', 'archive', 'test-mail'].includes(process.argv[2])
+  main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code
+    if (watched) writeHealth('veille', healthError(ERRORS) || (code ? `${process.argv[2]}_failed: exit ${code}` : null))
+  }, (e) => {
+    const msg = scrub(String(e && e.message || e)).slice(0, 300)
+    console.error(`veille: ${scrub(String(e && e.stack || e))}`)
+    process.exitCode = 1
+    writeHealth('veille', healthError([...ERRORS, `crash: ${msg}`]))
+  })
 }

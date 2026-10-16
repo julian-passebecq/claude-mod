@@ -1,8 +1,11 @@
 // veille - pure logic (no I/O): modes, quiet hours, alerts, dedup and rate limits, budgets, missed tours, merge
 // eligibility and the wake brief. Tested with node --test mods/veille/tests/logic.test.mjs.
-// The conversation rows come from the factory mod's « Ça t'attend » logic, imported as a library (not copied).
-import { waitingRows, age, normUrl, prLabel } from '../../factory/hooks/waiting.mjs'
-import { titleOf } from '../../factory/hooks/logic.mjs'
+// The conversation rows come from the « Ça t'attend » logic of lib/core/waiting.mjs (the canonical copy synced into
+// this mod by scripts/sync-libs.mjs), so veille, its watcher and factory share one definition.
+import { waitingRows, age, normUrl, prLabel } from './core/waiting.mjs'
+
+// Same as lib/core/waiting.mjs titleOf (not exported there).
+const titleOf = (s) => s.app_title || s.title || String(s.cli || '').slice(0, 8)
 
 export { ACTIONS, MODES, deepMerge, modeName, modeOf, may, inQuietHours, tourDue, gapOf, watcherState, fill } from './modes.mjs'
 import { deepMerge, modeOf, may, inQuietHours, fill } from './modes.mjs'

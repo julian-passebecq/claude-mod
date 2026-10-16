@@ -8,9 +8,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  applyState, countToFile, deepMerge, gapItems, modsNotLoaded, parseDecisions, parseManualChecks, parseQuestions,
+  applyState, countToFile, deepMerge, gapItems, parseDecisions, parseManualChecks, parseQuestions,
   prItems, pruneState, smtpProblem, summary, veilleItems,
 } from './items.mjs'
+import { modFolders, modsNotLoaded } from './mods-check.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const MOD = path.resolve(HERE, '..')
@@ -65,15 +66,7 @@ const rx = (s) => { try { return s ? new RegExp(s, 'i') : null } catch { return 
 
 // ---- measured facts ------------------------------------------------------------------------------------------------
 
-function modFolders(roots) {
-  const out = []
-  for (const r of roots) {
-    let names = []
-    try { names = fs.readdirSync(r, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch { continue }
-    for (const n of names) if (fs.existsSync(path.join(r, n, '.claude-plugin', 'plugin.json'))) out.push({ name: n, path: `${expand(r)}/${n}` })
-  }
-  return out
-}
+// modFolders / modsNotLoaded: lib/mods-check.mjs, on top of lib/core/mods.mjs.
 
 async function taskFacts(S, opts) {
   const t = S.task || {}
@@ -140,7 +133,7 @@ export async function collect(cfg, opts = {}) {
     const settings = readJson(settingsFile, {}) || {}
     const value = (settings.env || {}).CLAUDE_CODE_PLUGIN_DIRS ?? process.env.CLAUDE_CODE_PLUGIN_DIRS ?? ''
     const ignore = new Set((M.ignore || []).map((s) => s.toLowerCase()))
-    const found = modFolders(roots).filter((m) => !ignore.has(m.name.toLowerCase()))
+    const found = modFolders(roots.map((r) => path.resolve(r))).filter((m) => !ignore.has(m.name.toLowerCase()))
     facts.mods = { ...modsNotLoaded(found, value, process.platform === 'win32' ? ';' : ':'), settings: settingsFile }
   }
   if (src('task') && src('veille')) facts.task = await taskFacts({ ...S, veille: S.veille || {} }, opts)

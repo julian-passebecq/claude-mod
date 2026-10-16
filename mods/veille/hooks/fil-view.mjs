@@ -64,6 +64,33 @@ function drawArchive(el, cfg, arch, open, h, T, row, col, btn) {
   ], { marginLeft: 2, marginBottom: 1 })
 }
 
+// The « À archiver » tab of the Veille pane: the list always unfolded, « Copier la liste des ids », « Rafraîchir »
+// (runs the watcher's archiver command, which rewrites archive.json), and the note on who archives (the VEILLE
+// conversation, never the pane). h: { copyIds, refresh, msg, busy }.
+export function drawArchiveTab(el, cfg, arch, h) {
+  const colors = cfg.colors || {}
+  const L = archiveConfig(cfg).labels
+  const T = (text, o = {}) => el.Text({ children: [String(text ?? '')], wrap: 'wrap', ...(o.tone && colors[o.tone] ? { color: colors[o.tone] } : {}), ...(o.dim ? { dimColor: true } : {}), ...(o.bold ? { bold: true } : {}) })
+  const row = (parts, o = {}) => el.Box({ flexDirection: 'row', flexWrap: 'wrap', gap: 1, ...o, children: parts.filter(Boolean) })
+  const col = (parts, o = {}) => el.Box({ flexDirection: 'column', ...o, children: parts.filter(Boolean) })
+  const btn = (label, onPress, primary, key) => el.Button({ children: [label], variant: primary ? 'primary' : 'secondary', onPress, ...(key ? { key } : {}) })
+  const c = (arch && arch.candidates) || []
+  return col([
+    row([
+      T(fillT(L.title || 'À archiver ({n})', { n: arch ? c.length : '?' }), { bold: true }),
+      arch && arch.generated ? T(`${hm(arch.generated)}${arch.open ? ` · ${arch.open} ouvertes` : ''}`, { dim: true }) : null,
+    ]),
+    ...(!arch ? [T(L.missing || 'archive.json absent', { tone: 'warn' })]
+      : c.length ? c.map((x) => T(`${x.title} · ${x.project} · ${x.reason}`, { dim: true })) : [T(L.none || 'Rien à archiver.', { dim: true })]),
+    row([
+      c.length ? btn(L.copy_ids || 'Copier la liste des ids', (press) => h.copyIds(c.map((x) => x.sid).join('\n'), c.length, press), true, 'fil-archive-copy') : null,
+      h.refresh ? btn(h.busy === 'archiver' ? '…' : L.refresh || 'Rafraîchir', h.refresh, false, 'archive-refresh') : null,
+    ]),
+    h.msg ? T(h.msg, { dim: true }) : null,
+    T(L.note || '', { dim: true }),
+  ])
+}
+
 export function drawFil(el, cfg, fil, ui, h) {
   const colors = cfg.colors || {}
   const L = filLabels(cfg)
@@ -74,7 +101,8 @@ export function drawFil(el, cfg, fil, ui, h) {
   const link = (href, label) => (href && el.Link ? el.Link({ href, children: [label] }) : null)
   const md = (text) => (el.Markdown ? el.Markdown({ children: [text] }) : T(text))
 
-  const julian = (fil && fil.julian) || 0
+  // the pane passes its one « attend Julian » count (view.mjs julianCount = lib/core/veille.mjs attendJulian)
+  const julian = h.julian !== undefined ? h.julian : (fil && fil.julian) || 0
   const head = col([
     row([
       T(L.title || 'Fil des conversations', { bold: true }),

@@ -3,6 +3,14 @@
 // the mod only reads them and runs `node watcher/veille.mjs mode|ack|tour|coordinator`.
 import { modeOf, watcherState, fill } from '../lib/modes.mjs'
 
+// « attend Julian : N »: the one count is lib/core/veille.mjs attendJulian (open alerts marked julian, not acked, '*'
+// acks all). A hooks module may not import it (it imports node:fs for readVeille), so this is the same rule in one
+// expression; tests/hub.test.mjs checks it gives attendJulian's number on every fixture.
+export const julianCount = (state, acks = []) => {
+  const ack = new Set(acks)
+  return Object.values((state && state.alerts) || {}).filter((a) => a && a.julian && !(a.acked || ack.has(a.key) || ack.has('*'))).length
+}
+
 export function ago(ms) {
   const m = Math.max(0, Math.round(ms / 60000))
   if (m < 60) return `${m} min`
@@ -26,7 +34,7 @@ export function viewModel(cfg, state, heartbeat, acks, nowMs) {
   const alerts = Object.values((state && state.alerts) || {})
     .map((a) => ({ ...a, acked: a.acked || ackSet.has(a.key) || ackSet.has('*') }))
     .sort((a, b) => (a.acked - b.acked) || ((RANK[a.severity] ?? 9) - (RANK[b.severity] ?? 9)) || ((a.since || 0) - (b.since || 0)))
-  const julian = alerts.filter((a) => a.julian && !a.acked).length
+  const julian = julianCount(state, acks || [])
   let watcher
   if (mode.name === 'rien') watcher = { tone: 'dim', text: `${L.last_tour || 'Dernier tour'} : ${w.last_tour ? hm(w.last_tour) : L.never || 'jamais'} (veille éteinte)` }
   else if (w.state === 'not_installed') watcher = { tone: 'bad', text: L.not_installed || 'tâche non installée' }

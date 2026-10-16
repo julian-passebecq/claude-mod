@@ -1,17 +1,46 @@
-// veille - the pane « Veille » and a one-line band entry. Read-only view of ~/.claude/veille (written by the watcher,
-// the scheduled task ClaudeVeille); the buttons run the watcher's own commands (mode, ack, tour, coordinator), so there
-// is one code path. Nothing here blocks, rewrites or adds text to a prompt, and nothing calls a model.
-//   /veille [fil | archiver | mode <x> | ack <clé|all> | coordinateur | tour | close]
-// Two tabs: Alertes, and Fil (every conversation's last message, from ~/.claude/veille/fil.json, see fil-view.mjs).
+// veille - the pane « Veille » (one pane, four tabs) and an optional one-line band entry. Read-only view of
+// ~/.claude/veille (written by the watcher, the scheduled task ClaudeVeille) and of export-eta's ~/.claude/export-eta
+// pending.json / state.json; the buttons run the watcher's own commands (mode, ack, tour, coordinator) or export-eta's
+// exporter, so there is one code path each. Nothing here blocks, rewrites or adds text to a prompt; no model call.
+//   /veille [alertes | fil | archiver | export | mode <x> | ack <clé|all> | coordinateur | tour | close]
+// Tabs: Alertes · Fil (every conversation's last message, fil-view.mjs) · À archiver (archive.json) · Export eta
+// (export-eta's batch, lib/export-view.mjs). /export-eta is registered here as an alias only when no other mod serves it.
 import { deepMerge, modeName } from '../lib/modes.mjs'
 import { markAllRead, markRead } from '../lib/fil.mjs'
 import { archiveConfig, archiveText } from '../lib/archive.mjs'
+import { EXPORT_PENDING, EXPORT_RUN, exportTabLabel, exportView } from '../lib/export-view.mjs'
 import { viewModel, bandLine, eventText, ago } from './view.mjs'
-import { drawFil, filLabels } from './fil-view.mjs'
+import { drawArchiveTab, drawFil, filLabels } from './fil-view.mjs'
 
 let options = {}
 const D = { cfg: null, state: null, heartbeat: null, acks: [], open: false, busy: '', msg: '', at: 0,
-  tab: 'alertes', fil: null, archive: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {}, archiveOpen: false } }
+  tab: 'alertes', fil: null, archive: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {}, archiveOpen: false },
+  pending: null, exportState: null, aliasExport: false }
+
+export const TABS = ['alertes', 'fil', 'archiver', 'export']
+const TAB_OF = { alertes: 'alertes', alerts: 'alertes', fil: 'fil', archiver: 'archiver', archive: 'archiver', export: 'export', 'export-eta': 'export', eta: 'export' }
+
+async function ehome($) {
+  const o = await $.env.get('EXPORT_ETA_HOME')
+  return o ? o.replace(/\\/g, '/') : (await homeDir($)) + '/.claude/export-eta'
+}
+
+// Opens the pane on one tab, loading what that tab reads.
+async function openTab($, tab) {
+  D.tab = tab
+  D.open = true
+  if (tab === 'fil' || tab === 'archiver') await loadFil($)
+  if (tab === 'export') await loadExport($)
+  await $.ui.open({ id: 'veille', title: 'Veille', focus: true, closeOnEscape: true })
+  $.ui.invalidate('ui.render')
+}
+
+// export-eta's files (written by its exporter): the batch and the export history. Read only.
+async function loadExport($) {
+  const h = await ehome($)
+  D.pending = await readJson($, h + '/pending.json')
+  D.exportState = await readJson($, h + '/state.json')
+}
 
 // Fil: the digest file (read on demand only), the « read » marks and the folds, kept in the mod's $.store.
 async function loadFil($) {
@@ -143,6 +172,42 @@ function draw(el, cfg, vm, h) {
   return col([head, alerts, events])
 }
 
+// The Export eta tab: export-eta's batch (pending.json), why it is ready, its conversations, « Exporter vers eta »
+// (runs export-eta's exporter, the same argv as the watcher's alert), « Rafraîchir » (recomputes pending.json) and the
+// last exports (state.json). « Ouvrir Export eta » runs /export-eta for its selection and history tabs.
+function drawExport(el, cfg, xv, h) {
+  const colors = cfg.colors || {}
+  const L = xv.L
+  const T = (text, o = {}) => el.Text({ children: [String(text ?? '')], wrap: 'wrap', ...(o.tone && colors[o.tone] ? { color: colors[o.tone] } : {}), ...(o.dim ? { dimColor: true } : {}), ...(o.bold ? { bold: true } : {}) })
+  const row = (parts) => el.Box({ flexDirection: 'row', flexWrap: 'wrap', gap: 1, children: parts.filter(Boolean) })
+  const col = (parts, o = {}) => el.Box({ flexDirection: 'column', ...o, children: parts.filter(Boolean) })
+  const btn = (label, onPress, primary, key) => el.Button({ key, children: [label], variant: primary ? 'primary' : 'secondary', onPress })
+  const link = (href, label) => (href && el.Link ? el.Link({ href, children: [label] }) : href ? T(`${label} ${href}`, { dim: true }) : null)
+  const batch = col([
+    T(L.title, { bold: true, tone: xv.ready ? 'warn' : undefined }),
+    xv.ready ? T(xv.text, { bold: true, tone: 'warn' }) : T(xv.none, { dim: true }),
+    xv.reason ? T(xv.reason, { dim: true }) : null,
+    ...xv.titles.slice(0, 20).map((t) => T(`· ${t}`, { dim: true })),
+    row([
+      xv.ready ? btn(h.busy === 'run' ? '…' : L.export, h.exportBatch, true, 'veille-export') : null,
+      btn(L.refresh, h.refresh, false, 'veille-export-refresh'),
+      h.alias ? null : btn(L.details, h.details, false, 'veille-export-details'),
+      xv.auto ? T(L.auto, { dim: true }) : null,
+    ]),
+    h.msg ? T(h.msg, { dim: true }) : null,
+    T(L.note, { dim: true }),
+  ], { borderStyle: 'round', borderColor: colors[xv.ready ? 'warn' : 'dim'], paddingX: 1, marginBottom: 1 })
+  const hist = col([
+    T(L.history, { bold: true }),
+    ...(xv.history.length ? xv.history.map((x) => col([
+      row([T(`● ${x.when}`, { tone: x.tone, bold: true }), T(`${x.mode} · ${x.count} conversation(s)${x.dry ? ' · essai' : ''}`), link(x.url, x.pr || 'PR'), x.url ? T(x.merged ? L.merged : L.not_merged, { tone: x.merged ? 'ok' : 'warn' }) : null]),
+      x.held.length ? T(L.held.replace('{list}', x.held.join(' ; ')), { tone: 'warn' }) : null,
+      x.error ? T(x.error, { tone: 'bad' }) : null,
+    ])) : [T(L.no_history, { dim: true })]),
+  ], { borderStyle: 'round', borderColor: colors.dim, paddingX: 1 })
+  return col([batch, hist])
+}
+
 export function register(on, raw) {
   options = raw || {}
 
@@ -152,10 +217,20 @@ export function register(on, raw) {
     try {
       await $.command.register({
         name: 'veille', immediate: true,
-        description: 'Veille : fil des conversations (dernier message de chacune, /veille fil), conversations à archiver (/veille archiver), mode du veilleur (rien, légère, active, nuit-active, nuit-test-légère), alertes, dernier tour, actions',
-        argumentHint: 'fil | archiver | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
+        description: 'Veille : un panneau, quatre onglets. Alertes (mode du veilleur, alertes, dernier tour, actions), Fil (dernier message de chaque conversation), À archiver (conversations finies), Export eta (lot de conversations terminées à exporter)',
+        argumentHint: 'alertes | fil | archiver | export | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
       })
     } catch { /* a name clash must not break the rest */ }
+    // /export-eta keeps working when the export-eta mod is not loaded: an alias to the Export eta tab, registered only
+    // when the session has no /export-eta (export-eta registers its own at its session start, hence the short wait).
+    $.clock.after(3000, async () => {
+      try {
+        const names = (await $.command.list()).map((c) => c.name)
+        if (names.includes('export-eta')) return
+        await $.command.register({ name: 'export-eta', immediate: true, description: 'Export eta (alias de /veille export) : lot de conversations terminées à exporter vers eta', argumentHint: 'lot | close' })
+        D.aliasExport = true
+      } catch { /* the export-eta mod serves it */ }
+    })
     const every = Math.max(15, ((D.cfg && D.cfg.pane) || {}).refresh_s || 60) * 1000
     $.clock.every(every, async () => { await load($).catch(() => undefined); $.ui.invalidate('ui.render') })
     return r
@@ -167,21 +242,14 @@ export function register(on, raw) {
     const [verb, ...rest] = q.split(/\s+/)
     const v = (verb || '').toLowerCase()
     if (v === 'close') { D.open = false; await $.ui.close({ id: 'veille' }); return {} }
-    if (v === 'fil') {
-      D.tab = 'fil'
-      D.open = true
-      await loadFil($)
-      await $.ui.open({ id: 'veille', title: 'Veille', focus: true, closeOnEscape: true })
-      $.ui.invalidate('ui.render')
-      return {}
-    }
     if (v === 'archiver' || v === 'archive') {
-      // the list the watcher wrote at its last fire (archive.json); nothing is archived here
-      const a = await readJson($, (await vhome($)) + '/archive.json')
+      // the tab, and the list as text for the conversation that archives (archive.json; nothing is archived here)
+      await openTab($, 'archiver')
       let now = Date.now()
       try { now = await $.clock.now() } catch { /* Date.now */ }
-      return { text: archiveText(a, now).join('\n') }
+      return { text: archiveText(D.archive, now).join('\n') }
     }
+    if (TAB_OF[v]) { await openTab($, TAB_OF[v]); return {} }
     if (v === 'mode') {
       const m = modeName(D.cfg, rest.join(' '))
       if (!m) return { text: `veille: mode inconnu « ${rest.join(' ')} » (${Object.keys(D.cfg.modes || {}).join(', ')})` }
@@ -204,6 +272,18 @@ export function register(on, raw) {
     return {}
   })
 
+  // The alias (only when veille registered it): /export-eta [lot | close] opens the Export eta tab; « lot » also runs
+  // the batch export, as export-eta's own /export-eta lot does. Otherwise export-eta's hook answers.
+  on('command.run', { command: 'export-eta' }, async ($, e, next) => {
+    if (!D.aliasExport) return next(e)
+    await load($)
+    const v = String(e.args || '').trim().toLowerCase()
+    if (v === 'close') { D.open = false; await $.ui.close({ id: 'veille' }); return {} }
+    await openTab($, 'export')
+    if (v === 'lot' || v === 'batch') void runSibling($, EXPORT_RUN)
+    return {}
+  }).catch(($, e, next) => next(e))
+
   on('ui.close', { id: 'veille' }, async ($, e, next) => { D.open = false; return next(e) }).catch(() => undefined)
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
@@ -214,26 +294,49 @@ export function register(on, raw) {
     const vm = viewModel(cfg, D.state, D.heartbeat, D.acks, D.at || Date.now())
     const FL = filLabels(cfg)
     const colors = cfg.colors || {}
+    if (D.tab === 'export' && !D.pending && !D.exportState) await loadExport($).catch(() => undefined)
+    const xv = exportView(D.pending, D.exportState, cfg)
+    const AL = archiveConfig(cfg).labels || {}
+    const nArch = D.archive ? (D.archive.candidates || []).length : 0
+    const tabBtn = (id, label) => el.Button({ key: `veille-tab-${id}`, children: [label], variant: D.tab === id ? 'primary' : 'secondary', onPress: () => {
+      D.tab = id
+      const more = id === 'fil' || id === 'archiver' ? (D.filLoaded ? Promise.resolve() : loadFil($)) : id === 'export' ? loadExport($) : Promise.resolve()
+      void more.catch(() => undefined).then(() => $.ui.invalidate('ui.render'))
+    } })
     const tabs = el.Box({ flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginBottom: 1, alignItems: 'center', children: [
-      el.Button({ children: [FL.tab_alerts || 'Alertes'], variant: D.tab === 'alertes' ? 'primary' : 'secondary', onPress: () => { D.tab = 'alertes'; $.ui.invalidate('ui.render') } }),
-      el.Button({ children: [FL.tab_fil || 'Fil'], variant: D.tab === 'fil' ? 'primary' : 'secondary', onPress: () => { D.tab = 'fil'; void (D.filLoaded ? Promise.resolve() : loadFil($)).then(() => $.ui.invalidate('ui.render')) } }),
+      tabBtn('alertes', FL.tab_alerts || 'Alertes'),
+      tabBtn('fil', FL.tab_fil || 'Fil'),
+      tabBtn('archiver', String(AL.tab || 'À archiver') + (nArch ? ` (${nArch})` : '')),
+      tabBtn('export', exportTabLabel(xv)),
       vm.julian ? el.Text({ children: [String(FL.julian_counter || 'attend Julian : {n}').replace('{n}', vm.julian)], bold: true, ...(colors.julian ? { color: colors.julian } : {}) }) : null,
-      // export-eta's batch notice, on both tabs (Alertes and Fil): « 4 conversations terminées — Exporter vers eta ».
-      ...vm.alerts.filter((a) => a.kind === 'export' && a.run && !a.acked).slice(0, 1).flatMap((a) => [
-        el.Text({ children: [a.what], ...(colors.warn ? { color: colors.warn } : {}) }),
-        el.Button({ key: 'veille-export', children: [D.busy === 'run' ? '…' : a.run_label || 'Lancer'], variant: 'primary', onPress: () => void runSibling($, a.run) }),
-      ]),
     ].filter(Boolean) })
+    if (D.tab === 'archiver') {
+      if (!D.filLoaded) await loadFil($).catch(() => undefined)
+      const body = drawArchiveTab(el, cfg, D.archive, {
+        msg: D.msg, busy: D.busy,
+        copyIds: (text, n, press) => {
+          const done = String(AL.copied || '{n} id(s) copié(s)').replace('{n}', n)
+          void $.ui.copy({ text, surface: press && press.surface }).then((r) => { D.msg = r && r.isCopied === false ? text.replace(/\n/g, ' ') : done; $.ui.invalidate('ui.render') }).catch(() => { D.msg = text.replace(/\n/g, ' '); $.ui.invalidate('ui.render') })
+        },
+        refresh: () => { void (async () => { await act($, 'archiver', ['archiver'], 120000); await loadFil($); $.ui.invalidate('ui.render') })() },
+      })
+      return el.Box({ flexDirection: 'column', children: [tabs, body] })
+    }
+    if (D.tab === 'export') {
+      const body = drawExport(el, cfg, xv, {
+        busy: D.busy, msg: D.msg, alias: D.aliasExport,
+        exportBatch: () => { void runSibling($, EXPORT_RUN).then(() => loadExport($)).then(() => $.ui.invalidate('ui.render')) },
+        refresh: () => { void runSibling($, EXPORT_PENDING).then(() => loadExport($)).then(() => $.ui.invalidate('ui.render')) },
+        details: () => { void Promise.resolve($.command.run({ command: 'export-eta', args: '' })).catch(() => { D.msg = 'export-eta n’est pas chargé : « Exporter vers eta » suffit'; $.ui.invalidate('ui.render') }) },
+      })
+      return el.Box({ flexDirection: 'column', children: [tabs, body] })
+    }
     if (D.tab === 'fil') {
       if (!D.filLoaded) await loadFil($).catch(() => undefined)
       const now = Date.now()
       const body = drawFil(el, cfg, D.fil, D.filUi, {
         now, ago, busy: D.busy, msg: D.msg, read: D.read, archive: D.archive,
-        toggleArchive: () => { D.filUi.archiveOpen = !D.filUi.archiveOpen; void saveFilUi($); $.ui.invalidate('ui.render') },
-        copyIds: (text, n, press) => {
-          const done = String((archiveConfig(cfg).labels || {}).copied || '{n} id(s) copié(s)').replace('{n}', n)
-          void $.ui.copy({ text, surface: press && press.surface }).then((r) => { D.msg = r && r.isCopied === false ? text.replace(/\n/g, ' ') : done; $.ui.invalidate('ui.render') }).catch(() => { D.msg = text.replace(/\n/g, ' '); $.ui.invalidate('ui.render') })
-        },
+        julian: vm.julian,
         filter: (f) => { D.filUi.filter = f; void saveFilUi($); $.ui.invalidate('ui.render') },
         project: (p) => { D.filUi.project = D.filUi.project === p ? '' : p; void saveFilUi($); $.ui.invalidate('ui.render') },
         toggleProj: (name, open) => { D.filUi.openProj = { ...D.filUi.openProj, [name]: open }; void saveFilUi($); $.ui.invalidate('ui.render') },
@@ -262,8 +365,10 @@ export function register(on, raw) {
   })
 
   // One line above the prompt (mode, last tour, needs Julian), below what the mods after this one draw (theirs kept).
+  // Only with the option band = on.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (options.band === 'off' || (e.props && e.props.hasSurvey)) return next(e)
+    // off unless asked: the Jauge (band mod) already shows « attend Julian : N » once
+    if (options.band !== 'on' || (e.props && e.props.hasSurvey)) return next(e)
     const theirs = await next(e)
     if (!D.cfg) return theirs
     const cfg = D.cfg
