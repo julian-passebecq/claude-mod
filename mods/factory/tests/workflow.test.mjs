@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { deepMerge } from '../hooks/logic.mjs'
 import {
   workflowConfig, estimator, remainingOf, quantiles, runView, limitsView, workflowScreen, speed, capOf, gantt, ganttLegend, scrub,
-  parseWorkflowArgs, workflowArgs, frTokens, frUsd, frDur,
+  parseWorkflowArgs, workflowArgs, frTokens, frUsd, frDur, loneAgents,
 } from '../hooks/workflow.mjs'
 import { drawFactoryPane, allTabs } from '../hooks/workflow_draw.mjs'
 import { el, renderText, widest } from '../scanner/textrender.mjs'
@@ -273,4 +273,34 @@ test('workflow_scan.py: run layout read, statuses, history from records, secrets
   const s = workflowScreen(out, CFG, Date.now())
   assert.equal(s.runs[0].live, true)
   assert.equal(s.limits.ci, 1)
+})
+
+// ---- Agent-tool agents outside a Workflow (item 7): from factory's scan rows, ETA from past agents of the same type --
+
+test('loneAgents: running agents without a Workflow, ETA from finished ones of the same type; drawn under the Workflows', () => {
+  const NOW = Date.parse('2026-10-16T20:00:00Z')
+  const iso = (ms) => new Date(ms).toISOString()
+  const done = (id, min) => ({ id, type: 'coder', status: 'done', ts: iso(NOW - 5 * 3600000), last_ts: iso(NOW - 5 * 3600000 + min * 60000) })
+  const scan = { sessions: [
+    { cli: 'lead', app_title: 'Lead lane', cwd: 'C:/code/app', subs: [done('d1', 20), done('d2', 30), done('d3', 40),
+      { id: 'r1', type: 'coder', desc: 'build x', status: 'running', bg: true, ts: iso(NOW - 10 * 60000) },
+      { id: 'w1', type: 'coder', status: 'running', workflow: 'wf_1', ts: iso(NOW - 60000) }] },
+    { cli: 'other', app_title: 'Other', cwd: 'C:/code/b', subs: [{ id: 'r2', type: 'explore-fast', status: 'running', ts: iso(NOW - 60000) }] },
+  ] }
+  const conv = loneAgents(scan, CFG, NOW, { cli: 'lead' })
+  assert.deepEqual(conv.map((a) => a.id), ['r1'])
+  assert.equal(conv[0].eta.n, 3)
+  assert.match(conv[0].text, /^coder \(arrière-plan\) · build x \(Lead lane\), depuis 10 min : fin vers \d\d:\d\d \(n = 3\)$/)
+  const all = loneAgents(scan, CFG, NOW, { scope: 'all' })
+  assert.deepEqual(all.map((a) => a.id).sort(), ['r1', 'r2'])
+  assert.ok(all.find((a) => a.id === 'r2').eta) // fallback: every finished type
+  assert.equal(loneAgents(scan, deepMerge(CFG, { workflow: { lone: { enabled: false } } }), NOW, { scope: 'all' }).length, 0)
+  const text = renderText(drawFactoryPane(el, { cfg: CFG, tab: 'workflow', wf: { runs: [], live: [], history: [] }, wfAt: NOW, at: NOW, scan, self: 'lead', columns: 75,
+    act: { tab() {}, refresh() {}, wfScope() {}, wfToggle() {} } }), 75)
+  assert.match(text, /Agents hors workflow \(1\)[\s\S]*coder \(arrière-plan\) · build x/)
+})
+
+test('textrender: a fixed-width child keeps its width in a flexGrow row', () => {
+  const tree = el.Box({ flexDirection: 'row', children: [el.Box({ flexDirection: 'column', width: 10, children: [el.Button({ children: ['Menu'] })] }), el.Box({ flexDirection: 'column', flexGrow: 1, children: [el.Text({ children: ['body'] })] })] })
+  assert.equal(renderText(tree, 40), '[Menu]     body')
 })

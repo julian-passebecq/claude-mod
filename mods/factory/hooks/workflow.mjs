@@ -3,9 +3,9 @@
 // timeline, its agents, highlights (failed, stuck, no explicit model, parallel limits), estimates from this PC's past
 // runs (median, range, sample size) with an ETA clock time, a complexity badge, a Gantt and one plain French sentence.
 // Every label, threshold and limit comes from workflow.config.json / factory.config.json → `workflow`.
-import { billByModel, sumCost, tokensOf, family, short, costOf } from './logic.mjs'
+import { billByModel, sumCost, tokensOf, family, short, costOf, titleOf, repoOf } from './logic.mjs'
 // One estimate rule and one Gantt for Workflows (here) and pipelines (ci mod): byte copies of lib/core (scripts/sync-libs.mjs).
-import { quantiles, remaining } from '../lib/core/estimate.mjs'
+import { quantiles, remaining, estimateOf, etaOf } from '../lib/core/estimate.mjs'
 import { gantt as coreGantt, axis as coreAxis, legend as coreLegend } from '../lib/core/gantt.mjs'
 
 export const WORKFLOW_DEFAULTS = {
@@ -25,6 +25,9 @@ export const WORKFLOW_DEFAULTS = {
   gantt: { min_bar: 16, label_w: 14 },
   speed: { cap_max: 16, cpu_reserve: 2, session_guideline: 10, seq_gap_s: 90, buckets: 24 },
   open_finished: false,
+  // Agent-tool agents launched outside a Workflow (run_in_background or not), from factory's scan (its `subs` rows):
+  // shown under the Workflows with an ETA from past agents of the same type on this PC (min_samples, else none).
+  lone: { enabled: true, max: 12, min_samples: 3 },
   labels: {
     tab: 'Workflow',
     title: 'Workflows',
@@ -84,6 +87,12 @@ export const WORKFLOW_DEFAULTS = {
     speed_cap: 'plafond workflow {cap} (min({cap_max}, {cpus} CPU − {reserve})) · repère conversation {guide} agents',
     speed_could: 'aurait pu tourner en parallèle',
     speed_could_row: '{label} a démarré {gap} après la fin de {prev}, même phase, sans dépendance visible',
+    lone: 'Agents hors workflow',
+    lone_none: 'aucun agent lancé hors workflow en cours',
+    lone_row: '{type}{bg} · {desc} ({conv}), depuis {dur} : {eta}',
+    lone_eta: 'fin vers {time} (n = {n})',
+    lone_overrun: 'au-delà de l’habituel (n = {n})',
+    lone_bg: 'arrière-plan',
     open: '▾', closed: '▸',
     glossary: 'Phase : une étape du workflow, les phases passent l’une après l’autre · Agent : un Claude qui fait une tâche, en parallèle des autres de sa phase · Worktree : une copie isolée du dépôt pour un agent · Tokens : texte lu et écrit par les modèles · $ : estimation au tarif public',
   },
@@ -549,6 +558,45 @@ export function workflowArgs(cfg, opts) {
   if (opts.scope === 'all') a.push('--all')
   else if (opts.session) a.push('--session', opts.session)
   return ['-I', ...a]
+}
+
+// ---- Agent-tool agents outside a Workflow -----------------------------------------------------------------------------
+
+const msOf = (v) => (!v ? 0 : typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : Date.parse(v) || 0)
+
+/**
+ * Running Agent-tool agents with no Workflow, from factory's scan (sessions[].subs). scope 'all': every conversation;
+ * else only `cli`. ETA: durations (first → last line) of finished agents of the same type in the scan, then of every
+ * type, through lib/core/estimate.mjs (min_samples, else « pas assez d'historique »). Pure.
+ * Returns [{id, cli, conv, repo, type, desc, model, bg, start, eta: {mid, lo, hi, overrun, n} | null, text}].
+ */
+export function loneAgents(scan, cfg, nowMs, opts = {}) {
+  const w = workflowConfig(cfg)
+  if (!w.lone || w.lone.enabled === false) return []
+  const L = w.labels
+  const sessions = (scan && scan.sessions) || []
+  const done = []
+  for (const s of sessions) for (const x of s.subs || []) {
+    const a = msOf(x.ts)
+    const b = msOf(x.last_ts)
+    if (!x.workflow && x.status === 'done' && a && b > a) done.push({ type: x.type, ms: b - a })
+  }
+  const min = Number(w.lone.min_samples) || 3
+  const out = []
+  for (const s of sessions) {
+    if (opts.scope !== 'all' && opts.cli && s.cli !== opts.cli) continue
+    for (const x of s.subs || []) {
+      if (x.workflow || x.status !== 'running') continue
+      const start = msOf(x.ts) || nowMs
+      const est = estimateOf(done.filter((d) => d.type === x.type).map((d) => d.ms), { fallback: done.map((d) => d.ms), min })
+      const eta = etaOf(est, start, nowMs)
+      const etaText = !eta ? L.no_history : eta.overrun ? fill(L.lone_overrun, { n: eta.n }) : fill(L.lone_eta, { time: clock(eta.mid), n: eta.n })
+      const conv = scrub(titleOf(s), 40)
+      out.push({ id: x.id, cli: s.cli, conv, repo: repoOf(s), type: x.type || 'agent', desc: scrub(x.desc || '', 60), model: x.model || '', bg: Boolean(x.bg),
+        start, eta, text: fill(L.lone_row, { type: x.type || 'agent', bg: x.bg ? ` (${L.lone_bg})` : '', desc: scrub(x.desc || '', 60) || '—', conv, dur: frDur(nowMs - start), eta: etaText }) })
+    }
+  }
+  return out.sort((a, b) => b.start - a.start).slice(0, Math.max(1, Number(w.lone.max) || 12))
 }
 
 export { tokensOf }

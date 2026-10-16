@@ -53,6 +53,8 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
 }
 
 const PANE = { title: 'Cockpit', isFocused: true, bodyColumns: 75, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} }
+// the left menu takes menu.width columns: the long-title checks below use a wider pane
+const WIDE = { ...PANE, bodyColumns: 92 }
 
 async function has(ui: any, re: RegExp) {
   return (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
@@ -76,7 +78,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`/cockpit opens on this conversation (selected, its section open, the others folded); a click drills down (${surface})`, async ($, on) => {
     const w = world(on)
     await $.command.run({ command: 'cockpit', args: '' } as any)
-    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 80 }, props: PANE } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
     expect(await has(ui, /^Méga$/)).toBe(true)
     expect(await has(ui, /^eta$/)).toBe(true)
     expect(await ui.find({ key: 'crumb-medium' })).toBeDefined() // the breadcrumb ends on this conversation
@@ -105,7 +107,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`« Qui consomme »: top conversations of a window, preset toggle, button to the full Classement (${surface})`, async ($, on) => {
     const w = world(on)
     await $.command.run({ command: 'cockpit', args: '' } as any)
-    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 80 }, props: PANE } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
     expect(await has(ui, /^▸ Qui consomme$/)).toBe(true)
     expect(await has(ui, /aujourd’hui \$5\.00 · Lane alpha 80 % · proj-one 80 %/)).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'sec-conso' })
@@ -160,3 +162,43 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true)
   })
 }
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`left menu, Nuit / Jour / Codex: buttons run the other hubs' and Veille's commands, Lancer never runs one (${surface})`, async ($, on) => {
+    const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'veille', plugin: 'veille' }, { name: 'jauge', plugin: 'band' }] })
+    await $.command.run({ command: 'cockpit', args: '' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 120 }, props: PANE } as any)
+    for (const label of ['Jauge', 'Cockpit', 'Veille', 'À toi', 'Registres', 'Référence']) expect(await has(ui, new RegExp(`^${label}$`))).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'menu-2' })
+    expect(JSON.stringify(w.ran)).toContain('"command":"veille"')
+    await ui.press({ plugin: 'cockpit', key: 'menu-4' }) // Registres: not loaded here, a toast and nothing run
+    expect(JSON.stringify(w.ran)).not.toContain('registres')
+    // Claude only by default, Codex on demand
+    expect(await has(ui, /^Codex$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'btn-codex' })
+    expect(await has(ui, /^Codex ✓$/)).toBe(true)
+    // Jour on the Cockpit tab, Nuit opens the decision screen
+    await ui.press({ plugin: 'cockpit', key: 'btn-jour' })
+    expect(JSON.stringify(w.ran)).toContain('"command":"veille","args":"jour"')
+    await ui.press({ plugin: 'cockpit', key: 'btn-nuit' })
+    expect(await has(ui, /^Bilan avant la nuit$/)).toBe(true)
+    expect(await has(ui, /^Que fait la nuit \?$/)).toBe(true)
+    const before = w.ran.length
+    await ui.press({ plugin: 'cockpit', key: 'n-on' })
+    expect(JSON.stringify(w.ran.slice(before))).toContain('"command":"veille","args":"nuit"')
+    await ui.press({ plugin: 'cockpit', key: 'n-nothing' })
+    expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true) // back on the Cockpit tab
+  })
+}
+
+test('/cockpit relais and /cockpit galerie open the Claude ↔ Codex and Galerie tabs', async ($, on) => {
+  world(on)
+  await $.command.run({ command: 'cockpit', args: 'relais' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 80, rows: 80 }, props: PANE } as any)
+  expect(await has(ui, /\/ci relais refresh/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'tab-galerie' })
+  expect(await has(ui, /^Équipe$/)).toBe(true)
+  expect(await has(ui, /^Lead · Galaxy finalisation autonome/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'g-v-carte' })
+  expect(await has(ui, /^Carte du contrôle$/)).toBe(true)
+})

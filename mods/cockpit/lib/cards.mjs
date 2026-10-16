@@ -1,6 +1,8 @@
 // cockpit - summary cards, pure (no $, no I/O, no imports; node --test mods/cockpit/tests/cards.test.mjs).
 // One card per topic, one line each, with the command its button runs (the first candidate loaded in the session):
-//   Qui consomme · T'attend · À toi · CI · Quota · Problèmes du jour · En cours
+//   Qui consomme · T'attend · À toi · Claude Control · CI · Quota · Problèmes du jour · En cours
+// Claude only by default (cards.who 'claude'): CI, Quota and En cours count Claude's pipelines and quota; the « Codex »
+// button on the home tab (or cards.who 'all') adds Codex's.
 // Helpers kept here because lib/core lacks them (cockpit-hub, 16 Oct): ciSummary (the ci mod's Diagramme sentence from
 // its pipelines cache, Claude / Codex split), pipelinesLive (running pipelines + ETA), problemsToday (the problemes
 // register.jsonl, read-only). The figures themselves come from lib/core through scanner/cards.mjs (usage, veille,
@@ -28,22 +30,24 @@ export const durText = (ms) => {
 const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`
 
 export const CARD_DEFAULTS = {
-  order: ['conso', 'attend', 'atoi', 'ci', 'quota', 'problemes', 'encours'],
-  enabled: ['conso', 'attend', 'atoi', 'ci', 'quota', 'problemes', 'encours'],
+  order: ['conso', 'attend', 'atoi', 'controle', 'ci', 'quota', 'problemes', 'encours'],
+  enabled: ['conso', 'attend', 'atoi', 'controle', 'ci', 'quota', 'problemes', 'encours'],
   max_encours: 4,
+  who: 'claude',
   // Button targets: the first command loaded in this session wins (the hub's new name first, the old mod as fallback).
   buttons: {
     conso: [{ command: 'conso', args: 'classement' }],
     attend: [{ command: 'veille', args: 'fil' }],
     atoi: [{ command: 'afaire' }],
+    controle: [{ command: 'afaire' }],
     ci: [{ command: 'reference', args: 'ci diagramme' }, { command: 'ci', args: 'diagramme' }],
     quota: [{ command: 'conso' }],
     problemes: [{ command: 'registres', args: 'problemes' }, { command: 'problemes' }],
     encours: [{ tab: 'workflow' }],
   },
   labels: {
-    conso: 'Qui consomme', attend: 'T’attend', atoi: 'À toi', ci: 'CI', quota: 'Quota', problemes: 'Problèmes du jour', encours: 'En cours',
-    open: 'Voir', none: 'rien', unknown: 'non lu', not_loaded: '{command} non chargé : ajoute son mod à CLAUDE_CODE_PLUGIN_DIRS',
+    conso: 'Qui consomme', attend: 'T’attend', atoi: 'À toi', controle: 'Claude Control', ci: 'CI', quota: 'Quota', problemes: 'Problèmes du jour', encours: 'En cours',
+    open: 'Voir', none: 'rien', codex_on: 'Codex ✓', codex_off: 'Codex', unknown: 'non lu', not_loaded: '{command} non chargé : ajoute son mod à CLAUDE_CODE_PLUGIN_DIRS',
   },
 }
 
@@ -57,9 +61,9 @@ const live = (r) => r.status === 'running' || r.status === 'queued'
  * The ci Diagramme's sentence data from ~/.claude/ci-pipelines-cache.json: running pipelines split by author
  * (claude / codex / unknown), red lanes (newest run of each lane failed) with their red jobs, the runner queue.
  */
-export function ciSummary(cache) {
+export function ciSummary(cache, who = 'all') {
   if (!cache || !Array.isArray(cache.apps)) return { available: false }
-  const runs = runsOf(cache)
+  const runs = runsOf(cache).filter((r) => who === 'all' || r.who === who)
   const running = { claude: 0, codex: 0, unknown: 0, total: 0 }
   for (const r of runs.filter(live)) { running[r.who === 'claude' || r.who === 'codex' ? r.who : 'unknown'] += 1; running.total += 1 }
   const lastOf = new Map()
@@ -70,15 +74,16 @@ export function ciSummary(cache) {
   }
   const reds = [...lastOf.values()].filter(isRed).sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')))
     .map((r) => ({ app: r.app, who: r.who || 'unknown', jobs: (r.jobs || []).filter(isRed).map((j) => j.name) }))
-  return { available: true, generated: tms(cache.generated), running, reds, queue: (cache.summary && cache.summary.queue) || null }
+  return { available: true, who, generated: tms(cache.generated), running, reds, queue: (cache.summary && cache.summary.queue) || null }
 }
 
 /** « 2 pipelines en cours (Claude 1 · Codex 1), 1 rouge dans app (job lint), runner local à 3/18 ». */
 export function ciSentence(ci, runnerText = '') {
   if (!ci || !ci.available) return ''
   const r = ci.running
-  const split = r.total ? ` (${[['Claude', r.claude], ['Codex', r.codex], ['inconnu', r.unknown]].filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(' · ')})` : ''
-  const parts = [r.total ? `${plural(r.total, 'pipeline', 'pipelines')} en cours${split}` : 'aucun pipeline en cours']
+  const split = r.total && (!ci.who || ci.who === 'all') ? ` (${[['Claude', r.claude], ['Codex', r.codex], ['inconnu', r.unknown]].filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(' · ')})` : ''
+  const by = ci.who === 'claude' ? ' Claude' : ci.who === 'codex' ? ' Codex' : ''
+  const parts = [r.total ? `${plural(r.total, 'pipeline', 'pipelines')}${by} en cours${split}` : `aucun pipeline${by} en cours`]
   if (ci.reds.length) {
     const x = ci.reds[0]
     const jobs = x.jobs.length ? ` (job${x.jobs.length > 1 ? 's' : ''} ${x.jobs.slice(0, 2).join(', ')}${x.jobs.length > 2 ? '…' : ''})` : ''
@@ -170,10 +175,14 @@ export function workflowsLive(screen) {
 }
 
 /** One plain sentence per running thing, with its ETA (or « pas assez d'historique »). */
-export function encoursItems(workflows, pipelines, nowMs, max = 4) {
+export function encoursItems(workflows, pipelines, nowMs, max = 4, lone = []) {
   const items = []
   for (const w of workflows || []) {
     items.push({ kind: 'workflow', text: `Workflow ${w.name}${w.eta ? ` : fin vers ${hm(w.eta.mid)}` : ' : fin inconnue (pas assez d’historique)'}`, detail: w.sentence })
+  }
+  for (const a of lone || []) {
+    const eta = !a.eta ? 'fin inconnue (pas assez d’historique)' : a.eta.overrun ? 'au-delà de l’habituel' : `fin vers ${hm(a.eta.mid)}`
+    items.push({ kind: 'agent', text: `Agent ${a.type}${a.desc ? ` · ${clip(a.desc, 40)}` : ''}${a.bg ? ' (arrière-plan)' : ''}, depuis ${durText(nowMs - a.start)} : ${eta}` })
   }
   for (const p of pipelines || []) {
     const who = p.who === 'codex' ? 'Codex' : p.who === 'claude' ? 'Claude' : ''
@@ -192,6 +201,7 @@ export function cardsOf(data, cfg, nowMs) {
   const c = cardsConfig(cfg)
   const L = c.labels
   const d = data || {}
+  const who = d.who || c.who || 'claude'
   const make = {
     conso: () => {
       const k = d.conso
@@ -214,17 +224,20 @@ export function cardsOf(data, cfg, nowMs) {
       if (!v || !v.aToiAvailable) return { line: 'À toi : non lu (le mod a-faire écrit summary.json)', tone: 'dim' }
       return { line: `À toi : ${v.aToi}`, tone: v.aToi ? 'warn' : 'ok', count: v.aToi }
     },
+    controle: () => d.controle || { line: 'aucun fichier ~/.claude/a-faire/claude-control.md', tone: 'dim', items: [] },
     ci: () => {
-      if (!d.ci || !d.ci.available) return { line: d.runnerText ? `pas de cache ci · ${d.runnerText}` : 'pas de cache du mod ci', tone: 'dim' }
-      return { line: ciSentence(d.ci, d.runnerText || ''), tone: d.ci.reds.length ? 'bad' : d.ci.running.total ? 'running' : 'ok' }
+      const ci = (d.ciBy && d.ciBy[who]) || d.ci
+      if (!ci || !ci.available) return { line: d.runnerText ? `pas de cache ci · ${d.runnerText}` : 'pas de cache du mod ci', tone: 'dim' }
+      return { line: ciSentence(ci, d.runnerText || ''), tone: ci.reds.length ? 'bad' : ci.running.total ? 'running' : 'ok' }
     },
     quota: () => {
       const q = d.quotas
       const cl = q ? quotaText(q.claude) : ''
       const cx = q ? quotaText(q.codex) : ''
-      if (!cl && !cx) return { line: 'quotas non lus (le mod usage écrit samples.jsonl)', tone: 'dim' }
-      const hot = q && [q.claude.five, q.claude.week, q.codex.five, q.codex.week].some((w) => w && (w.pct >= 80 || w.runOutAt))
-      return { line: [`Claude ${cl || L.unknown}`, `Codex ${cx || L.unknown}`].join(' | '), tone: hot ? 'warn' : null }
+      if (!cl && (who !== 'all' || !cx)) return { line: 'quotas non lus (le mod usage écrit samples.jsonl)', tone: 'dim' }
+      const ws = who === 'all' ? [q.claude.five, q.claude.week, q.codex.five, q.codex.week] : [q.claude.five, q.claude.week]
+      const hot = ws.some((w) => w && (w.pct >= 80 || w.runOutAt))
+      return { line: (who === 'all' ? [`Claude ${cl || L.unknown}`, `Codex ${cx || L.unknown}`] : [`Claude ${cl || L.unknown}`]).join(' | '), tone: hot ? 'warn' : null }
     },
     problemes: () => {
       const p = d.problemes
@@ -233,7 +246,8 @@ export function cardsOf(data, cfg, nowMs) {
       return { line: `${p.today} vu(s) aujourd’hui · ${p.open} ouvert(s)${p.top ? ` · en tête : ${clip(p.top.title, 40)} (×${p.top.today})` : ''}`, tone: p.open ? 'warn' : null, count: p.today }
     },
     encours: () => {
-      const e = encoursItems(d.workflows, d.pipelines, nowMs, c.max_encours)
+      const pipes = (d.pipelines || []).filter((p) => who === 'all' || p.who === who)
+      const e = encoursItems(d.workflows, pipes, nowMs, c.max_encours, d.lone || [])
       if (!e.items.length) return { line: 'rien ne tourne', tone: 'dim', items: [] }
       return { line: `${e.items.length + e.more} en cours`, tone: 'running', items: e.items, more: e.more }
     },

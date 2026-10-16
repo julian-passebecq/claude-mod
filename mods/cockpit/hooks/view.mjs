@@ -12,9 +12,10 @@ import { layout, clip } from '../lib/factory/hooks/screens.mjs'
 import { barSvg } from '../lib/band/hooks/gauge.ts'
 import {
   cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
-  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf,
+  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf, menuOf,
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
+import { drawNuit, drawRelais, drawGalerie } from './decide_view.mjs'
 
 const NOOP = () => {}
 
@@ -44,15 +45,40 @@ function kit(el, cfg) {
   return { T, row, col, box, btn, svg, lr, c }
 }
 
-// V = { cfg, fcfg, scan, nav, self, busy, error, at, columns, filter, usage, veille, open, act, tab, cards, wf…, machine }
+// V = { cfg, fcfg, scan, nav, self, busy, error, at, columns, filter, usage, veille, open, act, tab, cards, wf…, machine,
+//       who, nuitData, relaisData, galerieData, galView, launch, nuitMsg, teamSession, teamTitle, now }
+// The vertical menu (the band's 6 entries) sits at the left; under menu.min_columns it is one row on top.
 export function drawCockpit(el, V0) {
-  const V = { ...V0, el }
+  const h0 = kit(el, V0.cfg)
+  const menu = menuOf(V0.cfg, V0.columns)
+  const V = { ...V0, el, columns: menu.position === 'left' && V0.columns ? Math.max(30, V0.columns - menu.width - 1) : V0.columns }
+  const body = drawBody(el, V)
+  if (menu.position === 'off') return body
+  const btns = menu.items.map((m, i) => h0.btn(m.label, () => V.act.menu(m), Boolean(m.self), 'menu-' + i))
+  if (menu.position === 'top') return h0.col([h0.row(btns, { key: 'menu', marginBottom: 1 }), body])
+  return el.Box({ flexDirection: 'row', flexWrap: 'nowrap', gap: 1, children: [
+    el.Box({ flexDirection: 'column', width: menu.width, flexShrink: 0, key: 'menu', children: btns }),
+    el.Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, key: 'body', children: [body] }),
+  ] })
+}
+
+function drawBody(el, V) {
   const h = kit(el, V.cfg)
   const L = h.c.labels
   const tabs = tabsOf(V.cfg)
-  const tab = tabs.some((t) => t.id === V.tab) ? V.tab : 'home'
+  const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' ? V.tab : 'home'
   const out = [h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 })]
+  if (tab === 'nuit') return h.col([...out, ...drawNuit(h, V)])
+  if (tab === 'relais') return h.col([...out, ...drawRelais(h, V)])
+  if (tab === 'galerie') return h.col([...out, ...drawGalerie(h, V)])
   if (tab !== 'home') return h.col([...out, ...drawTab(h, V, L, tab)])
+  // Nuit · Jour · Codex: the day/night decision and the Claude-only default of the cards
+  const dn = h.c.day_night || {}
+  out.push(h.row([
+    dn.enabled !== false ? h.btn(L.night_button, () => V.act.tab('nuit'), false, 'btn-nuit') : null,
+    dn.enabled !== false ? h.btn(L.day_button, () => V.act.day(), false, 'btn-jour') : null,
+    h.btn(V.who === 'all' ? L.codex_on : L.codex_off, () => V.act.who(V.who === 'all' ? 'claude' : 'all'), V.who === 'all', 'btn-codex'),
+  ], { key: 'day-night', marginBottom: 1 }))
   const secs = sectionsOf(V.cfg)
   if (secs[0] !== 'breadcrumb') out.push(drawCards(h, V, L))
   for (const s of secs) {
@@ -88,7 +114,7 @@ function drawTab(h, V, L, tab) {
   const head = h.row([h.btn((tab === 'workflow' ? V.wfBusy : V.busy) ? '…' : '↻', () => V.act.refresh(), false, 'tab-refresh'),
     h.T(V.at ? hhmm(tab === 'workflow' ? V.wfAt || V.at : V.at).slice(0, 5) : '--:--', { dim: true, key: 'tab-time' })], { key: 'tab-head', alignItems: 'center', marginBottom: 1 })
   const base = { cfg: V.fcfg, at: V.at, busy: V.busy, error: V.error, columns: V.columns, filter: V.filter || 'all', jfilter: V.jfilter || 'all', jproject: V.jproject || '',
-    picking: false, live: [], quotas: null, machine: V.machine || {}, embedded: true, target: V.nav && V.nav.conv, scan: V.scan,
+    picking: false, live: [], quotas: null, machine: V.machine || {}, embedded: true, target: V.nav && V.nav.conv, self: V.self, scan: V.scan,
     wf: V.wf, wfAt: V.wfAt, wfBusy: V.wfBusy, wfError: V.wfError, wfScope: V.wfScope, wfOpen: V.wfOpen,
     act: { tab: (id) => V.act.tab(id), go: (cli) => V.act.go(cli), refresh: () => V.act.refresh(), filter: (k) => V.act.filter(k), jfilter: (k) => V.act.jfilter(k),
       jproject: (p) => V.act.jproject(p), pick: () => V.act.pick(), wfScope: (k) => V.act.wfScope(k), wfToggle: (k, o) => V.act.wfToggle(k, o) } }

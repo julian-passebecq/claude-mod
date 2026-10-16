@@ -86,9 +86,9 @@ const DATA = () => ({
   workflows: [{ name: 'package-wave', eta: null }], pipelines: pipelinesLive(CACHE, NOW, estimateOf, etaOf),
 })
 
-test('cardsOf: seven cards in order, one line each, button targets with fallbacks', () => {
-  const cs = cardsOf(DATA(), CCFG, NOW)
-  assert.deepEqual(cs.map((c) => c.id), ['conso', 'attend', 'atoi', 'ci', 'quota', 'problemes', 'encours'])
+test('cardsOf: eight cards in order, one line each, button targets with fallbacks (who all: Claude and Codex)', () => {
+  const cs = cardsOf({ ...DATA(), who: 'all' }, CCFG, NOW)
+  assert.deepEqual(cs.map((c) => c.id), ['conso', 'attend', 'atoi', 'controle', 'ci', 'quota', 'problemes', 'encours'])
   const by = Object.fromEntries(cs.map((c) => [c.id, c]))
   assert.equal(by.conso.line, 'aujourd’hui $12.50 · Lead conv 40 % · projet eta 60 %')
   assert.equal(by.attend.line, 'attend Julian : 2 · Ça t’attend : 1 · Fabric handoff')
@@ -107,6 +107,20 @@ test('cardsOf: seven cards in order, one line each, button targets with fallback
   assert.ok(cardsOf({}, CCFG, NOW).every((c) => c.line && c.tone === 'dim'))
 })
 
+test('cardsOf: Claude only by default (cards.who), Codex on demand; lone agents in « En cours »', () => {
+  const ciBy = { all: ciSummary(CACHE, 'all'), claude: ciSummary(CACHE, 'claude'), codex: ciSummary(CACHE, 'codex') }
+  const lone = [{ type: 'coder', desc: 'build x', bg: true, start: NOW - 20 * 60000, eta: { mid: NOW + 10 * 60000, overrun: false } }]
+  const by = Object.fromEntries(cardsOf({ ...DATA(), ciBy, lone }, CCFG, NOW).map((c) => [c.id, c]))
+  assert.equal(cockpitConfig(CCFG).cards.who, 'claude')
+  assert.equal(by.quota.line, 'Claude 5 h 24 % · semaine 14 %')
+  assert.doesNotMatch(by.ci.line, /Codex/)
+  assert.ok(by.encours.items.every((it) => !/Codex/.test(it.text)))
+  assert.match(by.encours.items.map((it) => it.text).join('\n'), /Agent coder · build x \(arrière-plan\), depuis 20 min : fin vers/)
+  const all = Object.fromEntries(cardsOf({ ...DATA(), ciBy, who: 'all' }, CCFG, NOW).map((c) => [c.id, c]))
+  assert.match(all.quota.line, /Codex 5 h 10 %/)
+  assert.match(all.ci.line, /Claude 1 · Codex 1/)
+})
+
 test('parseArgs / aliasArgs / tabsOf: /cockpit levels and tabs, /factory and /machine mapped onto cockpit', () => {
   assert.deepEqual(parseArgs('workflow all'), { close: false, level: null, tab: 'workflow', scope: 'all', rest: '' })
   assert.equal(parseArgs('machine').tab, 'machine')
@@ -120,7 +134,9 @@ test('parseArgs / aliasArgs / tabsOf: /cockpit levels and tabs, /factory and /ma
   assert.equal(aliasArgs('machine', 'refresh'), 'machine')
   assert.equal(aliasArgs('machine', 'close'), 'close')
   const ids = tabsOf(CCFG).map((t) => t.id)
-  assert.deepEqual(ids, ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine'])
+  assert.deepEqual(ids, ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie'])
+  assert.equal(parseArgs('nuit').tab, 'nuit')
+  assert.equal(parseArgs('codex').tab, 'relais')
   assert.ok(!ids.includes('quotas') && !ids.includes('systeme'))
   assert.deepEqual(cockpitConfig(CCFG).aliases.names, ['factory', 'machine'])
 })
@@ -135,15 +151,16 @@ test('runnerBackends + workflowsLive: core runner load in the Système shape; on
 
 const noop = () => {}
 const ACT = { tab: noop, crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop, machine: noop, card: noop, go: noop, jfilter: noop, jproject: noop, pick: noop, wfScope: noop, wfToggle: noop }
-const VIEW = (o) => ({ cfg: CCFG, fcfg: FCFG, scan: { sessions: [] }, nav: { level: 'mega' }, self: null, busy: false, error: '', at: NOW, columns: 60, filter: 'all',
+const NOMENU = { ...CCFG, menu: { ...CCFG.menu, position: 'off' } }
+const VIEW = (o) => ({ cfg: NOMENU, fcfg: FCFG, scan: { sessions: [] }, nav: { level: 'mega' }, self: null, busy: false, error: '', at: NOW, columns: 60, filter: 'all',
   usage: null, veille: null, open: {}, act: ACT, ...o })
 
 test('pane: tab row, then the cards under the breadcrumb, each one line + « Voir », within 60 columns', () => {
   const text = renderText(drawCockpit(el, VIEW({ tab: 'home', cards: cardsOf(DATA(), CCFG, NOW) })), 60)
-  const order = ['Cockpit', 'Workflow', 'Machine', 'Méga', 'Qui consomme', 'T’attend', 'À toi', 'CI', 'Quota', 'Problèmes du jour', 'En cours', '▸ Tous les projets'].map((k) => text.indexOf(k))
+  const order = ['Cockpit', 'Workflow', 'Machine', '[Nuit]', '[Jour]', '[Codex]', 'Méga', 'Qui consomme', 'T’attend', 'À toi', 'Claude Control', 'CI', 'Quota', 'Problèmes du jour', 'En cours', '▸ Tous les projets'].map((k) => text.indexOf(k))
   assert.ok(order.every((i) => i >= 0), text)
   assert.deepEqual([...order].sort((a, b) => a - b), order, text)
-  assert.equal((text.match(/Voir/g) || []).length, 7)
+  assert.equal((text.match(/Voir/g) || []).length, 8)
   assert.ok(widest(text) <= 60, `${widest(text)} columns`)
   assert.doesNotMatch(text, /Quotas|Système/) // factory's two tabs are not in cockpit
 })

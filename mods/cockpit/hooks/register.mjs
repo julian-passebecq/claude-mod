@@ -4,7 +4,9 @@
 //            Claude global), every section foldable with a one-line summary while closed
 //   Mission · Focus · Arbre · Pipeline · Workflow · Journal   factory's screens (synced copies in lib/factory)
 //   Machine  this PC's load (machine.py copy) and the runner load (lib/core/runner.mjs)
-//   /cockpit [conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine] [projet ou conversation] | close
+//   Claude ↔ Codex · Galerie (Équipe, Carte, Codex) · Nuit (« Bilan avant la nuit », behind the Nuit button)
+//   A vertical menu at the left runs the band's 6 entries (Jauge, Cockpit, Veille, À toi, Registres, Référence).
+//   /cockpit [conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit] [projet ou conversation] | close
 // /factory and /machine keep working: while their own mod is loaded it answers; when it is not, cockpit registers the
 // name as an alias (checked against $.command.list(), as band does to grey a button). Card buttons run the detail's
 // command ($.command.run; a mod cannot open another mod's pane). Opens by itself at session start (userConfig `start`).
@@ -13,12 +15,13 @@
 import { deepMerge, scanArgs, pickSession, repoOf } from '../lib/factory/hooks/logic.mjs'
 import { waitingArgs, waitingRows } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
-import { workflowConfig, workflowArgs, workflowScreen } from '../lib/factory/hooks/workflow.mjs'
+import { workflowConfig, workflowArgs, workflowScreen, loneAgents } from '../lib/factory/hooks/workflow.mjs'
 import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
 import { cardsOf, pickTarget, workflowsLive, runnerBackends, cardsConfig } from '../lib/cards.mjs'
-import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabsOf } from './nav.mjs'
+import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabValid, nightRepos, titleOf } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
+import { readyItems, decideConfig } from '../lib/decide.mjs'
 
 const PANE = 'cockpit'
 let options = {}
@@ -31,7 +34,11 @@ const D = {
   tab: 'home', jfilter: 'all', jproject: '', cardsRaw: null, cardsError: '', cardsAt: 0,
   wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {}, wfAll: null,
   machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '' },
+  who: null, nuitRaw: null, nuitBusy: false, relaisRaw: null, relaisBusy: false, galerieRaw: null, galerieBusy: false,
+  galView: 'equipe', launch: null, nuitMsg: '',
 }
+
+const decideLabels = () => decideConfig(CFG || {}).nuit.labels
 
 const norm = (p) => String(p || '').replace(/\\/g, '/')
 const root = ($) => norm($.plugin.root).replace(/\/+$/, '')
@@ -128,13 +135,53 @@ async function rescanWorkflow($) {
   $.ui.invalidate('ui.render')
 }
 
+// The settings the Node scanner needs (the decision screens' and the to-do card's).
+const scanCfg = () => ({ nuit: (CFG && CFG.nuit) || {}, galerie: (CFG && CFG.galerie) || {}, controle: (CFG && CFG.controle) || {} })
+
+async function runScanner($, req) {
+  const r = await $.process.run([(CFG && CFG.node) || 'node', root($) + '/scanner/cards.mjs'], { stdin: JSON.stringify({ home: await homeDir($), cfg: scanCfg(), ...req }), timeoutMs: 120000 })
+  if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `cards exit ${r.exitCode}`)
+  return JSON.parse(r.stdout)
+}
+
+// One decision screen's data (nuit, relais, galerie) from the same scanner.
+async function loadPart($, part) {
+  const busy = part + 'Busy'
+  if (D[busy]) return
+  D[busy] = true
+  $.ui.invalidate('ui.render')
+  try {
+    const now = await $.clock.now()
+    const req = { now, parts: [part] }
+    if (part === 'nuit') req.repos = nightRepos(D.scan, CFG || {}, now)
+    if (part === 'galerie') req.cache = (await board($)) + '/cockpit_codex_approvals.json'
+    const out = await runScanner($, req)
+    D[part + 'Raw'] = out[part] || null
+  } catch (err) {
+    D[part + 'Raw'] = null
+    D.cardsError = String(err && err.message ? err.message : err).slice(0, 200)
+  } finally {
+    D[busy] = false
+  }
+  $.ui.invalidate('ui.render')
+}
+
+const whoOf = () => D.who || cardsConfig(CFG || {}).who || 'claude'
+
+// Everything that runs now, for « Bilan avant la nuit »: Workflows, lone agents and pipelines (Claude and Codex).
+function runningNow(now) {
+  const wf = workflowsLive(D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null).map((w) => ({ kind: 'workflow', text: `Workflow ${w.name}`, eta: w.eta }))
+  const pipes = ((D.cardsRaw && D.cardsRaw.pipelines) || []).map((p) => ({ kind: 'pipeline', text: `Pipeline ${p.app}${p.branch ? ` (${p.branch})` : ''}${p.who === 'codex' ? ' · Codex' : p.who === 'claude' ? ' · Claude' : ''}`, eta: p.eta }))
+  let lone = []
+  try { lone = D.scan ? loneAgents(D.scan, FCFG || {}, now, { scope: 'all' }) : [] } catch { lone = [] }
+  return [...wf, ...lone.map((a) => ({ kind: 'agent', text: `Agent ${a.type}${a.desc ? ' · ' + a.desc : ''} (${a.conv})`, eta: a.eta })), ...pipes]
+}
+
 // The cards' data: scanner/cards.mjs (Node, lib/core) and every Workflow of the PC for « En cours ».
 async function loadCards($) {
   const now = await $.clock.now()
   try {
-    const r = await $.process.run([(CFG && CFG.node) || 'node', root($) + '/scanner/cards.mjs'], { stdin: JSON.stringify({ now, home: await homeDir($) }), timeoutMs: 60000 })
-    if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `cards exit ${r.exitCode}`)
-    D.cardsRaw = JSON.parse(r.stdout)
+    D.cardsRaw = await runScanner($, { now, parts: ['cards'] })
     D.cardsError = ''
   } catch (err) {
     D.cardsError = String(err && err.message ? err.message : err).slice(0, 200)
@@ -151,9 +198,12 @@ function cards(now) {
   const wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null
   let waiting = 0
   try { waiting = D.scan ? waitingRows(D.scan, FCFG || {}, D.at || now).rows.length : 0 } catch { waiting = 0 }
+  let lone = []
+  try { lone = D.scan ? loneAgents(D.scan, FCFG || {}, D.at || now, { scope: 'all' }) : [] } catch { lone = [] }
   return cardsOf({
     conso: D.conso, veille: raw.veille || null, waiting, quotas: raw.quotas || null, runnerText: raw.runnerText || '',
-    ci: raw.ci || null, problemes: raw.problemes || null, workflows: workflowsLive(wfScreen), pipelines: raw.pipelines || [],
+    ci: raw.ci || null, ciBy: raw.ciBy || null, problemes: raw.problemes || null, workflows: workflowsLive(wfScreen), pipelines: raw.pipelines || [],
+    lone, controle: raw.controle || null, who: whoOf(),
   }, CFG || {}, now)
 }
 
@@ -234,6 +284,9 @@ async function loadVeille($) {
 async function refreshTab($) {
   if (D.tab === 'workflow') return rescanWorkflow($)
   if (D.tab === 'machine') return sampleMachine($)
+  if (D.tab === 'relais') return loadPart($, 'relais')
+  if (D.tab === 'nuit') { await rescan($); await loadCards($).catch(() => undefined); return loadPart($, 'nuit') }
+  if (D.tab === 'galerie') { await rescan($); return loadPart($, 'galerie') }
   await rescan($)
   if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
 }
@@ -266,7 +319,8 @@ async function runTarget($, candidates) {
 }
 
 function setTab($, tab) {
-  D.tab = tabsOf(CFG).some((t) => t.id === tab) ? tab : 'home'
+  D.tab = tabValid(CFG, tab) ? tab : 'home'
+  if (D.tab === 'nuit') { D.launch = null; D.nuitMsg = '' }
   $.ui.invalidate('ui.render')
   void refreshTab($)
 }
@@ -314,6 +368,17 @@ function actions($) {
       void $.command.run({ command: q.command, args: q.args }).catch(() => $.ui.toast(cockpitConfig(CFG).labels.conso_missing))
     },
     machine: () => setTab($, 'machine'),
+    // the left menu: another hub's command, or this pane's Cockpit tab
+    menu: (m) => {
+      if (m.self) { setTab($, 'home'); return }
+      void runTarget($, [{ command: m.command, ...(m.args ? { args: m.args } : {}) }])
+    },
+    who: (w) => { D.who = w; redraw() },
+    day: () => { void runTarget($, [{ command: 'veille', args: 'jour' }]) },
+    nightOn: () => { void runTarget($, [{ command: 'veille', args: 'nuit' }]) },
+    nothing: () => { D.launch = null; D.nuitMsg = ''; setTab($, 'home'); $.ui.toast(decideLabels().nothing_done) },
+    launch: (i) => { D.launch = D.launch === i ? null : i; redraw() },
+    galView: (v) => { D.galView = v; redraw() },
   }
 }
 
@@ -344,7 +409,7 @@ async function runCockpit($, args) {
     if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
   }
   if (p.scope) D.wfScope = p.scope
-  D.tab = p.tab && tabsOf(CFG).some((t) => t.id === p.tab) ? p.tab : p.level || p.rest ? (D.tab === 'arbre' ? 'arbre' : 'home') : D.tab
+  D.tab = p.tab && tabValid(CFG, p.tab) ? p.tab : p.level || p.rest ? (D.tab === 'arbre' ? 'arbre' : 'home') : D.tab
   if (D.tab === 'home') { await rescan($); await refreshStrips($).catch(() => undefined) } else await refreshTab($)
   return {}
 }
@@ -380,8 +445,8 @@ export function register(on, opts) {
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     try {
-      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : cartes (conso, t’attend, à toi, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory et Machine',
-        argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine] [projet ou conversation] | close' })
+      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : cartes (conso, t’attend, à toi, Claude Control, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory, Machine, Claude ↔ Codex, Galerie, Bilan avant la nuit',
+        argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
     $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
     $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' ? rescan($) : undefined)) })
@@ -408,7 +473,14 @@ export function register(on, opts) {
     D.open = true
     D.columns = Number(e.props && e.props.bodyColumns) || 0
     const now = D.cardsAt || D.at || 0
+    const teamCli = (D.nav && D.nav.conv) || D.self
+    const teamRow = D.tab === 'galerie' && D.scan ? findSession(D.scan, teamCli) : null
+    const teamDetail = teamRow && D.scan.detail && D.scan.detail.cli === teamCli ? D.scan.detail : null
     return drawCockpit(el, {
+      who: whoOf(), now: now || D.at, galView: D.galView, launch: D.launch, nuitMsg: D.nuitMsg,
+      nuitData: D.tab === 'nuit' ? { running: runningNow(now || D.at), quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, ready: readyItems((D.nuitRaw && D.nuitRaw.repos) || [], CFG || {}) } : null,
+      nuitBusy: D.nuitBusy, relaisData: D.relaisRaw && D.relaisRaw.interactions, relaisBusy: D.relaisBusy, galerieData: D.galerieRaw, galerieBusy: D.galerieBusy,
+      teamSession: teamRow ? { ...teamRow, ...(teamDetail || {}) } : null, teamTitle: teamRow ? titleOf(teamRow) : '',
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
       busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
       conso: D.conso, consoPreset: D.consoPreset, tab: D.tab, jfilter: D.jfilter, jproject: D.jproject,
