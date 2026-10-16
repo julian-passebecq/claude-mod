@@ -1,0 +1,9 @@
+{
+  "name": "menage",
+  "version": "0.1.0",
+  "description": "Ménage : ce que le travail de Claude laisse traîner sur ce PC, en lecture seule. Worktrees (branche, mergée ou non, propre ou modifié, âge, taille), dossiers de worktree orphelins, branches locales et distantes déjà mergées, copies de mods, sauvegardes de deploy, transcripts par projet, dossiers temporaires, sessions archivables. Pour chaque ligne la commande sûre à lancer, jamais lancée ; en rouge « ne pas supprimer ». /menage",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "cleanup", "worktrees", "disk"]
+}
