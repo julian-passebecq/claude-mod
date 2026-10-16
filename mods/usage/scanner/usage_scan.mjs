@@ -25,6 +25,10 @@ import { writeHealth } from './health.mjs'
 import { readQuotas } from '../lib/core/usage.mjs'
 import { quotaLine } from '../hooks/logic.mjs'
 
+import { mergeHistory } from '../lib/history.mjs'
+
+/** Counting rule of the caches: a new value rebuilds them (2: message.id + requestId keys, stream timings). */
+export const PARSER = 2
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
 const readJson = p => {
@@ -63,7 +67,9 @@ export function readSamples(dataDir) {
 function scan({ cfg, prices, dataDir, projects, home }, now) {
   const cachePath = join(dataDir, 'cache.json')
   let cache = loadCache(cachePath)
-  const priceKey = JSON.stringify(prices.models)
+  // PARSER: bumped when the way lines are counted changes, so the cache is rebuilt (2: message.id + requestId keys,
+  // stream timings for tokens/s)
+  const priceKey = JSON.stringify({ parser: PARSER, models: prices.models })
   if (cache.prices !== priceKey) cache = { version: 1, files: {}, prices: priceKey }
   const t0 = Date.now()
   const r = scanProjects({ root: projects, cache, prices, now, retentionDays: cfg.retention_days ?? 14, idleGapS: cfg.idle_gap_s ?? 300 })
@@ -71,6 +77,11 @@ function scan({ cfg, prices, dataDir, projects, home }, now) {
   const tzMin = -new Date(now).getTimezoneOffset()
   const aggr = aggregate(cache.files, { now, tzMin, days: cfg.view_days ?? 8, surfaces: cfg.surfaces || {}, subRule: cfg.subconversation_origin })
   writeFileSync(join(dataDir, 'aggregate.json'), JSON.stringify(aggr))
+  const retention = cfg.retention_days ?? 14
+  const h = cfg.history || {}
+  const all = aggregate(cache.files, { now, tzMin, days: retention + 1, surfaces: cfg.surfaces || {}, subRule: cfg.subconversation_origin })
+  const histPath = join(dataDir, 'history.json')
+  writeFileSync(histPath, JSON.stringify(mergeHistory(readJson(histPath), all.days, { now, tzMin, retentionDays: retention, trustDays: h.trust_days ?? 25, keepDays: h.keep_days ?? 0 })))
   const ccfg = cfg.classement || {}
   const days = Math.min(ccfg.days ?? 31, cfg.retention_days ?? 14)
   writeFileSync(join(dataDir, 'classement.json'), JSON.stringify(buildClassement(cache.files, { now, tzMin, days, subRule: cfg.subconversation_origin })))
@@ -95,7 +106,8 @@ export function codexScan({ cfg, dataDir, home }, now) {
     return { ok: true, available: false }
   }
   const cachePath = join(dataDir, 'codex-cache.json')
-  const cache = loadCache(cachePath)
+  let cache = loadCache(cachePath)
+  if (cache.parser !== PARSER) cache = { version: 1, files: {}, parser: PARSER }
   const t0 = Date.now()
   const r = scanCodex({ dir, cache, now, days: c.days ?? cfg.view_days ?? 8 })
   saveCache(cachePath, cache)

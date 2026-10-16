@@ -10,13 +10,19 @@ import { tokensOf } from '../lib/transcripts.mjs'
 import { CV, codexView } from '../lib/codex.mjs'
 import { bar, codexTokens, isAppLink, linksFromFil, rank, trendText } from '../lib/classement.mjs'
 import { deepMerge, expandHome, fmtPct, fmtTokens, fmtUsd, heatRow, model, outcome, promptLine, when } from './logic.mjs'
+import { historyView } from '../lib/history.mjs'
+import { fmtDur, fmtTps, recentStreams, shortModel, tpsTable } from '../lib/tps.mjs'
 
-const TABS = ['today', 'week', 'classement', 'forecast', 'scenarios', 'full', 'codex'] as const
-const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full', codex: 'codex', classement: 'classement', qui: 'classement', ranking: 'classement' }
+const TABS = ['today', 'week', 'classement', 'history', 'tps', 'forecast', 'scenarios', 'full', 'codex'] as const
+const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full', codex: 'codex', classement: 'classement', qui: 'classement', ranking: 'classement', historique: 'history', history: 'history', debit: 'tps', tps: 'tps' }
 const tab = atom({ plugin: 'usage', key: 'tab' } as const, 'today')
 const copied = atom({ plugin: 'usage', key: 'copied' } as const, '')
 const cPreset = atom({ plugin: 'usage', key: 'preset' } as const, '')
 const cGroup = atom({ plugin: 'usage', key: 'group' } as const, '')
+const hPreset = atom({ plugin: 'usage', key: 'history' } as const, '')
+const tBy = atom({ plugin: 'usage', key: 'tps_by' } as const, '')
+// '' = codex.show_default of the config (Claude only by default); 'on' / 'off' once the Codex button was pressed
+const showCx = atom({ plugin: 'usage', key: 'show_codex' } as const, '')
 
 type Options = { status_line?: string; codex?: string }
 const S: { busy: boolean; error: string; at: number; last: any; aggr: any; cls: any; quotas: string } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined, cls: undefined, quotas: '' }
@@ -114,11 +120,16 @@ async function compute($: EngineInterface, options: Options, current = '') {
   const sc = await readJson($, `${root}/${cfg.scenarios_file || '../scenarios/scenarios.json'}`)
   const now = await $.clock.now()
   const codexOff = cfg.codex?.enabled === 'off'
-  const cx = codexOff ? { available: false, reason: 'off' } : codexView(await readJson($, `${dataDir}/codex.json`), cfg, { now, tzMin: aggr?.tzMin ?? 0 })
+  const pick = String((await read($, showCx)) || '')
+  // Claude only unless the Codex button was pressed or codex.show_default is true
+  const showCodex = !codexOff && (pick ? pick === 'on' : cfg.codex?.show_default === true)
+  const cxFile = codexOff ? undefined : await readJson($, `${dataDir}/codex.json`)
+  const cx = codexOff ? { available: false, reason: 'off' } : codexView(cxFile, cfg, { now, tzMin: aggr?.tzMin ?? 0 })
   const m = aggr ? model(aggr, cfg, { now, live: await liveLimits($), samples: await samples($, dataDir), scenarios: sc?.scenarios ?? [] }) : undefined
   const cls = current === 'classement' ? S.cls ?? (S.cls = await readJson($, `${dataDir}/classement.json`)) : undefined
-  const cxRaw = current === 'classement' && !codexOff ? await readJson($, `${dataDir}/codex.json`) : undefined
-  return { cfg, m, sc, cx, cxRaw, cls, now, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
+  const cxRaw = (current === 'classement' || current === 'tps') && showCodex ? cxFile : undefined
+  const hist = current === 'history' ? await readJson($, `${dataDir}/history.json`) : undefined
+  return { cfg, m, sc, cx, cxRaw, cls, hist, aggr, now, showCodex, codexOff, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
 }
 
 async function refreshStatus($: EngineInterface, options: Options) {
@@ -149,7 +160,7 @@ export const register: Register = (on, raw) => {
     const words = String(e.args ?? '').toLowerCase().split(/\s+/).filter(Boolean)
     const want = words.map(w => ALIASES[w.normalize('NFD').replace(/[̀-ͯ']/g, '')]).find(Boolean)
     if (want) await update($, tab, () => want)
-    const { cfg, m, cx, stale } = await compute($, options)
+    const { cfg, m, cx, stale, showCodex } = await compute($, options)
     if (!S.quotas) await loadQuotas($, options)
     if (stale || words.includes('refresh')) $.clock.after(0, () => rescan($, options))
     await $.ui.open({ id: 'usage', title: cfg.labels?.pane_title ?? 'usage' })
@@ -157,7 +168,7 @@ export const register: Register = (on, raw) => {
     if (!m) return { text: `conso: premier scan en cours (${cfg.projects_dir})` }
     const week = m.week ? `${l.week_label} ${fmtPct(m.week.reading.pct)} · ${outcome(m.week.current, m.tz, l)} ${l.pace_now}` : l.no_reading
     const cxl = cfg.codex?.labels ?? {}
-    const codex = cx.reason === 'off' ? '' : ` · ${cxl.codex ?? 'Codex'} ${cx.available && cx.hasData ? `${fmtTokens(cx.today.total[CV.total])} tokens${cx.windows[0] ? ` · ${cx.windows[0].label} ${fmtPct(cx.windows[0].pct)}` : ''}` : cxl.unavailable ?? 'non disponible'}`
+    const codex = !showCodex ? '' : ` · ${cxl.codex ?? 'Codex'} ${cx.available && cx.hasData ? `${fmtTokens(cx.today.total[CV.total])} tokens${cx.windows[0] ? ` · ${cx.windows[0].label} ${fmtPct(cx.windows[0].pct)}` : ''}` : cxl.unavailable ?? 'non disponible'}`
     return { text: `conso: aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · ${fmtUsd(m.today.total[7])} · ${week}${codex}${S.quotas ? `\nquotas : ${S.quotas}` : ''}` }
   })
 
@@ -181,7 +192,7 @@ export const register: Register = (on, raw) => {
   on('ui.render', { component: 'Pane', requestId: 'usage' }, async ($, e) => {
     const { Box, Text, Button, Code } = $.ui.resolve(e)
     const current = ((await read($, tab)) as string) || 'today'
-    const { cfg, m, sc, cx, cxRaw, cls, now } = await compute($, options, current)
+    const { cfg, m, sc, cx, cxRaw, cls, hist, aggr, now, showCodex, codexOff } = await compute($, options, current)
     const l = cfg.labels ?? {}
     const cxl = cfg.codex?.labels ?? {}
     const fill = (t: string, v: Record<string, string>) => String(t ?? '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? `{${k}}`)
@@ -202,15 +213,22 @@ export const register: Register = (on, raw) => {
         <Text dimColor>{`${cfg.plan_label ?? cfg.plan} · lecture seule · coûts : ${l.estimate}${S.busy ? ' · scan en cours…' : ''}`}</Text>
         {S.error ? <Text color="error">{`scan: ${S.error}`}</Text> : null}
         {S.quotas ? <Text key="quotas">{`${l.quotas_label ?? 'Quotas'} : ${S.quotas}`}</Text> : null}
-        {m && cx.reason !== 'off' ? (
+        {m && !showCodex ? <Text>{`${cxl.claude ?? 'Claude'} aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · 7 j ${fmtTokens(tokensOf(m.weekView.total))}`}</Text> : null}
+        {m && showCodex ? (
           <Text>{`${cxl.claude ?? 'Claude'} aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · 7 j ${fmtTokens(tokensOf(m.weekView.total))}  |  ${cxl.codex ?? 'Codex'} ${cxOk ? `aujourd'hui ${fmtTokens(cx.today.total[CV.total])} tokens · 7 j ${fmtTokens(cx.week.total[CV.total])}${cx.windows.map((w: any) => ` · ${w.label} ${fmtPct(w.pct)}`).join('')}` : cxl.unavailable ?? 'non disponible'}`}</Text>
         ) : null}
         <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {TABS.filter(t => t !== 'codex' || cx.reason !== 'off').map(t => (
+          {TABS.filter(t => t !== 'codex' || showCodex).map(t => (
             <Button key={`tab-${t}`} {...(t !== current ? { plain: true as const } : {})} onPress={() => update($, tab, () => t)}>
               {l.tabs?.[t] ?? (t === 'classement' ? 'Classement' : t)}
             </Button>
           ))}
+          {codexOff ? null : (
+            <Button key="codex-toggle" {...(showCodex ? {} : { plain: true as const })} onPress={async () => {
+              await update($, showCx, () => (showCodex ? 'off' : 'on'))
+              if (showCodex && current === 'codex') await update($, tab, () => 'today')
+            }}>{showCodex ? cxl.hide ?? '− Codex' : cxl.show ?? '+ Codex'}</Button>
+          )}
           <Button key="refresh" plain onPress={() => { $.clock.after(0, () => rescan($, options)) }}>↻</Button>
         </Box>
       </Box>
@@ -297,7 +315,8 @@ export const register: Register = (on, raw) => {
       const presets: any[] = c.presets ?? []
       const groups: any[] = c.groups ?? []
       const pid = ((await read($, cPreset)) as string) || c.default_preset || 'today'
-      const gid = ((await read($, cGroup)) as string) || c.default_group || 'conversation'
+      const g0 = ((await read($, cGroup)) as string) || c.default_group || 'conversation'
+      const gid = g0 === 'source' && !showCodex ? (c.default_group && c.default_group !== 'source' ? c.default_group : 'conversation') : g0
       const preset = presets.find(p => p.id === pid) ?? presets[0] ?? { id: 'today', since: 'midnight' }
       if (!cls) return <Text>Pas encore de classement : le prochain scan écrit classement.json (↻).</Text>
       const r = rank(cls, { now, preset, group: gid, top: c.top ?? 20, basis: m.basis, labels: cl })
@@ -307,7 +326,7 @@ export const register: Register = (on, raw) => {
       const head = (x: any) => `${fmtTokens(tokensOf(x.v))} · ${fmtUsd(x.v[7])} · ${fmtPct(x.share * 100)} ${trendText(x, cl)}`.trim()
       const split = gid === 'conversation' || gid === 'project'
       const detail = (x: any) => `entrée ${fmtTokens(x.v[0])} · sortie ${fmtTokens(x.v[1])} · cache lu ${fmtTokens(x.v[2])} · cache écrit ${fmtTokens(x.v[3] + x.v[4])}${split ? ` · ${cl.sub ?? 'sous-agents'} ${fmtPct(tokensOf(x.v) ? (100 * x.sub) / tokensOf(x.v) : 0)}` : ''}`
-      const cxT = gid === 'source' ? codexTokens(cxRaw, r.window, cls.tzMin ?? 0) : undefined
+      const cxT = gid === 'source' && showCodex ? codexTokens(cxRaw, r.window, cls.tzMin ?? 0) : undefined
       const hours = Math.round((r.window.to - r.window.from) / 3600000)
       return (
         <Box flexDirection="column" gap={1}>
@@ -315,7 +334,7 @@ export const register: Register = (on, raw) => {
             {presets.map(p => <Button key={`p-${p.id}`} {...(p.id !== preset.id ? { plain: true as const } : {})} onPress={() => update($, cPreset, () => p.id)}>{p.label ?? p.id}</Button>)}
           </Box>
           <Box flexDirection="row" gap={1} flexWrap="wrap">
-            {groups.map(g => <Button key={`g-${g.id}`} {...(g.id !== gid ? { plain: true as const } : {})} onPress={() => update($, cGroup, () => g.id)}>{g.label ?? g.id}</Button>)}
+            {groups.filter(g => g.id !== 'source' || showCodex).map(g => <Button key={`g-${g.id}`} {...(g.id !== gid ? { plain: true as const } : {})} onPress={() => update($, cGroup, () => g.id)}>{g.label ?? g.id}</Button>)}
           </Box>
           <Text bold>{`Total ${preset.label ?? preset.id} : ${amount(r.total)} · ${r.n} ligne(s)${r.trend !== undefined ? ` · ${trendText({ trend: r.trend }, cl)} vs les ${hours} h d'avant` : ''}`}</Text>
           <Box flexDirection="column">
@@ -347,6 +366,68 @@ export const register: Register = (on, raw) => {
         </Box>
       )
     }
+    const historyPane = async () => {
+      const hc = cfg.history ?? {}
+      const hl = hc.labels ?? {}
+      const presets: any[] = hc.presets ?? [{ id: '90d', label: '90 j', days: 90 }]
+      const pid = ((await read($, hPreset)) as string) || hc.default_preset || presets[0]?.id
+      const preset = presets.find(p => p.id === pid) ?? presets[0]
+      if (!hist || !Object.keys(hist.days ?? {}).length) return <Text>{hl.empty ?? "Pas encore d'historique : le prochain scan écrit history.json (↻)."}</Text>
+      const hv = historyView(hist, { now, tzMin: aggr?.tzMin ?? 0, days: preset?.days ?? 90, maxRows: hc.max_rows ?? 16 })
+      const unitLabel = (hl.units ?? {})[hv.unit] ?? hv.unit
+      const maxB = Math.max(...hv.buckets.map((b: any) => tokensOf(b.v)), 0)
+      const W = hc.bar_width ?? 16
+      const barOf = (v: number[]) => (maxB > 0 ? '█'.repeat(Math.max(tokensOf(v) > 0 ? 1 : 0, Math.round((W * tokensOf(v)) / maxB))) : '').padEnd(W)
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {presets.map(p => <Button key={`h-${p.id}`} {...(p.id !== preset?.id ? { plain: true as const } : {})} onPress={() => update($, hPreset, () => p.id)}>{p.label ?? p.id}</Button>)}
+          </Box>
+          <Text bold>{`Total ${preset?.label ?? ''} : ${amount(hv.total)} · ${hv.n} jour(s) gardé(s) · depuis ${hv.first}`}</Text>
+          <Box flexDirection="column">
+            <Text bold>{`Par ${unitLabel}`}</Text>
+            {hv.buckets.map((b: any) => <Text key={`hb-${b.key}`}>{`  ${b.key.padEnd(10)} ${barOf(b.v)} ${amount(b.v)}`}</Text>)}
+          </Box>
+          {rows('Par modèle', hv.model, hc.top ?? 8)}
+          {rows('Par projet', hv.project, hc.top ?? 8)}
+          <Text dimColor>{hl.note ?? 'Historique local (history.json du dossier du mod), gardé après le nettoyage des transcripts ; Claude seulement.'}</Text>
+        </Box>
+      )
+    }
+    const tpsPane = async () => {
+      const tc = cfg.tps ?? {}
+      const tl = tc.labels ?? {}
+      const by = ((await read($, tBy)) as string) || tc.default_by || 'model'
+      const range = tc.range_pct ?? [10, 90]
+      const table = tpsTable(aggr, showCodex ? cxRaw : undefined, { by, days: cfg.view_days ?? 8, now, tzMin: aggr?.tzMin ?? 0, range })
+      const name = (r: any) => `${showCodex ? `${r.source === 'codex' ? cxl.codex ?? 'Codex' : cxl.claude ?? 'Claude'} ` : ''}${shortModel(r.model, tc.aliases ?? {})}${r.effort ? ` ${r.effort}` : ''}`
+      const cols = tl.columns ?? ['Modèle', 'Tokens', 'Temps', 'TPS pondéré', 'médiane', 'plage']
+      const W = Math.max(14, ...table.map((r: any) => name(r).length)) + 1
+      const line = (a: string[]) => `  ${a[0].padEnd(W)}${a[1].padStart(9)}${a[2].padStart(12)}${a[3].padStart(13)}${a[4].padStart(9)}${a[5].padStart(11)}`
+      const streams = recentStreams(aggr, showCodex ? cxRaw : undefined, tc.recent ?? 12)
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {(tc.groupings ?? [{ id: 'model', label: 'par modèle' }, { id: 'effort', label: 'par modèle et effort' }]).map((g: any) => (
+              <Button key={`t-${g.id}`} {...(g.id !== by ? { plain: true as const } : {})} onPress={() => update($, tBy, () => g.id)}>{g.label ?? g.id}</Button>
+            ))}
+          </Box>
+          <Box flexDirection="column">
+            <Text bold>{line(cols)}</Text>
+            {table.length === 0 ? <Text dimColor>  —</Text> : table.map((r: any, i: number) => (
+              <Text key={`tr-${i}`}>{line([name(r), fmtTokens(r.out), fmtDur(r.ms), fmtTps(r.weighted), fmtTps(r.median), `${fmtTps(r.lo)}–${fmtTps(r.hi)}`])}</Text>
+            ))}
+          </Box>
+          <Box flexDirection="column">
+            <Text bold>{tl.recent_title ?? 'Derniers flux'}</Text>
+            {streams.length === 0 ? <Text dimColor>  —</Text> : streams.map((x: any, i: number) => (
+              <Text key={`ts-${i}`}>{`  ${fill(tl.stream ?? '{model} {effort} : {tps} TPS ({tokens} tokens en {time})', { model: `${showCodex ? `${x.source === 'codex' ? cxl.codex ?? 'Codex' : cxl.claude ?? 'Claude'} ` : ''}${shortModel(x.model, tc.aliases ?? {})}`, effort: x.effort || '?', tps: fmtTps(x.tps), tokens: String(x.out), time: fmtDur(x.ms) })}`}</Text>
+            ))}
+          </Box>
+          <Text dimColor>{fill(tl.note ?? 'TPS = tokens de sortie (réflexion comprise) ÷ temps du flux, attente du 1er token comprise. Pondéré = tous les tokens ÷ tout le temps ; médiane et plage (p{lo}–p{hi}) par flux, à ±7 %. Flux de moins de 50 tokens de sortie exclus. {days} derniers jours.', { lo: String(range[0]), hi: String(range[1]), days: String(cfg.view_days ?? 8) })}</Text>
+        </Box>
+      )
+    }
     const s5 = (sc?.scenarios ?? []).find((s: any) => s.id === (cfg.plein_regime?.scenario ?? 'S5'))
     const views: Record<string, any> = {
       today: period(m.today, false),
@@ -370,6 +451,8 @@ export const register: Register = (on, raw) => {
       ),
       codex: codexPane(),
       classement: current === 'classement' ? await classementPane() : null,
+      history: current === 'history' ? await historyPane() : null,
+      tps: current === 'tps' ? await tpsPane() : null,
       full: (
         <Box flexDirection="column" gap={1}>
           <Text bold color={m.full.suggest ? 'success' : undefined}>{m.full.suggest ? l.suggest_full : l.no_full}</Text>

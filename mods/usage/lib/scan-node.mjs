@@ -95,7 +95,11 @@ export function scanProjects({ root, cache, prices, now = Date.now(), retentionD
       skipped++
       continue
     }
-    if (!st || s.size < st.offset) st = cache.files[rel] = newFileState(kindOfPath(rel))
+    if (!st || s.size < st.offset) {
+      // a rewritten file is read again from the start: its old keys must not make it look already counted
+      if (st) for (const k of Object.keys(st.keys || {})) seen.delete(k)
+      st = cache.files[rel] = newFileState(kindOfPath(rel))
+    }
     if (s.size > st.offset) {
       bytes += s.size - st.offset
       readFrom(p, st, s.size, { prices, claim, idleGapS })

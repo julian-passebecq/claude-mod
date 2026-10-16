@@ -76,6 +76,7 @@ export function scanCodex({ dir, cache, now = Date.now(), days = 8, tzMin = -new
       read++
     }
     for (const d of Object.keys(st.days)) if (d < keepDay) delete st.days[d]
+    for (const k of Object.keys(st.tps || {})) if (k.slice(0, 10) < keepDay) delete st.tps[k]
   }
   for (const rel of Object.keys(cache.files)) if (!present.has(rel)) delete cache.files[rel]
   return { aggr: aggregateCodex(cache.files, { now, dir }), read, bytes }
