@@ -504,7 +504,9 @@ def estimate(run, history, pipeline_durations, wait_s, now):
     Per job: the median of the last successful runs of the same job (>= MIN_SAMPLES), started at its real start,
     or for a job not started yet at the end of the previous stage (or now) plus the runner queue wait. The
     pipeline ends when its last stage does. Without enough job history, the median duration of the lane's
-    last finished pipelines (>= MIN_SAMPLES). Otherwise no ETA: « pas assez d'historique »."""
+    last finished pipelines (>= MIN_SAMPLES). Otherwise no ETA: « pas assez d'historique ».
+    The samples go along (samples_s per job, durations_s per pipeline) so the view recomputes the same median with
+    lib/core/estimate.mjs, the one estimate rule shared with factory's Workflow screen."""
     if run.get('status') not in (RUNNING, QUEUED):
         return None
     jobs = run.get('jobs') or []
@@ -527,14 +529,14 @@ def estimate(run, history, pipeline_durations, wait_s, now):
             hist = [d for _, d in history.get(job_key(run, j), [])]
             if len(hist) < MIN_SAMPLES:
                 enough = False
-                est_jobs[j.get('name')] = {'n': len(hist), 'median_s': None, 'start': None, 'end': None}
+                est_jobs[j.get('name')] = {'n': len(hist), 'median_s': None, 'start': None, 'end': None, 'samples_s': hist}
                 continue
             med = median(hist)
             started = parse_time(j.get('started')) if status == RUNNING else None
             start = started or (max(now, prev_end) + _dt.timedelta(seconds=wait_s or 0))
             end = max(start + _dt.timedelta(seconds=med), now)
             samples.append(len(hist))
-            est_jobs[j.get('name')] = {'n': len(hist), 'median_s': med, 'start': iso(start), 'end': iso(end)}
+            est_jobs[j.get('name')] = {'n': len(hist), 'median_s': med, 'start': iso(start), 'end': iso(end), 'samples_s': hist}
             stage_end = max(stage_end, end)
         prev_end = stage_end
     if enough and samples:
@@ -542,9 +544,9 @@ def estimate(run, history, pipeline_durations, wait_s, now):
     durs = [d for d in pipeline_durations if d is not None]
     if len(durs) >= MIN_SAMPLES:
         eta = max(created + _dt.timedelta(seconds=median(durs)), now)
-        return {'eta': iso(eta), 'basis': 'pipeline', 'samples': len(durs), 'jobs': est_jobs}
+        return {'eta': iso(eta), 'basis': 'pipeline', 'samples': len(durs), 'jobs': est_jobs, 'durations_s': durs}
     return {'eta': None, 'basis': None, 'samples': max([len(durs)] + [v['n'] for v in est_jobs.values()]),
-            'jobs': est_jobs, 'reason': "pas assez d'historique"}
+            'jobs': est_jobs, 'reason': "pas assez d'historique", 'durations_s': durs}
 
 
 # ------------------------------------------------------------------ model

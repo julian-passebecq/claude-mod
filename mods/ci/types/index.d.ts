@@ -64,13 +64,15 @@ export type Job = {
   /** GitLab allow_failure: a red job that does not make the pipeline red (shown orange, never red) */
   allow_failure?: boolean
 }
-export type JobEstimate = { n: number; median_s: number | null; start: string | null; end: string | null }
+export type JobEstimate = { n: number; median_s: number | null; start: string | null; end: string | null; samples_s?: number[] }
 export type Estimate = {
   eta: string | null
   basis: 'jobs' | 'pipeline' | null
   samples: number
   jobs: Record<string, JobEstimate>
   reason?: string
+  /** successful durations of the lane's last pipelines (basis pipeline, or too few) */
+  durations_s?: number[]
 }
 export type Conv = { id: string; title: string; project: string; pr?: string }
 export type Run = {

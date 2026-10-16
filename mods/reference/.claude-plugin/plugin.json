@@ -1,0 +1,16 @@
+{
+  "name": "reference",
+  "version": "0.1.0",
+  "description": "Référence : un seul panneau en lecture seule, onglets Config (toute la config de Claude Code, secrets masqués), Guide (mode d'emploi des mods), Scénarios (modèle et effort par rôle, « Appliquer ce scénario » note le choix dans ~/.claude/scenarios/applied.json et montre l'écart, sans jamais toucher settings ni agents), Santé (mods chargés, erreurs, CPU), CI (routage et Diagramme avec Gantt et ETA). Les anciennes commandes /config-claude, /control, /mods-guide, /scenarios, /sante, /ci restent quand leur mod n'est pas chargé. /reference",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "pane", "reference", "config", "guide", "scenarios", "health", "ci"],
+  "userConfig": {
+    "config": {
+      "type": "string",
+      "title": "Settings file",
+      "description": "Path to your own JSON deep-merged over reference.config.json (tab order, labels, paths, scenarios file; ~ allowed). Empty: ~/.claude/reference-mod/reference.config.json when present.",
+      "default": ""
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # ci
 
+**Now also inside Référence** (`mods/reference`, tab CI, `/reference ci [diagramme …]`): same drawing (`hooks/draw.tsx`, `diagram.ts`, `view.ts`, synced there), same caches through `scanner/ci.py`. `/ci` keeps working while this mod is loaded; once it is unloaded, Référence answers it (route and clear need this mod).
+
 Two tabs in one side pane, **Routage** and **Diagramme**. Nothing here blocks or rewrites a tool call, and nothing calls a model.
 
 | Command | What it does |
@@ -19,7 +21,7 @@ From top to bottom:
 1. **One sentence** describes the current state, for example « 2 pipelines en cours, 1 rouge dans datapass-react (job lint), runner local à 6/18, attente runner ~45s (médiane de 12 jobs) ».
 2. **Filters** are real buttons: Tout · Claude Code · Codex · inconnu.
 3. **Résumé** (folded at start): runs today and over 7 days, pass rate, minutes per CI host, the local runner's queue (jobs running and pending, runners online, median queue wait), and the same figures per author and per app. On desktop it also shows a static picture (authors → CI hosts → results). The picture cannot be clicked; the buttons stay buttons.
-4. **En cours**: one entry per running pipeline. Each shows « vert ou rouge vers HH:MM » and a text Gantt, one bar per job grouped by stage. In the bars, ░ is queue time, █ is run time (in the job's colour), ┄ is the estimated tail of a running job and │ is now. The Gantt is 24 cells wide, so it stays readable at side-panel width.
+4. **En cours**: one entry per running pipeline. Each shows « vert ou rouge vers HH:MM » and a text Gantt, one bar per job grouped by stage, drawn by `lib/core/gantt.mjs`, the same renderer and legend as factory's Workflow screen: ░ file, █ fini, ▓ en cours, ▒ échoué, ┄ estimation, │ maintenant. The Gantt is 24 cells wide, so it stays readable at side-panel width.
 5. **Rouges**: the latest run of each lane that really failed. Each red job comes with the command that prints its log, for example `gh run view <id> -R owner/repo --log-failed` or `glab ci trace <job-id> -R group/repo`, plus its link. The mod shows these commands and never runs them. A job with `allow_failure` is orange, never red, and a cancelled or skipped run is grey.
 6. **Pipelines par hôte / par app / par conversation**: one lane per repo × CI host:
    `app ──▶ CI host ──▶ [stage: job ✔ 1m02, …] ▶ [stage …] ──▶ ✔ vert 1m20 · il y a 2 h`, followed by the lane's last runs (`✔✔✘●…`), who made them, the branch or MR, and the conversation. The **Gantt ▸** button opens that lane's newest run as a Gantt. Each group can be folded.
@@ -37,6 +39,7 @@ From top to bottom:
   - **Per job**: the median of the last successful runs of the same job, which needs at least 3 of them. The history of those runs is kept across refreshes in the pipelines cache.
   - **Later stages**: a job in a later stage starts when the previous stage ends, plus the runner's median queue wait.
   - **Fallback**: when the job history is too short, the median duration of the lane's last successful pipelines (at least 3). When that is also too short, the view says « pas assez d'historique » and gives the sample size.
+- **One estimate rule**: the scanner sends its samples (`samples_s` per job, `durations_s` per pipeline) and the view recomputes the median and the end with `lib/core/estimate.mjs`, the rule factory's Workflow ETA uses (at least 3 samples, never an end in the past). The runner line reads like `runnerLine()` of `lib/core/runner.mjs` (`tests/core.test.mjs` checks both on invented runs); a hooks module cannot import `runner.mjs` itself (it reads files with `node:fs`).
 - **Refresh**: on Rafraîchir, `/ci diagramme refresh`, or when the cache (`~/.claude/ci-pipelines-cache.json`) is older than `cache_minutes`. There is no timer.
 
 Labels, colours and limits are in `ci.config.example.json` → `pipelines`. Copy it to `~/.claude/ci.config.json` and set `pipelines.roots`.
@@ -45,6 +48,7 @@ Labels, colours and limits are in `ci.config.example.json` → `pipelines`. Copy
 
 ```sh
 python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
+node --test mods/ci/tests/core.test.mjs
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/ci
 ```
 

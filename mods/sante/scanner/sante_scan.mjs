@@ -6,12 +6,17 @@
 // folders (size on disk, newest change), its logs (error lines), error fields inside its outputs, and its health
 // record (~/.claude/mods-health/<mod>.json, the shared convention). Read-only on everything except its own
 // report (<data_dir>/report.json) and its own health record. Never deletes anything.
+// The folder lists come from lib/core/mods.mjs (splitDirs, listMods), the health record from lib/core/health.mjs; the
+// record also carries `findings`: the red and orange lines of the pane, for the Problèmes register.
 import { existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { deepMerge, expandHome, getPath, nextHealth, registeredCommands, splitDirs } from '../hooks/logic.mjs'
+import { deepMerge, evaluate, expandHome, getPath, registeredCommands } from '../hooks/logic.mjs'
+import { writeHealth as coreWriteHealth } from '../lib/core/health.mjs'
+import { listMods, splitDirs } from '../lib/core/mods.mjs'
+import { writeAtomic } from '../lib/core/util.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const slash = p => String(p).replace(/\\/g, '/')
@@ -180,15 +185,18 @@ export function readHealth(healthDir, name) {
   return undefined
 }
 
-/** Subfolders of `root` that hold a .claude-plugin/plugin.json. */
+/** Subfolders of `root` that hold a .claude-plugin/plugin.json: the mods core listMods() reads, plus those whose
+ * plugin.json does not parse (listMods skips them; here they must show red). */
 function modFolders(root) {
+  const out = listMods(root).map(m => m.dir)
+  const seen = new Set(out.map(d => d.toLowerCase()))
   try {
-    return readdirSync(root, { withFileTypes: true })
-      .filter(e => e.isDirectory() && existsSync(join(root, e.name, '.claude-plugin', 'plugin.json')))
-      .map(e => join(root, e.name))
-  } catch {
-    return []
-  }
+    for (const e of readdirSync(root, { withFileTypes: true })) {
+      const d = slash(join(root, e.name))
+      if (e.isDirectory() && !seen.has(d.toLowerCase()) && existsSync(join(d, '.claude-plugin', 'plugin.json'))) out.push(d)
+    }
+  } catch {}
+  return out.sort((a, b) => basename(a).localeCompare(basename(b)))
 }
 
 /** Plugins installed from a marketplace (installed_plugins.json, format « non vérifié »): { name, dir }[]. */
@@ -235,18 +243,32 @@ export function scan(req) {
   return { generated: req.now || Date.now(), home: '~', healthDir: slash(healthDir).replace(home, '~'), mods }
 }
 
-/** Writes this scanner's own record in the shared convention (best effort, never throws). */
-export function writeHealth(healthDir, mod, now, durationMs, cpuMs, error) {
+/**
+ * The red and orange lines of the pane (evaluate() of hooks/logic.mjs, with the session's commands and engine version
+ * when the hook sent them): [{ level: 'error' | 'warn', mod, text }].
+ */
+export function findingsOf(report, { commands = [], engine, cfg = {}, now = Date.now() } = {}) {
+  const { rows } = evaluate(report, { commands, engine, cfg, now })
+  const out = []
+  for (const r of rows) for (const x of r.reasons) if (x.level === 'error' || x.level === 'warn') out.push({ level: x.level, mod: r.name, text: x.text })
+  return out
+}
+
+/**
+ * Writes this scanner's health record through lib/core/health.mjs (the shared convention), then adds `findings` to it
+ * (best effort, never throws). `env` carries MODS_HEALTH_DIR / MODS_HEALTH like process.env.
+ */
+export function writeHealth(error, findings = [], env = process.env, now = Date.now()) {
+  const rec = coreWriteHealth('sante', error, env, now)
+  if (!rec) return undefined
   try {
-    const file = join(healthDir, `${mod}.json`)
-    let prev
-    try {
-      prev = JSON.parse(readFileSync(file, 'utf8'))
-    } catch {}
-    mkdirSync(healthDir, { recursive: true })
-    writeFileSync(`${file}.tmp`, JSON.stringify(nextHealth(prev, { mod, now, durationMs, cpuMs, error })))
-    renameSync(`${file}.tmp`, file)
-  } catch {}
+    const dir = env.MODS_HEALTH_DIR || join(homedir(), '.claude', 'mods-health')
+    const full = { ...rec, findings: findings.slice(0, 200) }
+    writeAtomic(join(dir, 'sante.json'), JSON.stringify(full))
+    return full
+  } catch {
+    return rec
+  }
 }
 
 function cliRequest(argv) {
@@ -262,13 +284,13 @@ function cliRequest(argv) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const t0 = Date.now()
   let req = {}
   let error = null
+  let report
   try {
     const stdin = process.stdin.isTTY ? '' : readFileSync(0, 'utf8')
     req = stdin.trim() ? JSON.parse(stdin) : cliRequest(process.argv.slice(2))
-    const report = scan(req)
+    report = scan(req)
     const dataDir = expandHome(req.cfg?.data_dir || '~/.claude/sante-mod', slash(req.home || homedir()))
     try {
       mkdirSync(dataDir, { recursive: true })
@@ -282,8 +304,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exitCode = 1
   }
   if (req.cfg?.write_own_health !== false && process.env.MODS_HEALTH !== '0') {
-    const cpu = process.cpuUsage()
     const healthDir = process.env.MODS_HEALTH_DIR || expandHome(req.cfg?.health_dir || '~/.claude/mods-health', slash(req.home || homedir()))
-    writeHealth(healthDir, 'sante', Date.now(), Date.now() - t0, (cpu.user + cpu.system) / 1000, error)
+    let findings = []
+    try {
+      if (report) findings = findingsOf(report, { commands: req.commands || [], engine: req.engine, cfg: req.cfg || {}, now: req.now || Date.now() })
+    } catch {}
+    writeHealth(error, findings, { ...process.env, MODS_HEALTH_DIR: healthDir })
   }
 }
