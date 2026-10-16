@@ -214,7 +214,7 @@ node mods/tests-reels/scanner/recover.mjs          # recovery scan, counts only 
 python -I -m unittest discover -s mods/control/tests -p "test_*.py"
 python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
 python -I -m unittest discover -s mods/machine/tests -p "test_*.py"
-node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs mods/band/tests/logic.test.mjs mods/machine/tests/logic.test.mjs mods/metrics/tests/logic.test.mjs mods/sante/tests/logic.test.mjs mods/band/tests/health.test.mjs mods/usage/tests/health.test.mjs mods/metrics/tests/health.test.mjs mods/veille/tests/logic.test.mjs mods/veille/tests/mail.test.mjs mods/veille/tests/fil.test.mjs mods/menage/tests/logic.test.mjs mods/a-faire/tests/logic.test.mjs mods/problemes/tests/logic.test.mjs mods/tests-reels/tests/logic.test.mjs
+node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs mods/band/tests/logic.test.mjs mods/machine/tests/logic.test.mjs mods/metrics/tests/logic.test.mjs mods/sante/tests/logic.test.mjs mods/band/tests/health.test.mjs mods/usage/tests/health.test.mjs mods/metrics/tests/health.test.mjs mods/veille/tests/logic.test.mjs mods/veille/tests/mail.test.mjs mods/veille/tests/fil.test.mjs mods/menage/tests/logic.test.mjs mods/a-faire/tests/logic.test.mjs mods/problemes/tests/logic.test.mjs mods/tests-reels/tests/logic.test.mjs
 node mods/guide/scripts/build.mjs   # regenerate MODE-EMPLOI.md (table of contents, Nos mods cards)
 # hook and pane tests, with the Claude Code test kit:
 claude plugin test mods/factory
