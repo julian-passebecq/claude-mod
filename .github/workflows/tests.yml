@@ -1,0 +1,26 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Python tests (control, ci)
+        run: |
+          python -I -m unittest discover -s mods/control/tests -p "test_*.py"
+          python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
+      - name: Node tests (factory, scenarios, guide)
+        run: node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs
+      - name: Confidentiality scan
+        run: python -I tools/confidentiality_scan.py .

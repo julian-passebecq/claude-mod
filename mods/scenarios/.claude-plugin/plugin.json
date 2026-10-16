@@ -1,0 +1,24 @@
+{
+  "name": "scenarios",
+  "version": "0.1.0",
+  "description": "Scénarios d'agents: read-only guide and editable presets of roles -> model, effort, unit and max parallel, with ready-to-paste snippets. /scenarios",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "agents", "models", "effort"],
+  "userConfig": {
+    "file": {
+      "type": "string",
+      "title": "Extra scenarios file",
+      "description": "Path to your own scenarios JSON (same shape as scenarios.json in this mod; ~ allowed). Its scenarios are added after the shipped ones; one with the same id replaces the shipped one. Empty: shipped scenarios only.",
+      "default": ""
+    },
+    "warn_no_model": {
+      "type": "string",
+      "title": "Warn when an Agent call names no model",
+      "description": "on: a toast when a subagent or Workflow agent starts without an explicit model (it then inherits). Never blocks or changes the call. off: no toast.",
+      "default": "on",
+      "options": ["on", "off"]
+    }
+  }
+}

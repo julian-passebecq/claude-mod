@@ -1,0 +1,52 @@
+{
+  "states": { "stable": "stable", "building": "en construction", "planned": "prévu" },
+  "mods": [
+    {
+      "dir": "factory",
+      "state": "stable",
+      "data": "transcripts (~/.claude/projects), fichiers de session de l'app, gh/glab pour l'état des PR",
+      "tests": ["node --test mods/factory/tests/logic.test.mjs", "claude plugin test mods/factory"]
+    },
+    {
+      "dir": "control",
+      "state": "stable",
+      "data": "settings, CLAUDE.md, agents, skills, hooks, mémoire, transcripts (scanner Python)",
+      "note": "métriques et pratiques encore V5, réécriture V6 prévue",
+      "tests": ["python -I -m unittest discover -s mods/control/tests -p \"test_*.py\"", "claude plugin test mods/control"]
+    },
+    {
+      "dir": "ci",
+      "state": "building",
+      "data": "~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners)",
+      "tests": ["python -I -m unittest discover -s mods/ci/tests -p \"test_*.py\"", "claude plugin test mods/ci"]
+    },
+    {
+      "dir": "scenarios",
+      "state": "building",
+      "data": "scenarios.json du mod + ton fichier (userConfig file)",
+      "tests": ["node --test mods/scenarios/tests/logic.test.mjs", "claude plugin test mods/scenarios"]
+    },
+    {
+      "dir": "guide",
+      "state": "building",
+      "data": "MODE-EMPLOI.md, mods.json et les plugin.json / hooks des mods voisins",
+      "tests": ["node --test mods/guide/tests/guide.test.mjs", "claude plugin test mods/guide"]
+    },
+    {
+      "dir": "band",
+      "name": "band V6",
+      "state": "planned",
+      "description": "Bandeau au-dessus du prompt : taille du contexte face au seuil de relais du rôle, en lecture seule (reprend context-meter et le bandeau de cc-control).",
+      "data": "usage de la session ($.session.usage)",
+      "tests": []
+    }
+  ],
+  "archived": [
+    { "name": "cc-control (gardes)", "verdict": "rejeté", "why": "Refusait et réécrivait des appels d'outils (plafonds d'envois et de lancements, réécritures) : le bloqueur caché. Éteint le 9 oct." },
+    { "name": "cc-control (bandeau), context-meter", "verdict": "fusionné → band V6", "why": "Petits et justes : seul le bandeau de contexte en lecture seule est repris." },
+    { "name": "coordinator", "verdict": "fusionné → factory", "why": "Les sous-conversations liées suppriment la plupart des collisions ; on garde seulement « PR verte non mergée » et « attend Julian »." },
+    { "name": "cost-tracker", "verdict": "rejeté", "why": "Affichait 0,00 $ pour les nouveaux ids de modèle ; factory fait la facture." },
+    { "name": "activity-pane", "verdict": "rejeté", "why": "Remplacé par factory et la vue Agents de l'app." },
+    { "name": "launchpad, night", "verdict": "rejeté", "why": "Réveils sur minuterie, contraires à la règle « pas de réveils »." }
+  ]
+}
