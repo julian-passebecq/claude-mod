@@ -1,7 +1,7 @@
 {
   "name": "guide",
   "version": "0.1.0",
-  "description": "Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux, commandes, userConfig, installer, activer, tester, écrire un mod pas à pas, et une fiche par mod du dépôt (lue en direct). Onglets et sommaire. /mods-guide",
+  "description": "Mode d'emploi des mods, en français : les 6 entrées de la barre Mods et chacun de leurs onglets, ma journée, la nuit, ce qu'un mod peut ou ne peut pas faire, à essayer, anciennes commandes, tes données, mises à jour, écrire un mod, et une fiche par mod du dépôt (lue en direct). Onglets et sommaire. /mods-guide",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

@@ -75,7 +75,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const pane = await mount($, surface)
     // Sommaire: the whole tree
     expect(await pane.find({ type: 'Text', text: /Sommaire général/ })).toBeDefined()
-    for (const key of ['go-bases', 'go-ce-quest-un-mod', 'go-un-mod-en-une-phrase', 'go-tester', 'go-claude-plugin-validate', 'go-nos-mods', 'go-fiches', 'go-demo', 'go-band-v6', 'go-archivés--rejetés']) {
+    for (const key of ['go-bases', 'go-ce-quest-un-mod', 'go-un-mod-en-une-phrase', 'go-tester', 'go-claude-plugin-validate', 'go-nos-mods', 'go-fiches', 'go-fiche-demo', 'go-fiche-band-v6', 'go-archivés--rejetés']) {
       expect(await pane.find({ key } as any)).toBeDefined()
     }
     // a sub-section link opens its tab, unfolds its category and marks it

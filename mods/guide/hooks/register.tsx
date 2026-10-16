@@ -37,7 +37,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'mods-guide',
-      description: "Mode d'emploi des mods : onglets Bases, Événements, Interface, Configuration, Installer, Tester, Écrire un mod, Référence, Nos mods, FAQ",
+      description: "Mode d'emploi des mods : Démarrer, les 6 entrées (Jauge, Cockpit, Veille, À toi, Registres, Référence), la nuit, possible ou pas, à essayer, écrire un mod, nos mods, FAQ",
       argumentHint: '[onglet ou section] | close',
     })
     return next(e)

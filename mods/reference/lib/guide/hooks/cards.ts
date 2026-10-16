@@ -79,7 +79,7 @@ export function card(entry: CatalogEntry, catalog: ModsCatalog, manifest?: strin
 /** The same card as Markdown, for MODE-EMPLOI.md. */
 export function cardMarkdown(c: Card): string {
   const rows = [
-    `#### ${c.name}`,
+    `#### Fiche ${c.name}`,
     '',
     `${c.description || '(pas de description)'}`,
     '',
