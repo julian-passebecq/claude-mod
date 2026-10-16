@@ -2,7 +2,12 @@
 
 Usage: python factory_scan.py --cache FILE [--hours 36] [--detail CLI_ID] [--projects DIR] [--app DIR]
                               [--board DIR] [--ci-ttl 600] [--live-s 180] [--now EPOCH] [--cli]
-Prints one JSON document: {generated, sessions: [...], detail: {...} | null}.
+                              [--waiting] [--pr-ttl 180] [--pr-max-age-days 14] [--pr-max-checks 25] [--gl-host HOST]
+Prints one JSON document: {generated, sessions: [...], detail: {...} | null, reviews: {...} | null}.
+
+--waiting adds `reviews`: Julian's open, non-draft PRs (gh search --author=@me) and MRs (glab api, scope=created_by_me)
+updated in the last N days, each with CI state, conflict flag and the time CI turned green. gh and glab hold their own
+tokens: this script never reads, prints or stores a token. The list is cached --pr-ttl seconds in the cache file.
 
 Speed: every transcript (main and subagent .jsonl) is read from the byte offset where the last run stopped; the
 aggregates live in the cache file, so a refresh only parses the new tail. A file that shrank is re-read whole.
@@ -20,7 +25,7 @@ import sys
 import time
 from datetime import datetime
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 READ_ONLY = {'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'LS', 'NotebookRead'}
 LOOP_TOOLS = {'Monitor', 'CronCreate', 'ScheduleWakeup'}
 MAX_IDS, MAX_TURNS, MAX_EVENTS, MAX_ERRORS = 300, 40, 30, 20
@@ -42,6 +47,11 @@ CI_TTL = float(arg('--ci-ttl', '600'))
 LIVE_S = float(arg('--live-s', '180'))
 NOW = float(arg('--now', str(time.time())))
 CLI = '--cli' in sys.argv
+WAITING = '--waiting' in sys.argv
+PR_TTL = float(arg('--pr-ttl', '180'))
+PR_MAX_AGE = float(arg('--pr-max-age-days', '14')) * 86400
+PR_MAX_CHECKS = int(arg('--pr-max-checks', '25'))
+GL_HOST = arg('--gl-host', '')
 
 _day_cache = {}
 
@@ -93,6 +103,7 @@ def new_agg():
         'ctx': 0, 'models': {}, 'days': {}, 'ids': {}, 'id_order': [], 'turns': [], 'events': [], 'errors': [],
         'calls': [], 'pending': {}, 'notifs': {}, 'tools': 0, 'readonly': 0, 'last_tool': None, 'loops': {},
         'pr': None, 'compacts': 0, 'prompt': None, 'ask_open': False, 'stop': None, 'api_error': False,
+        'ask_ts': None, 'ask_q': '',
     }
 
 
@@ -231,7 +242,9 @@ def feed(a, d, sub):
             if name in LOOP_TOOLS:
                 a['loops'][name] = a['loops'].get(name, 0) + 1
             if name == 'AskUserQuestion':
-                a['ask_open'], a['ask_id'] = True, b.get('id')
+                a['ask_open'], a['ask_id'], a['ask_ts'] = True, b.get('id'), ts
+                qs = inp.get('questions') or []
+                a['ask_q'] = one_line(qs[0].get('question', '') if qs and isinstance(qs[0], dict) else '', 140)
             if name in ('Agent', 'Task', 'Workflow'):
                 call = {'id': b.get('id'), 'tool': 'Workflow' if name == 'Workflow' else 'Agent', 'ts': ts,
                         'type': inp.get('subagent_type') or ('workflow' if name == 'Workflow' else 'general-purpose'),
@@ -325,7 +338,8 @@ def read_json(p):
 def slim(a, keep_detail):
     """The aggregate fields the mod needs (detail-only lists dropped from dashboard rows)."""
     o = {k: a[k] for k in ('cwd', 'branch', 'title', 'model', 'effort', 'first_ts', 'last_ts', 'ctx', 'models', 'tools',
-                           'readonly', 'last_tool', 'loops', 'pr', 'compacts', 'ask_open', 'stop', 'api_error', 'prompt')}
+                           'readonly', 'last_tool', 'loops', 'pr', 'compacts', 'ask_open', 'stop', 'api_error', 'prompt',
+                           'ask_ts', 'ask_q')}
     o['days'] = a['days']
     o['last_error'] = a['errors'][-1] if a['errors'] else None
     if keep_detail:
@@ -378,6 +392,146 @@ def ci_state(pr, cache):
         pass
     cache[key] = {'at': NOW, 'v': v}
     return v
+
+
+def run(argv, timeout):
+    """(exit code, stdout) of a command without a shell; (1, '') when it cannot start or times out."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return r.returncode, r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1, ''
+
+
+def iso_s(ts):
+    """ISO 8601 -> epoch seconds, or None."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp()
+    except ValueError:
+        return None
+
+
+def gh_ci(checks):
+    """GitHub statusCheckRollup -> (ci, green_since). ci: success|failed|canceled|running|skipped|none."""
+    if not checks:
+        return 'none', None
+    concl = [(c.get('conclusion') or c.get('state') or c.get('status') or '').upper() for c in checks]
+    if any(c in ('FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE') for c in concl):
+        return 'failed', None
+    if 'CANCELLED' in concl:
+        return 'canceled', None
+    if any(c not in ('SUCCESS', 'NEUTRAL', 'SKIPPED') for c in concl):
+        return 'running', None
+    if 'SUCCESS' not in concl:
+        return 'skipped', None  # every check skipped: nothing ran (incident A4, defect B2)
+    done = [t for t in (iso_s(c.get('completedAt')) for c in checks) if t]
+    return 'success', (max(done) if done else None)
+
+
+GL_CI = {'success': 'success', 'failed': 'failed', 'canceled': 'canceled', 'skipped': 'skipped', 'manual': 'manual'}
+
+
+def gl_ci(pipe):
+    """GitLab head_pipeline -> (ci, green_since). A merge request without any pipeline is 'none'."""
+    if not pipe:
+        return 'none', None
+    st = (pipe.get('status') or '').lower()
+    ci = GL_CI.get(st, 'running' if st else 'none')
+    return ci, (iso_s(pipe.get('finished_at') or pipe.get('updated_at')) if ci == 'success' else None)
+
+
+def fresh(details, key, upd):
+    hit = details.get(key)
+    return hit if hit and hit.get('upd') == upd and NOW - hit.get('at', 0) < PR_TTL else None
+
+
+def gh_reviews(details):
+    code, out = run(['gh', 'search', 'prs', '--author=@me', '--state=open', '--limit', '100',
+                     '--json', 'number,repository,url,title,updatedAt,isDraft'], 25)
+    if code != 0:
+        return [], 'gh: search failed (gh missing or not signed in)'
+    try:
+        items = json.loads(out or '[]')
+    except ValueError:
+        return [], 'gh: unreadable answer'
+    items = [i for i in items if isinstance(i, dict) and not i.get('isDraft') and NOW - (iso_s(i.get('updatedAt')) or 0) <= PR_MAX_AGE]
+    items.sort(key=lambda i: i.get('updatedAt') or '', reverse=True)
+
+    def one(i):
+        repo = (i.get('repository') or {}).get('nameWithOwner') or ''
+        key, upd = i.get('url'), i.get('updatedAt')
+        hit = fresh(details, key, upd)
+        if not hit:
+            c, o = run(['gh', 'pr', 'view', str(i.get('number')), '-R', repo, '--json', 'headRefName,mergeable,statusCheckRollup'], 20)
+            try:
+                d = json.loads(o or '{}') if c == 0 else None
+            except ValueError:
+                d = None
+            if not isinstance(d, dict):
+                return None
+            ci, green = gh_ci(d.get('statusCheckRollup') or [])
+            hit = details[key] = {'upd': upd, 'at': NOW, 'v': {
+                'ci': ci, 'green_since': green, 'conflict': d.get('mergeable') == 'CONFLICTING', 'branch': d.get('headRefName') or ''}}
+        return dict(hit['v'], provider='github', repo=repo, number=i.get('number'), url=key,
+                    title=one_line(i.get('title') or '', 100), updated=iso_s(upd))
+    with cf.ThreadPoolExecutor(6) as ex:
+        res = list(ex.map(one, items[:PR_MAX_CHECKS]))
+    return [r for r in res if r], ''
+
+
+def gl_reviews(details):
+    host = ['--hostname', GL_HOST] if GL_HOST else []
+    code, out = run(['glab', 'api', *host, 'merge_requests?scope=created_by_me&state=opened&per_page=100'], 25)
+    if code != 0:
+        return [], 'glab: API call failed (glab missing or not signed in)'
+    try:
+        items = json.loads(out or '[]')
+    except ValueError:
+        return [], 'glab: unreadable answer'
+    items = [i for i in items if isinstance(i, dict) and not (i.get('draft') or i.get('work_in_progress'))
+             and NOW - (iso_s(i.get('updated_at')) or 0) <= PR_MAX_AGE]
+    items.sort(key=lambda i: i.get('updated_at') or '', reverse=True)
+
+    def one(i):
+        key, upd = i.get('web_url'), i.get('updated_at')
+        hit = fresh(details, key, upd)
+        if not hit:
+            c, o = run(['glab', 'api', *host, 'projects/%s/merge_requests/%s' % (i.get('project_id'), i.get('iid'))], 20)
+            try:
+                d = json.loads(o or '{}') if c == 0 else None
+            except ValueError:
+                d = None
+            if not isinstance(d, dict):
+                return None
+            ci, green = gl_ci(d.get('head_pipeline'))
+            hit = details[key] = {'upd': upd, 'at': NOW, 'v': {
+                'ci': ci, 'green_since': green, 'conflict': bool(d.get('has_conflicts')), 'branch': d.get('source_branch') or ''}}
+        full = ((i.get('references') or {}).get('full') or '').split('!')[0]
+        return dict(hit['v'], provider='gitlab', repo=full, number=i.get('iid'), url=key,
+                    title=one_line(i.get('title') or '', 100), updated=iso_s(upd))
+    with cf.ThreadPoolExecutor(6) as ex:
+        res = list(ex.map(one, items[:PR_MAX_CHECKS]))
+    return [r for r in res if r], ''
+
+
+def open_reviews(cache):
+    """Julian's open PRs/MRs with CI state, cached PR_TTL seconds: {at, items, errors}."""
+    hit = cache.get('reviews')
+    if hit and NOW - hit.get('at', 0) < PR_TTL:
+        return hit
+    details = cache.setdefault('review_details', {})
+    with cf.ThreadPoolExecutor(2) as ex:
+        gh, gl = ex.submit(gh_reviews, details), ex.submit(gl_reviews, details)
+        (a, ea), (b, eb) = gh.result(), gl.result()
+    live = {r['url'] for r in a + b}
+    for k in [k for k in details if k not in live]:
+        del details[k]
+    res = {'at': NOW, 'items': a + b, 'errors': [e for e in (ea, eb) if e]}
+    cache['reviews'] = res
+    return res
 
 
 def mod_events(cache):
@@ -482,6 +636,12 @@ def main():
             resume_md=bool(cwd) and os.path.isfile(os.path.join(cwd, 'handoff', 'RESUME.md')),
             subs=[{k: s[k] for k in ('id', 'type', 'status', 'model', 'explicit_model', 'models', 'days', 'readonly', 'tools', 'workflow', 'loops')} for s in subs],
             guards=guards.get(cli, []) + guards.get(app.get('sessionId') or '-', []),
+            status_category=(app.get('postTurnSummary') or {}).get('status_category') or '',
+            awaiting=bool(app.get('interruptedAwaitingPerson')),
+            parent=(app.get('spawnedFrom') or {}).get('sessionId'), parent_title=(app.get('spawnedFrom') or {}).get('title'),
+            app_prs=[{'url': p.get('url'), 'number': p.get('prNumber'), 'repo': p.get('repo'), 'provider': p.get('provider'),
+                      'state': str(p.get('state') or '').lower()} for p in (app.get('prs') or [])
+                     if isinstance(p, dict) and p.get('url') and str(p.get('state') or '').upper() not in ('MERGED', 'CLOSED')],
         )
         sessions.append(row)
         if is_detail:
@@ -496,6 +656,7 @@ def main():
                 s['ci'] = None
     if detail is not None:
         detail['ci'] = next((s.get('ci') for s in sessions if s['cli'] == DETAIL), None)
+    reviews = open_reviews(cache) if WAITING else None
 
     for p in [p for p in files if p not in touched and NOW - files[p].get('mtime', 0) > HOURS * 3600 * 2]:
         del files[p]
@@ -507,7 +668,8 @@ def main():
     except OSError:
         pass
     sessions.sort(key=lambda s: -s['last_activity'])
-    json.dump({'generated': NOW, 'hours': HOURS, 'sessions': sessions, 'detail': detail}, sys.stdout, separators=(',', ':'))
+    json.dump({'generated': NOW, 'hours': HOURS, 'sessions': sessions, 'detail': detail, 'reviews': reviews}, sys.stdout,
+              separators=(',', ':'))
 
 
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
-// Hook tests for factory with the Claude Code test kit: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/factory
+// Hook tests for factory with the Claude Code test kit: claude plugin test mods/factory
+// The notification tests stub `ui.notify`, an event of CLI 2.1.299+ (the Desktop app's build); 2.1.293's kit refuses it.
 import { expect, mock, test } from 'claude-code/testing'
 
 const CONFIG = JSON.stringify({
@@ -26,10 +27,10 @@ const make = (day: string) => ({
 })
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')
-function base(on) {
+function base(on, scanOverride?: string) {
   mock.clock(on, { now: NOW })
   const session = make(dayOf(NOW))
-  const SCAN = JSON.stringify({ generated: 0, sessions: [session], detail: session })
+  const SCAN = scanOverride ?? JSON.stringify({ generated: 0, sessions: [session], detail: session })
   on('env.get', ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   on('fs.exists', ($, e) => ({ value: String(e.path).endsWith('/factory/factory.config.json') || String(e.path).endsWith('factory.config.json') && !String(e.path).includes('effort-board') }))
   on('fs.read', () => ({ value: CONFIG }))
@@ -70,5 +71,43 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, surface, /#155 opened.{0,8}running/)).toBe(true)
     expect(await has(ui, surface, /opus 100%.{0,3}target <= 50%/)).toBe(true)
     expect(await has(ui, surface, /app-one/)).toBe(true)
+  })
+
+  test(`"Ça t'attend" strip on top, one notification per new row (${surface})`, async ($, on) => {
+    const session = { ...make(dayOf(NOW)), live: false, last_activity: (NOW - 3600000) / 1000, needs_action: '', parent: 'local_lead', parent_title: 'Lead lane',
+      app_prs: [{ url: 'https://github.com/o/app-one/pull/7', number: 7 }] }
+    const reviews = { errors: [], items: [
+      { provider: 'github', repo: 'o/app-one', number: 7, url: 'https://github.com/o/app-one/pull/7', ci: 'success', conflict: false, green_since: (NOW - 50 * 60000) / 1000, title: 'feat' },
+      { provider: 'gitlab', repo: 'g/app-one', number: 155, url: 'https://gitlab.com/x/-/merge_requests/155', ci: 'skipped', conflict: false },
+    ] }
+    const SCAN2 = JSON.stringify({ generated: 0, sessions: [session], detail: session, reviews })
+    base(on, SCAN2)
+    const store: Record<string, unknown> = { waiting_seen: {} }
+    on('store.get', ($, e) => ({ value: store[e.key] }))
+    on('store.set', ($, e) => { store[e.key] = e.value; return { value: undefined } })
+    const sent: string[] = []
+    on('ui.notify', ($, e) => { sent.push(e.text); return { value: { isSent: true, channel: 'test' } } })
+    await $.command.run({ command: 'factory', args: '' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 60 }, props: PANE('Factory') })
+    expect(await has(ui, surface, /Ça t'attend \(2\)/)).toBe(true)
+    expect(await has(ui, surface, /app-one#7 verte depuis 50 min/)).toBe(true)
+    expect(await has(ui, surface, /Aucun tour depuis 1 h 00 alors que app-one!155 est sans pipeline/)).toBe(true)
+    expect(await has(ui, surface, /Child|App One lane \(attend|App One lane \(inactive/)).toBe(true)
+    expect(sent.length).toBe(2)
+    expect(sent[0]).toContain('App One lane')
+    await $.command.run({ command: 'factory', args: '' })
+    expect(sent.length).toBe(2) // the same rows never notify twice
+  })
+
+  test(`a notification that is not sent falls back to a toast (${surface})`, async ($, on) => {
+    const session = { ...make(dayOf(NOW)), live: false, last_activity: (NOW - 3600000) / 1000, needs_action: 'Log in to the provider' }
+    base(on, JSON.stringify({ generated: 0, sessions: [session], detail: session, reviews: { errors: [], items: [] } }))
+    on('store.get', () => ({ value: {} }))
+    on('store.set', () => ({ value: undefined }))
+    on('ui.notify', () => ({ value: { isSent: false, reason: 'no-channel' } }))
+    const toasts: string[] = []
+    on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
+    await $.command.run({ command: 'factory', args: '' })
+    expect(toasts.some((t) => t.includes('Attend Julian : Log in to the provider'))).toBe(true)
   })
 }

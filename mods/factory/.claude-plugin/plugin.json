@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.3.0",
-  "description": "Factory views: per-conversation agent tree with bill, guards, log and warnings (/factory), and a dashboard of all live conversations with routing shares (/factory-all)",
+  "version": "0.4.0",
+  "description": "Factory views: a \"Ça t'attend\" strip (green PRs not merged, sessions waiting on Julian, idle lanes on a red PR, sub-conversations per lead, with notifications), the dashboard of all live conversations and each conversation's agent tree with bill, guards, log and warnings. /factory",
   "author": { "name": "Julian Passebecq" }
 }

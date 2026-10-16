@@ -209,3 +209,119 @@ test('svg: escapes text, stays under the Svg cap, collapses repeated log rows', 
   assert.match(dashSvg(g, CFG, NOW, 'calls'), /conversations · 0/)
   assert.deepEqual(wrap('aaa bbb ccc', 7, 3), ['aaa bbb', 'ccc'])
 })
+
+// ---- "Ça t'attend" strip -----------------------------------------------------------------------------------------
+
+test('waiting: green PR left open, question pending, needs action, idle lane on red / skipped / conflict PR', async () => {
+  const { waitingRows } = await import('../hooks/waiting.mjs')
+  const min = 60000
+  const scan = {
+    reviews: { errors: [], items: [
+      { provider: 'github', repo: 'o/app-one', number: 5, url: 'https://github.com/o/app-one/pull/5', ci: 'success', conflict: false, green_since: (NOW - 45 * min) / 1000 },
+      { provider: 'github', repo: 'o/app-one', number: 6, url: 'https://github.com/o/app-one/pull/6', ci: 'success', conflict: false, green_since: (NOW - 5 * min) / 1000 },
+      { provider: 'gitlab', repo: 'g/app-two', number: 9, url: 'https://gitlab.com/g/app-two/-/merge_requests/9', ci: 'skipped', conflict: false },
+      { provider: 'github', repo: 'o/app-three', number: 2, url: 'https://github.com/o/app-three/pull/2', ci: 'success', conflict: true, green_since: (NOW - 90 * min) / 1000 },
+    ] },
+    sessions: [
+      { cli: 'c1', sid: 'local_1', app_title: 'Lane one', live: false, last_activity: (NOW - 60 * min) / 1000, pr: { url: 'https://github.com/o/app-one/pull/5', number: 5 } },
+      { cli: 'c2', sid: 'local_2', app_title: 'Lane two', live: false, last_activity: (NOW - 30 * min) / 1000,
+        app_prs: [{ url: 'https://gitlab.com/g/app-two/-/merge_requests/9', number: 9 }], ask_open: true, ask_ts: new Date(NOW - 10 * min).toISOString(), ask_q: 'Which repo?' },
+      { cli: 'c3', sid: 'local_3', app_title: 'Lane three', live: false, last_activity: (NOW - 25 * min) / 1000,
+        app_prs: [{ url: 'https://github.com/o/app-three/pull/2/', number: 2 }], needs_action: 'Log in to Cloudflare', status_category: 'blocked' },
+      { cli: 'c4', sid: 'local_4', app_title: 'Lane four', live: true, last_activity: NOW / 1000, pr: { url: 'https://github.com/o/x/pull/1', number: 1, repo: 'o/x' },
+        ci: { state: 'open', ci: 'failed' }, ask_open: true, ask_ts: new Date(NOW - 1 * min).toISOString() },
+      { cli: 'c5', sid: 'local_5', app_title: 'Old archived', archived: true, needs_action: 'x', last_activity: (NOW - 600 * min) / 1000 },
+      { cli: 'c6', sid: 'local_6', app_title: 'Lane six', live: false, last_activity: (NOW - 40 * min) / 1000, pr: { url: 'https://github.com/o/y/pull/4', number: 4, repo: 'o/y' },
+        ci: { state: 'open', ci: 'failed' } },
+    ],
+  }
+  const { rows } = waitingRows(scan, CFG, NOW)
+  const by = (k) => rows.filter((r) => r.kind === k)
+  assert.equal(by('green').length, 1) // #6 green only 5 min, #2 conflicting
+  assert.match(by('green')[0].what, /app-one#5 verte depuis 45 min/)
+  assert.equal(by('green')[0].session.title, 'Lane one')
+  assert.equal(by('ask').length, 1) // c4 asked 1 min ago: under ask_min
+  assert.match(by('ask')[0].what, /Which repo\?/)
+  assert.equal(by('ask')[0].link, 'claude://claude.ai/epitaxy/local_2')
+  assert.equal(by('needs').length, 1) // the archived one is skipped
+  assert.equal(by('needs')[0].level, 'bad')
+  const idle = by('idle').map((r) => r.what)
+  assert.equal(idle.length, 3) // skipped pipeline (A4), conflict, and a red PR known only from the session's CI lookup; c4 is live
+  assert.ok(idle.some((t) => /app-two!9 est sans pipeline \(skipped\)/.test(t)))
+  assert.ok(idle.some((t) => /app-three#2 est en conflit/.test(t)))
+  assert.ok(idle.some((t) => /y#4 est rouge/.test(t)))
+  assert.ok(rows.every((r, i) => !i || rows[i - 1].since <= r.since)) // oldest first
+  const off = waitingRows(scan, deepMerge(CFG, { waiting: { idle_pr_states: ['failed'], green_min: 1 } }), NOW).rows
+  assert.equal(off.filter((r) => r.kind === 'idle').length, 1)
+  assert.equal(off.filter((r) => r.kind === 'green').length, 2)
+})
+
+test('waiting: sub-conversations grouped under their lead with a state each', async () => {
+  const { childGroups, waitingConfig } = await import('../hooks/waiting.mjs')
+  const w = waitingConfig(CFG)
+  const g = childGroups([
+    { cli: 'L', sid: 'local_L', app_title: 'Lead', last_activity: 1 },
+    { cli: 'a', sid: 'local_a', app_title: 'Child A', parent: 'local_L', live: true, last_activity: 5 },
+    { cli: 'b', sid: 'local_b', app_title: 'Child B', parent: 'local_L', needs_action: 'answer', last_activity: 4 },
+    { cli: 'c', sid: 'local_c', app_title: 'Child C', parent: 'local_L', status_category: 'completed', last_activity: 3 },
+    { cli: 'd', sid: 'local_d', app_title: 'Gone', parent: 'local_L', archived: true },
+    { cli: 'e', sid: 'local_e', app_title: 'Orphan', parent: 'local_X', parent_title: 'Old lead' },
+  ], w, NOW)
+  assert.equal(g.length, 2)
+  assert.equal(g[0].title, 'Lead')
+  assert.equal(g[0].cli, 'L')
+  assert.deepEqual(g[0].children.map((c) => c.label), ['travaille', 'attend Julian', 'terminée'])
+  assert.equal(g[1].title, 'Old lead')
+})
+
+test('waiting: one notification per row ever, nothing for rows present on the first run, lease shared by sessions', async () => {
+  const { toAnnounce, holdsLease, waitingArgs } = await import('../hooks/waiting.mjs')
+  const r1 = { key: 'green:a', kind: 'green', what: 'A' }
+  const r2 = { key: 'ask:b', kind: 'ask', what: 'B' }
+  const first = toAnnounce([r1], null, CFG, NOW)
+  assert.equal(first.announce.length, 0)
+  const second = toAnnounce([r1, r2], first.seen, CFG, NOW + 1)
+  assert.deepEqual(second.announce.map((r) => r.key), ['ask:b'])
+  assert.equal(toAnnounce([r1, r2], second.seen, CFG, NOW + 2).announce.length, 0)
+  const many = Array.from({ length: 5 }, (_, i) => ({ key: 'idle:' + i, kind: 'idle', what: 'x' }))
+  const capped = toAnnounce(many, {}, CFG, NOW)
+  assert.equal(capped.announce.length, 3)
+  assert.equal(capped.more, 2)
+  assert.equal(toAnnounce(many, {}, deepMerge(CFG, { waiting: { notify: false } }), NOW).announce.length, 0)
+  assert.equal(toAnnounce([r2], { 'ask:b': NOW - 30 * 86400000 }, CFG, NOW).announce.length, 1) // pruned after notify_keep_days
+  assert.equal(holdsLease(null, 's1', NOW, 1000), true)
+  assert.equal(holdsLease({ sid: 's2', at: NOW - 1000 }, 's1', NOW, 1000), false)
+  assert.equal(holdsLease({ sid: 's2', at: NOW - 5000 }, 's1', NOW, 1000), true)
+  assert.ok(waitingArgs(CFG).includes('--waiting'))
+  assert.deepEqual(waitingArgs(deepMerge(CFG, { waiting: { enabled: false } })), [])
+})
+
+test('scanner: CI states from gh check rollups and GitLab pipelines (skipped counts as stuck)', () => {
+  const code = [
+    'import sys, json', "sys.argv = ['x']", `sys.path.insert(0, ${JSON.stringify(dirname(SCAN))})`, 'import factory_scan as f',
+    "S = lambda c: {'conclusion': c, 'completedAt': '2026-10-09T10:00:00Z'}",
+    "print(json.dumps([f.gh_ci([]), f.gh_ci([S('SUCCESS'), S('SKIPPED')]), f.gh_ci([S('SKIPPED')]), f.gh_ci([S('FAILURE'), S('SUCCESS')]),",
+    "  f.gh_ci([{'status': 'IN_PROGRESS'}]), f.gl_ci(None), f.gl_ci({'status': 'skipped'}), f.gl_ci({'status': 'success', 'finished_at': '2026-10-09T10:00:00Z'}),",
+    "  f.gl_ci({'status': 'pending'})]))",
+  ].join('\n')
+  const r = JSON.parse(execFileSync('python', ['-I', '-c', code], { encoding: 'utf8' }))
+  const t = Date.parse('2026-10-09T10:00:00Z') / 1000
+  assert.deepEqual(r, [['none', null], ['success', t], ['skipped', null], ['failed', null], ['running', null], ['none', null], ['skipped', null], ['success', t], ['running', null]])
+})
+
+test('scanner: app session fields for the strip (lead link, open PRs, pending question)', () => {
+  const f = fixture()
+  const appFile = join(f.app, 'acct', 'org', 'local_s1.json')
+  const j = JSON.parse(readFileSync(appFile, 'utf8'))
+  writeFileSync(appFile, JSON.stringify({ ...j, spawnedFrom: { sessionId: 'local_lead', title: 'Lead' }, postTurnSummary: { status_category: 'blocked', needs_action: 'Log in' },
+    prs: [{ prNumber: 3, url: 'https://example.invalid/pr/3', state: 'OPEN', provider: 'github', repo: 'o/r' }, { prNumber: 2, url: 'https://example.invalid/pr/2', state: 'MERGED' }] }))
+  appendFileSync(f.main, asst('m9', '2026-10-09T10:06:00Z', 2, {}, [{ type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: { questions: [{ question: 'Which repo?' }] } }]))
+  const d = runScan(f).detail
+  assert.equal(d.parent, 'local_lead')
+  assert.equal(d.parent_title, 'Lead')
+  assert.equal(d.status_category, 'blocked')
+  assert.deepEqual(d.app_prs.map((p) => p.number), [3])
+  assert.equal(d.ask_open, true)
+  assert.equal(d.ask_q, 'Which repo?')
+  assert.equal(d.ask_ts, '2026-10-09T10:06:00Z')
+})

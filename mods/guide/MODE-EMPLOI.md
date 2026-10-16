@@ -411,11 +411,11 @@ Une fiche par mod de ce dépôt. Dans le panneau, les fiches sont lues en direct
 
 #### factory
 
-Factory views: per-conversation agent tree with bill, guards, log and warnings (/factory), and a dashboard of all live conversations with routing shares (/factory-all)
+Factory views: a "Ça t'attend" strip (green PRs not merged, sessions waiting on Julian, idle lanes on a red PR, sub-conversations per lead, with notifications), the dashboard of all live conversations and each conversation's agent tree with bill, guards, log and warnings. /factory
 
-- **État** : stable · version 0.3.0
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : transcripts (~/.claude/projects), fichiers de session de l'app, gh/glab pour l'état des PR · aucun blocage
-- **Fonctionnalités** : commandes `/factory` · affiche : panneau · options userConfig : aucune
+- **État** : stable · version 0.4.0 · bandeau « Ça t'attend » en haut de /factory : PR/MR verte non mergée depuis N min, question ou action qui attend Julian, lane sans tour alors que sa PR est rouge, en conflit ou sans pipeline (skipped), sous-conversations de chaque lead. Une notification native par nouvelle ligne ($.ui.notify, sinon un toast), réglable dans factory.config.json → waiting. $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; cartes d'approbation en attente : non détectables (non vérifié) ; lien de session claude://… non vérifié
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : transcripts (~/.claude/projects), fichiers de session de l'app (postTurnSummary, spawnedFrom, prs), gh search / glab api pour tes PR et MR ouvertes et leur CI (jetons gardés par gh et glab, jamais lus) · aucun blocage
+- **Fonctionnalités** : commandes `/factory` · affiche : panneau, toasts · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/factory` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/factory`
 - **Tests** : `node --test mods/factory/tests/logic.test.mjs` · `claude plugin test mods/factory`
 

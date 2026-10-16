@@ -4,7 +4,8 @@
     {
       "dir": "factory",
       "state": "stable",
-      "data": "transcripts (~/.claude/projects), fichiers de session de l'app, gh/glab pour l'état des PR",
+      "data": "transcripts (~/.claude/projects), fichiers de session de l'app (postTurnSummary, spawnedFrom, prs), gh search / glab api pour tes PR et MR ouvertes et leur CI (jetons gardés par gh et glab, jamais lus)",
+      "note": "bandeau « Ça t'attend » en haut de /factory : PR/MR verte non mergée depuis N min, question ou action qui attend Julian, lane sans tour alors que sa PR est rouge, en conflit ou sans pipeline (skipped), sous-conversations de chaque lead. Une notification native par nouvelle ligne ($.ui.notify, sinon un toast), réglable dans factory.config.json → waiting. $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; cartes d'approbation en attente : non détectables (non vérifié) ; lien de session claude://… non vérifié",
       "tests": ["node --test mods/factory/tests/logic.test.mjs", "claude plugin test mods/factory"]
     },
     {
