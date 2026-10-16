@@ -62,3 +62,36 @@ export const expandHome = (p: string, home: string): string =>
   p.startsWith('~') ? `${home.replace(/\\/g, '/')}${p.slice(1)}` : p.replace(/\\/g, '/')
 
 export const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+
+/** Objects merge key by key, anything else is replaced: config.json, then the user's override file. */
+export const deepMerge = (base: unknown, over: unknown): unknown => {
+  if (!base || !over || typeof base !== 'object' || typeof over !== 'object' || Array.isArray(base) || Array.isArray(over))
+    return over === undefined ? base : over
+  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) }
+  for (const [k, v] of Object.entries(over as Record<string, unknown>)) {
+    if (!k.startsWith('_')) out[k] = k in out ? deepMerge(out[k], v) : v
+  }
+  return out
+}
+
+/** A pane label from config labels.pane, or the key itself when the config lacks it. */
+export const labelOf = (labels: Record<string, unknown> | undefined) => (key: string): string => {
+  const v = labels?.[key]
+  return typeof v === 'string' ? v : key
+}
+
+/** 'Claude Control V5.8 (15 Oct 2026)' -> its version '5.8' ('' when the line has none). */
+export const versionOf = (title: string, rx: RegExp | string = /\bV(\d+(?:\.\d+)*)\b/): string =>
+  new RegExp(rx).exec(title)?.[1] ?? ''
+
+export type ModState = 'loaded' | 'installed' | 'shadowed' | 'dev' | 'missing'
+export const modMark = (state: string): string =>
+  state === 'loaded' ? '●' : state === 'missing' ? '○' : state === 'dev' ? '◇' : '◌'
+export const modColor = (state: string): string =>
+  state === 'loaded' ? 'success' : state === 'missing' ? 'error' : 'subtle'
+
+/** One slash command as $.command.list() gives it; the band's Mods button bar reads the same list. */
+export type CommandSeen = { name: string; plugin?: string }
+/** A mod is live in this session when a command it registered is in the list ('band' or 'band@marketplace'). */
+export const inSession = (commands: readonly CommandSeen[], mod: string) =>
+  commands.some(c => c.plugin === mod || (c.plugin ?? '').startsWith(`${mod}@`))

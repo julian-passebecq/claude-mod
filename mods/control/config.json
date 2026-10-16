@@ -1,12 +1,13 @@
 {
-  "_doc": "One config for the control mod: paths, price table, metric targets (from the V4.8/V4.9 rules), hidden-rule catalogue, practices. Edit here; set paths.projects_root to the folder that holds your repos (the <...> paths are placeholders, a missing path is skipped). Thresholds are first guesses from usage-analysis.md (9 Oct); tune them after a week.",
+  "_doc": "One config for the control mod: paths, price table, metric targets, hidden-rule catalogue, evidence links and every UI label. Nothing names a rules version: the version, sections and rule lines are read live from ~/.claude/CLAUDE.md at each scan. Your own overrides go in paths.user_config (deep-merged, lists replaced); the <...> paths are placeholders, a missing path is skipped.",
   "paths": {
     "claude_home": "~/.claude",
     "projects_root": "<PROJECTS_ROOT>",
     "out_dir": "~/.claude/effort-board/control",
     "audit_report": "<CLAUDE_CONTROL_REPO>/docs/audits/2026-10-09-night/REPORT.md",
     "practices_md": "<CLAUDE_CONTROL_REPO>/docs/PRACTICES.md",
-    "history_md": "<CLAUDE_CONTROL_REPO>/docs/HISTORY.md"
+    "history_md": "<CLAUDE_CONTROL_REPO>/docs/HISTORY.md",
+    "user_config": "~/.claude/effort-board/control.config.json"
   },
   "scan": {
     "history_days": 30,
@@ -87,7 +88,8 @@
       "better": "low",
       "green": 10,
       "amber": 30,
-      "rule": "V5 §3: every Agent and Workflow agent() call names its model"
+      "rule": "Every Agent and Workflow agent() call names its model",
+      "rule_find": "call names its .?model"
     },
     {
       "id": "sub_opus_share",
@@ -96,7 +98,8 @@
       "better": "low",
       "green": 50,
       "amber": 75,
-      "rule": "V5 §3: Opus leads and codes; Sonnet tests/docs/audits; Haiku search and triage"
+      "rule": "Opus leads and codes; Sonnet tests/docs/audits; Haiku search and triage",
+      "rule_find": "^Tests, docs, audits"
     },
     {
       "id": "haiku_readonly_share",
@@ -105,7 +108,8 @@
       "better": "high",
       "green": 30,
       "amber": 10,
-      "rule": "V5 §3: search, lookup, CI/log triage go to explore-fast (Haiku low)"
+      "rule": "search, lookup, CI/log triage go to a Haiku agent",
+      "rule_find": "^Search, lookup"
     },
     {
       "id": "opus_readonly_share",
@@ -114,7 +118,8 @@
       "better": "low",
       "green": 40,
       "amber": 70,
-      "rule": "V5 §3: search and triage are not Opus work"
+      "rule": "search and triage are not Opus work",
+      "rule_find": "^Search, lookup"
     },
     {
       "id": "opus_main_medium",
@@ -123,7 +128,8 @@
       "better": "high",
       "green": 95,
       "amber": 85,
-      "rule": "V5 §3: lead session and coders Opus 5.5 medium"
+      "rule": "lead session and coders at medium",
+      "rule_find": "^Lead session"
     },
     {
       "id": "high_not_architect",
@@ -132,7 +138,8 @@
       "better": "low",
       "green": 2,
       "amber": 5,
-      "rule": "V5 §3: high only for the architect (multi-day plan, fix failed twice, big package done)"
+      "rule": "high effort only for the architect",
+      "rule_find": "^Architect"
     },
     {
       "id": "sonnet_main_high",
@@ -141,7 +148,8 @@
       "better": "low",
       "green": 5,
       "amber": 20,
-      "rule": "V5 §3: Sonnet 5.5 low-medium"
+      "rule": "Sonnet at low-medium",
+      "rule_find": "^Tests, docs, audits"
     },
     {
       "id": "ctx_big_share",
@@ -150,14 +158,16 @@
       "better": "low",
       "green": 2,
       "amber": 10,
-      "rule": "V5 §4: one package per conversation; RESUME.md at 250K (cache reads = 50 % of spend, PRACTICES B2)"
+      "rule": "one package per conversation; hand-off file before the context gets big",
+      "rule_find": "one package per conversation"
     },
     {
       "id": "handoff_ratio",
       "label": "Hand-offs among hand-offs + auto-compactions",
       "unit": "%",
       "better": "info",
-      "rule": "V5 §4: RESUME.md at 250K, then the auto-compact loses nothing (auto-compactions accepted)"
+      "rule": "hand-off file before the auto-compact",
+      "rule_find": "auto-compact"
     },
     {
       "id": "monitor_cron_per_day",
@@ -166,7 +176,8 @@
       "better": "low",
       "green": 1,
       "amber": 5,
-      "rule": "V5 §4: no CronCreate, /loop or Monitor wake-ups (each fire re-sends the whole context)"
+      "rule": "no timer wake-ups (each fire re-sends the whole context)",
+      "rule_find": "CronCreate"
     },
     {
       "id": "workflow_model_share",
@@ -175,7 +186,8 @@
       "better": "high",
       "green": 80,
       "amber": 40,
-      "rule": "V5 §3: every Workflow agent() call names its model"
+      "rule": "every Workflow agent() call names its model",
+      "rule_find": "call names its .?model"
     },
     {
       "id": "workflow_per_day",
@@ -184,30 +196,34 @@
       "better": "high",
       "green": 2,
       "amber": 0.5,
-      "rule": "V5 §2: any work with two or more independent parts runs as one Workflow"
+      "rule": "work with two or more independent parts runs as one Workflow",
+      "rule_find": "^Workflow"
     },
     {
       "id": "plan_mode",
       "label": "Plan mode uses",
       "unit": "count",
       "better": "info",
-      "rule": "V5 §2: interactive plan mode only when Julian is at the keyboard"
+      "rule": "interactive plan mode only when the user is at the keyboard",
+      "rule_find": "plan mode"
     },
     {
       "id": "goal_uses",
       "label": "/goal commands per day",
       "unit": "/day",
       "better": "high",
-      "rule": "V5 §2: top-level launch prompts start with /goal <done condition>",
+      "rule": "top-level launch prompts start with /goal <done condition>",
       "green": 1,
-      "amber": 0.2
+      "amber": 0.2,
+      "rule_find": "^Goal"
     },
     {
       "id": "plan_agent_calls",
       "label": "Plan subagent calls",
       "unit": "count",
       "better": "info",
-      "rule": "V5 §2: a Plan subagent (opus, medium) writes the plan into RESUME.md or the PR"
+      "rule": "a Plan subagent writes the plan",
+      "rule_find": "^Plan"
     },
     {
       "id": "explore_builtin_per_day",
@@ -216,14 +232,16 @@
       "better": "low",
       "green": 0.2,
       "amber": 2,
-      "rule": "V5 §3: search goes to explore-fast (Haiku), not the built-in Explore"
+      "rule": "search goes to a Haiku agent, not the built-in Explore",
+      "rule_find": "built-in .?Explore"
     },
     {
       "id": "architect_calls",
       "label": "Architect subagent calls",
       "unit": "count",
       "better": "info",
-      "rule": "V5 §3: architect at three triggers only"
+      "rule": "architect only at its triggers",
+      "rule_find": "^Architect"
     },
     {
       "id": "opus_cost_share",
@@ -234,7 +252,7 @@
     }
   ],
   "hidden_env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "Every subagent call that names no model runs on this model (V5 §3: Sonnet), whatever the agent type.",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "Every subagent call that names no model runs on this model, whatever the agent type.",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "Caps the context window: auto-compaction fires near this size instead of the model's full window.",
     "CLAUDE_CODE_PLUGIN_DIRS": "Loads these mod folders into every session (mods can refuse or rewrite tool calls).",
     "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "Turns on function-hook mods (early access).",
@@ -246,19 +264,19 @@
   "stale_clauses": [
     {
       "pattern": "(an )?AI never merges?",
-      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
     },
     {
       "pattern": "needs? an explicit ask",
-      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
     },
     {
       "pattern": "no automatic merge",
-      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
     },
     {
       "pattern": "never merge",
-      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
     },
     {
       "pattern": "\\bwork\\b (repo|project)",
@@ -266,32 +284,26 @@
     },
     {
       "pattern": "GPT ?[56](\\.\\d)? Pro (is|stays) (the )?tech lead",
-      "why": "DataPass has no external tech lead since V4"
+      "why": "no external tech lead in the live rules"
     }
   ],
   "known_items": {
     "ask_filter.py": "PreToolUse hook on AskUserQuestion: blocks questions about merges, PRs, CI, branches, reviews, versions, tests, workflows (exit 2); product/scope questions pass.",
     "watch.py": "Free watcher script: OFF since 4 Oct (all ClaudeControl* tasks disabled); nothing writes watch_report, brief.md, quota.jsonl.",
     "cc-control": "Guards (send cap, previews, other sessions, chip cap, build slot), status band, /cc-status /cc-tree /cc-graph.",
-    "hook": "V5 §6: no hook, mod or script blocks or rewrites a tool call; active hooks must be none"
+    "hook": "Visible rules: no hook, mod or script blocks or rewrites a tool call; active hooks must be none"
   },
-  "practices": [
+  "rules": {
+    "_doc": "How the live rules file is read. version_regex finds the version in the first non-empty line (e.g. \"Claude Control V5.8 (15 Oct 2026)\" -> 5.8); section_regex marks a section heading; a parenthesised part of a line is evidence when it matches citation_regex; practices_ref_regex ids are looked up in paths.practices_md.",
+    "version_regex": "\\bV(\\d+(?:\\.\\d+)*)\\b",
+    "section_regex": "^# (.+)$",
+    "citation_regex": "\\d{4}|\\b\\d{1,2} (?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)|PR ?#\\d+|audit|PRACTICES",
+    "practices_ref_regex": "PRACTICES\\s+([A-Z]\\d{1,2})\\b",
+    "blocker_rule_find": "No hidden blockers"
+  },
+  "evidence_links": [
     {
-      "id": "decide",
-      "title": "If an agent can solve it, it solves it; Julian decides only what is open and his",
-      "find": "If an agent can solve it",
-      "metrics": []
-    },
-    {
-      "id": "macro_to_julian",
-      "title": "Macro questions go to Julian (product, where a product lives, money, access) as one batched AskUserQuestion",
-      "find": "Julian decides only what is open and his",
-      "metrics": []
-    },
-    {
-      "id": "plan",
-      "title": "Plan step: a Plan subagent writes the plan (architect only at its triggers)",
-      "find": "\\*\\*Plan\\*\\*: a `Plan` subagent",
+      "find": "Plan.{0,4}: a .?Plan.? subagent",
       "metrics": [
         "plan_agent_calls",
         "architect_calls",
@@ -299,33 +311,25 @@
       ]
     },
     {
-      "id": "goal",
-      "title": "Launch prompts start with /goal <done condition>",
-      "find": "\\*\\*Goal\\*\\*",
+      "find": "^Goal",
       "metrics": [
         "goal_uses"
       ]
     },
     {
-      "id": "workflow",
-      "title": "Two or more independent parts run as one Workflow",
-      "find": "\\*\\*Workflow\\*\\* \\(standing opt-in",
+      "find": "^Workflow",
       "metrics": [
         "workflow_per_day",
         "workflow_model_share"
       ]
     },
     {
-      "id": "merge_on_green",
-      "title": "The session that opened the PR merges it on green; stale \"AI never merges\" docs ignored",
-      "find": "The session that opened the PR merges it",
+      "find": "session that opened the PR merges it",
       "metrics": [],
       "setup_flag": "stale_clause"
     },
     {
-      "id": "model_named",
-      "title": "Every Agent and Workflow agent() call names its model; search via explore-fast",
-      "find": "Every Agent and Workflow `agent\\(\\)` call names",
+      "find": "call names its .?model",
       "metrics": [
         "sub_no_model",
         "workflow_model_share",
@@ -333,9 +337,7 @@
       ]
     },
     {
-      "id": "routing",
-      "title": "Routing: Opus leads and codes, Sonnet tests/docs/audits, Haiku searches",
-      "find": "Search, lookup, CI/log triage",
+      "find": "^Search, lookup",
       "metrics": [
         "sub_opus_share",
         "haiku_readonly_share",
@@ -343,50 +345,163 @@
       ]
     },
     {
-      "id": "effort",
-      "title": "Medium everywhere; high only for the architect",
-      "find": "Architect: before a multi-day plan",
+      "find": "^Architect",
       "metrics": [
-        "opus_main_medium",
         "high_not_architect",
+        "architect_calls"
+      ]
+    },
+    {
+      "find": "^Lead session",
+      "metrics": [
+        "opus_main_medium"
+      ]
+    },
+    {
+      "find": "^Tests, docs, audits",
+      "metrics": [
         "sonnet_main_high"
       ]
     },
     {
-      "id": "one_lane",
-      "title": "One lane, one session, one repo (check list_sessions for a twin)",
-      "find": "One lane, one session, one repo",
-      "metrics": []
-    },
-    {
-      "id": "context",
-      "title": "One package per conversation; handoff/RESUME.md at 250K",
-      "find": "At 250 K, update",
+      "find": "one package per conversation",
       "metrics": [
         "ctx_big_share",
         "handoff_ratio"
       ]
     },
     {
-      "id": "night",
-      "title": "Night = one workflow; no CronCreate, /loop or Monitor wake-ups",
-      "find": "No CronCreate, `/loop` or Monitor",
+      "find": "No CronCreate",
       "metrics": [
         "monitor_cron_per_day"
       ]
     },
     {
-      "id": "no_hidden",
-      "title": "No hidden blockers: no active hooks, mods only show and warn",
       "find": "No hidden blockers",
       "metrics": [],
       "setup_flag": "blocker"
-    },
-    {
-      "id": "claims",
-      "title": "Claims are checked before saying merged, fixed, watched",
-      "find": "Claims are checked",
-      "metrics": []
     }
-  ]
+  ],
+  "secrets": {
+    "_doc": "settings.json env values are shown only for these names, and never for a name matching name_regex. Everything else is listed by name only.",
+    "name_regex": "KEY|TOKEN|SECRET|PASS|AUTH|CRED|COOKIE|PRIVATE|SESSION",
+    "show_values": [
+      "CLAUDE_CODE_SUBAGENT_MODEL",
+      "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+      "CLAUDE_CODE_PLUGIN_DIRS",
+      "ANTHROPIC_MODEL",
+      "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+      "MAX_THINKING_TOKENS",
+      "DISABLE_AUTOUPDATER"
+    ]
+  },
+  "v6": {
+    "_doc": "Pending rule changes: git show <ref>:<path> in the rules repo, first ref that has the file. Headings or table cells with one of the group words sort the bullets under them.",
+    "repo": "<CLAUDE_CONTROL_REPO>",
+    "path": "docs/V6-CHANGES.md",
+    "refs": [
+      "origin/main",
+      "main"
+    ],
+    "groups": {
+      "kept": [
+        "kept",
+        "keep",
+        "gardé",
+        "gardée",
+        "garder",
+        "conservé",
+        "inchangé"
+      ],
+      "changed": [
+        "changed",
+        "change",
+        "modifié",
+        "changé",
+        "new",
+        "nouveau",
+        "ajouté"
+      ],
+      "dropped": [
+        "dropped",
+        "drop",
+        "removed",
+        "supprimé",
+        "abandonné",
+        "retiré"
+      ]
+    }
+  },
+  "mods": {
+    "_doc": "Mods chargés: CLAUDE_CODE_PLUGIN_DIRS (settings.json env and this session environment) against the mod folders in ~/.claude/mods and extra_roots (\"@repo\" = the mods folder this mod sits in).",
+    "extra_roots": [
+      "@repo"
+    ],
+    "show_dev_mods": false
+  },
+  "labels": {
+    "blocker_flag": "Règles visibles : rien ne bloque ni ne réécrit un appel d'outil sans une ligne dans les règles",
+    "mod_states": {
+      "loaded": "chargé",
+      "installed": "installé, non chargé",
+      "dev": "dev-mod (une session)",
+      "missing": "dans CLAUDE_CODE_PLUGIN_DIRS mais introuvable",
+      "shadowed": "installé, même nom chargé depuis un autre dossier"
+    },
+    "sections": {
+      "settings": "settings.json (noms seulement)",
+      "settings_hooks": "Hooks (settings.json)",
+      "permissions": "Permissions (settings.json)",
+      "claude_md": "CLAUDE.md global (lu en direct)",
+      "repos": "Dépôts sous",
+      "agents": "Agents (~/.claude/agents)",
+      "skills": "Skills",
+      "workflows": "Workflows (~/.claude/workflows)",
+      "hooks": "Scripts de hook (~/.claude/hooks)",
+      "mods": "Mods"
+    },
+    "pane": {
+      "live": "Règles actives",
+      "no_title": "pas de ligne de titre dans CLAUDE.md",
+      "version": "version",
+      "changed": "modifié",
+      "sources": "lu en direct",
+      "blockers_none": "Bloqueurs : aucun (rien ne bloque ni ne réécrit un appel d'outil)",
+      "blockers_some": "Bloqueurs",
+      "blockers_expect": "les règles n'en attendent aucun",
+      "active": "actifs",
+      "found": "trouvés",
+      "hidden": "Règles cachées",
+      "hidden_why": "elles changent le comportement sans être dans CLAUDE.md",
+      "mods": "Mods chargés",
+      "mods_none": "aucun mod trouvé",
+      "mods_differ": "settings.json et l'environnement de cette session ne listent pas les mêmes dossiers : les nouvelles sessions prendront settings.json",
+      "sections": "Sections (clique pour déplier)",
+      "flagged": "signalés",
+      "no_data": "Pas encore de données dans",
+      "press_rescan": "appuie sur Rescan",
+      "practices_title": "Pratiques : sections du CLAUDE.md actif",
+      "measured_on": "mesuré sur",
+      "no_usage": "pas de données d'usage",
+      "evidence": "preuves",
+      "not_measured": "non mesuré",
+      "v6_title": "V6 en attente",
+      "v6_none": "Aucun V6-CHANGES.md sur la branche principale du dépôt des règles",
+      "v6_no_repo": "Dépôt des règles non configuré (v6.repo) : panneau V6 désactivé",
+      "v6_groups": {
+        "kept": "gardé",
+        "changed": "changé",
+        "dropped": "abandonné"
+      },
+      "best": "5 meilleures habitudes (mesurées)",
+      "worst": "5 pires habitudes (mesurées)",
+      "audit_right": "Audit : ce qu'on fait bien",
+      "audit_wrong": "Audit : ce qu'on fait mal",
+      "reference": "Référence : docs/PRACTICES.md (bonnes et mauvaises pratiques, avec preuves)",
+      "reference_missing": "docs/PRACTICES.md introuvable",
+      "open_usage": "Ouvrir USAGE pour les chiffres",
+      "against_rules": "Face aux règles actives",
+      "in_session": "actif dans cette session"
+    }
+  }
 }

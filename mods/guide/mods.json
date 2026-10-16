@@ -11,8 +11,8 @@
     {
       "dir": "control",
       "state": "stable",
-      "data": "settings, CLAUDE.md, agents, skills, hooks, mémoire, transcripts (scanner Python)",
-      "note": "métriques et pratiques encore V5, réécriture V6 prévue",
+      "data": "règles actives lues à chaque scan (~/.claude/CLAUDE.md : ligne de titre et version, sections, preuves citées), settings.json (noms des variables env seulement, hooks), agents, skills, workflows, mods de CLAUDE_CODE_PLUGIN_DIRS (chargé / installé non chargé), mémoire, transcripts (scanner Python), docs/V6-CHANGES.md sur la branche main du dépôt des règles (git show)",
+      "note": "plus rien d'écrit en dur pour V5 : version et règles lues en direct. Valeurs des settings jamais affichées (noms seulement, sauf la liste secrets.show_values). Qu'une nouvelle session Desktop prenne CLAUDE_CODE_PLUGIN_DIRS de settings.json au démarrage : documenté pour l'env de settings, non vérifié pour les sessions déjà ouvertes.",
       "tests": ["python -I -m unittest discover -s mods/control/tests -p \"test_*.py\"", "claude plugin test mods/control"]
     },
     {

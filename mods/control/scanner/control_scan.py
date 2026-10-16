@@ -5,9 +5,11 @@ usage      transcripts (~/.claude/projects/**/*.jsonl, subagents included) -> us
            docs/audits/2026-10-09-night/usage_scan.py (validated 2-9 Oct): assistant records de-duplicated by message.id
            per file, bench runs and the scratch cwd excluded. Counters are kept per file and per UTC hour in
            usage_cache.json, so a rescan only re-reads files whose size or mtime changed.
-setup      everything that shapes a session (settings, CLAUDE.md, repo rules, agents, skills, hooks, mods, tasks, MCP,
-           plugins) -> setup.json, with hidden rules flagged.
-practices  ~/.claude/CLAUDE.md + the audit REPORT.md + usage.json -> practices.json (checklist, best/worst habits).
+setup      everything that shapes a session, read live (settings env names and hooks, CLAUDE.md title and version,
+           agents, skills, workflows, mods loaded or not, tasks, MCP, plugins) -> setup.json, hidden rules flagged.
+           Settings values are never written except for the names in config secrets.show_values.
+practices  the live ~/.claude/CLAUDE.md headings, each line with the evidence it cites, + usage.json metrics, the audit
+           REPORT.md and the rules repo's pending V6-CHANGES.md (git show <ref>:path) -> practices.json.
 Standard library only; read-only except the files it writes in --out."""
 import collections
 import csv
@@ -29,9 +31,29 @@ def expand(p):
     return os.path.normpath(os.path.expanduser(p))
 
 
-def load_config(path=None):
+def deep_merge(base, over):
+    """Objects merge key by key; anything else (lists included) is replaced by the override."""
+    if not isinstance(base, dict) or not isinstance(over, dict):
+        return over
+    out = dict(base)
+    for k, v in over.items():
+        if not k.startswith('_'):
+            out[k] = deep_merge(base.get(k), v) if k in base else v
+    return out
+
+
+def load_config(path=None, user_override=True):
+    """config.json next to the mod, then the user's override file (paths.user_config) merged on top."""
     with open(path or DEFAULT_CONFIG, encoding='utf8') as f:
-        return json.load(f)
+        cfg = json.load(f)
+    user = cfg.get('paths', {}).get('user_config')
+    if user_override and user and os.path.isfile(expand(user)):
+        try:
+            with open(expand(user), encoding='utf8') as f:
+                cfg = deep_merge(cfg, json.load(f))
+        except (OSError, ValueError):
+            pass
+    return cfg
 
 
 def write_json(path, data):
@@ -272,6 +294,7 @@ def scan_usage(cfg, out_dir, now=None, root=None):
     cache['files'] = files
     write_json(cache_path, cache)
 
+    rules = parse_rules(read_text(os.path.join(expand(cfg['paths']['claude_home']), 'CLAUDE.md')), cfg)
     windows = []
     for w, (a, b) in zip(cfg['scan']['windows'], bounds):
         tot = collections.defaultdict(float)
@@ -283,8 +306,9 @@ def scan_usage(cfg, out_dir, now=None, root=None):
         tot = {k: (round(v, 2) if not float(v).is_integer() else int(v)) for k, v in tot.items()}
         days = hours_between(a, min(b, now.strftime('%Y-%m-%dT%H'))) / 24
         windows.append({'id': w['id'], 'label': w['label'], 'from': a, 'to': b, 'days': round(days, 2),
-                        'counters': tot, 'summary': summarize(tot), 'metrics': compute_metrics(tot, days, cfg)})
+                        'counters': tot, 'summary': summarize(tot), 'metrics': compute_metrics(tot, days, cfg, rules)})
     data = {'generated': now.strftime('%Y-%m-%dT%H:%M:%SZ'), 'files': len(files), 'rescanned': rescanned,
+            'rules_version': rules['title'], 'version': rules['version'],
             'prices': cfg['prices'], 'windows': windows}
     write_json(os.path.join(out_dir, 'usage.json'), data)
     return data
@@ -414,13 +438,22 @@ def rate(value, m):
     return 'info'
 
 
-def compute_metrics(c, days, cfg):
+def metric_rule(m, rules):
+    """'§3 Models and effort: <live line>' when rule_find matches the live rules, else the config text marked as
+    not in the live rules."""
+    ref = rule_ref(rules or {}, m.get('rule_find'))
+    if ref:
+        return ref
+    return f"{m.get('rule', '')} (not in the live rules)" if m.get('rule_find') else m.get('rule', '')
+
+
+def compute_metrics(c, days, cfg, rules=None):
     vals = metric_values(c, days)
     out = []
     for m in cfg['metrics']:
         value, detail = vals.get(m['id'], (None, 'not measured'))
         out.append({'id': m['id'], 'label': m['label'], 'unit': m['unit'], 'value': value, 'detail': detail,
-                    'state': rate(value, m), 'target': target_text(m), 'rule': m['rule']})
+                    'state': rate(value, m), 'target': target_text(m), 'rule': metric_rule(m, rules)})
     return out
 
 
@@ -431,6 +464,207 @@ def target_text(m):
     if m.get('better') == 'high':
         return f">= {m['green']}{u} (amber >= {m['amber']}{u})"
     return 'info'
+
+
+# ---------------------------------------------------------------- live rules (no version is hard-coded)
+
+def rules_cfg(cfg):
+    r = cfg.get('rules') or {}
+    return {'version_regex': r.get('version_regex', r'\bV(\d+(?:\.\d+)*)\b'),
+            'section_regex': r.get('section_regex', r'^# (.+)$'),
+            'citation_regex': r.get('citation_regex', r'\d{4}|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)'),
+            'practices_ref_regex': r.get('practices_ref_regex', r'PRACTICES\s+([A-Z]\d{1,2})\b')}
+
+
+def clean(line):
+    line = re.sub(r'\*\*|`', '', line.strip())
+    return re.sub(r'^(?:[-*+]|\d+\.)\s+', '', line).strip()
+
+
+def parse_rules(md, cfg):
+    """The live rules file -> title line, version ('5.8'), and one entry per section heading with its lines and the
+    evidence each line cites (parenthesised dates, PR numbers, audits, quotes)."""
+    rc = rules_cfg(cfg)
+    lines = md.replace('\r\n', '\n').split('\n')
+    title = next((ln.lstrip('#').strip() for ln in lines if ln.strip()), '')
+    vm = re.search(rc['version_regex'], title)
+    sec_rx, cite_rx = re.compile(rc['section_regex']), re.compile(rc['citation_regex'], re.I)
+    sections, cur = [], None
+    for ln in lines[1:] if lines else []:
+        m = sec_rx.match(ln)
+        if m:
+            head = m.group(1).strip()
+            nm = re.match(r'(\d+)\.\s*(.*)', head)
+            cur = {'num': nm.group(1) if nm else '', 'title': nm.group(2) if nm else head, 'heading': head, 'lines': []}
+            sections.append(cur)
+            continue
+        text = clean(ln)
+        if cur is None or not text or re.fullmatch(r'[|:\- ]+', text):
+            continue
+        if text.startswith('|'):
+            text = ' · '.join(c.strip() for c in text.strip('|').split('|') if c.strip())
+        cites = [c.strip() for c in re.findall(r'\(([^()]+)\)', text) if cite_rx.search(c)]
+        cur['lines'].append({'text': text, 'citations': cites})
+    return {'title': title, 'version': vm.group(1) if vm else '', 'label': f'V{vm.group(1)}' if vm else '',
+            'sections': sections}
+
+
+def rule_ref(rules, find):
+    """'§3 Models and effort: <line>' for the first live line matching `find`; '' when the live rules lack it."""
+    if not find:
+        return ''
+    rx = re.compile(find, re.I)
+    for s in rules.get('sections', []):
+        for ln in s['lines']:
+            if rx.search(ln['text']):
+                return f"§{s['num'] or s['heading']} {s['title']}: {cut(ln['text'], 200)}"
+    return ''
+
+
+def practices_lines(practices_md, ref_id):
+    """Lines of docs/PRACTICES.md that define an evidence id such as B2."""
+    out = []
+    for ln in practices_md.splitlines():
+        t = clean(ln)
+        if re.match(r'\**' + re.escape(ref_id) + r'\b', t):
+            out.append(cut(t, 220))
+    return out[:3]
+
+
+def secret_name(name, cfg):
+    return bool(re.search((cfg.get('secrets') or {}).get('name_regex', r'KEY|TOKEN|SECRET|PASS|AUTH|CRED|COOKIE'),
+                          name, re.I))
+
+
+def env_value(name, value, cfg):
+    """Settings values are shown only for the names listed in secrets.show_values and never for a secret-looking
+    name; everything else shows as its name only."""
+    sec = cfg.get('secrets') or {}
+    if secret_name(name, cfg) or name not in (sec.get('show_values') or []):
+        return None
+    return cut(str(value), 200)
+
+
+def strip_secrets(s):
+    """Command lines and URLs from MCP configs: no query string, no user:password@, no token-looking argument."""
+    s = re.sub(r'(https?://)[^/@\s]+@', r'\1', str(s))
+    s = re.sub(r'\?\S*', '?…', s)
+    return re.sub(r'(--?[\w-]*(?:key|token|secret|pass)[\w-]*[= ])\S+', r'\1…', s, flags=re.I)
+
+
+def plugin_dirs(value):
+    return [x.strip() for x in re.split(r';' if os.name == 'nt' else r'[;:]', value or '') if x.strip()]
+
+
+def norm(p):
+    return os.path.normcase(os.path.normpath(expand(p)))
+
+
+def mod_states(cfg, home, settings, environ=None):
+    """Every mod folder we can see and whether it is loaded: listed in CLAUDE_CODE_PLUGIN_DIRS (this process's env, the
+    one sessions started from here get, and settings.json env, the one the desktop app gives new sessions), installed
+    in ~/.claude/mods or beside this mod but not loaded, or a dev-mod of one desktop session."""
+    environ = os.environ if environ is None else environ
+    mcfg = cfg.get('mods') or {}
+    from_settings = plugin_dirs((settings.get('env') or {}).get('CLAUDE_CODE_PLUGIN_DIRS'))
+    from_env = plugin_dirs(environ.get('CLAUDE_CODE_PLUGIN_DIRS'))
+    loaded = {}
+    for src, dirs in (('settings.json env', from_settings), ('environment of this session', from_env)):
+        for d in dirs:
+            loaded.setdefault(norm(d), (d, []))[1].append(src)
+    folders = [(d, 'loaded') for _, (d, _) in loaded.items()]
+    roots = [os.path.join(home, 'mods')] + [os.path.join(os.path.dirname(os.path.dirname(HERE)), '')
+                                            if r == '@repo' else r for r in mcfg.get('extra_roots', ['@repo'])]
+    for r in roots:
+        for f in sorted(glob.glob(os.path.join(expand(r), '*'))):
+            if os.path.isfile(os.path.join(f, '.claude-plugin', 'plugin.json')):
+                folders.append((f, 'installed'))
+    if mcfg.get('show_dev_mods', True):
+        for f in sorted(glob.glob(os.path.join(home, 'dev-mods', '*', '*'))):
+            if os.path.isfile(os.path.join(f, '.claude-plugin', 'plugin.json')):
+                folders.append((f, 'dev'))
+    out, seen = [], set()
+    for folder, kind in folders:
+        key = norm(folder)
+        if key in seen:
+            continue
+        seen.add(key)
+        man = os.path.join(expand(folder), '.claude-plugin', 'plugin.json')
+        try:
+            info = json.loads(read_text(man) or '{}')
+        except ValueError:
+            info = {}
+        exists = os.path.isfile(man)
+        if key in loaded:
+            state = 'loaded' if exists else 'missing'
+        else:
+            state = 'dev' if kind == 'dev' else 'installed'
+        out.append({'name': info.get('name') or os.path.basename(os.path.normpath(folder)),
+                    'version': info.get('version', ''), 'path': expand(folder).replace('\\', '/'), 'state': state,
+                    'sources': loaded.get(key, (None, []))[1],
+                    'description': cut(info.get('description', ''), 160)})
+    names = {m['name'] for m in out if m['state'] == 'loaded'}
+    for m in out:
+        if m['state'] == 'installed' and m['name'] in names:
+            m['state'] = 'shadowed'
+    order = {'loaded': 0, 'missing': 1, 'installed': 2, 'shadowed': 3, 'dev': 4}
+    out.sort(key=lambda m: (order[m['state']], m['name'].lower()))
+    return {'items': out, 'settings_dirs': len(from_settings), 'env_dirs': len(from_env),
+            'differ': sorted(map(norm, from_settings)) != sorted(map(norm, from_env)) and bool(from_env)}
+
+
+def git_show(repo, ref, path):
+    try:
+        r = subprocess.run(['git', '-C', repo, 'show', f'{ref}:{path}'], capture_output=True, text=True, timeout=30,
+                           encoding='utf8', errors='replace')
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def parse_changes(md, cfg):
+    """V6-CHANGES.md -> kept / changed / dropped, from headings or table rows whose words match v6.groups."""
+    groups = (cfg.get('v6') or {}).get('groups') or {
+        'kept': ['kept', 'keep', 'gardé', 'garder', 'conservé', 'inchangé'],
+        'changed': ['changed', 'change', 'modifié', 'changé', 'new', 'nouveau', 'ajouté'],
+        'dropped': ['dropped', 'drop', 'removed', 'supprimé', 'abandonné', 'retiré']}
+
+    def kind(text):
+        low = text.lower()
+        for g, words in groups.items():
+            if any(re.search(r'\b' + re.escape(w) + r'\b', low) for w in words):
+                return g
+        return None
+    out = {g: [] for g in groups}
+    cur = None
+    for ln in md.replace('\r\n', '\n').split('\n'):
+        h = re.match(r'#{1,4}\s+(.+)', ln)
+        if h:
+            cur = kind(h.group(1))
+            continue
+        t = ln.strip()
+        if t.startswith('|') and not re.fullmatch(r'[|:\- ]+', t):
+            cells = [c.strip() for c in t.strip('|').split('|')]
+            k = next((kind(c) for c in cells[1:] if kind(c)), None)
+            if k:
+                out[k].append(cut(clean(cells[0]), 160))
+                continue
+        if cur and re.match(r'(?:[-*+]|\d+\.)\s+', t):
+            out[cur].append(cut(clean(t), 200))
+    title = next((ln.lstrip('#').strip() for ln in md.splitlines() if ln.strip()), '')
+    return {'title': title, 'groups': {g: {'count': len(v), 'items': v[:8]} for g, v in out.items()}}
+
+
+def read_v6(cfg):
+    v = cfg.get('v6') or {}
+    repo = expand(v.get('repo') or '')
+    if not repo or '<' in repo or not os.path.isdir(repo):
+        return {'state': 'no_repo', 'repo': v.get('repo', '')}
+    for ref in v.get('refs', ['origin/main', 'main']):
+        md = git_show(repo, ref, v.get('path', 'docs/V6-CHANGES.md'))
+        if md:
+            return dict(parse_changes(md, cfg), state='pending', source=f"{ref}:{v.get('path', 'docs/V6-CHANGES.md')}")
+    return {'state': 'none', 'source': ' | '.join(f"{r}:{v.get('path', 'docs/V6-CHANGES.md')}" for r in v.get('refs', ['origin/main', 'main']))}
 
 
 # ---------------------------------------------------------------- setup
@@ -587,7 +821,14 @@ def schtasks():
 
 
 
-BLOCK_TEXT = 'V5 §6: no hook, mod or script may block or rewrite a tool call without Julian\'s yes and a line in CLAUDE.md'
+BLOCK_TEXT = 'Visible rules: nothing may block or rewrite a tool call unless the rules file says so'
+
+
+def block_text(cfg, rules=None):
+    """The blocker flag text: config labels.blocker_flag, followed by the live rule line that forbids blockers."""
+    base = ((cfg.get('labels') or {}).get('blocker_flag')) or BLOCK_TEXT
+    ref = rule_ref(rules or {}, (cfg.get('rules') or {}).get('blocker_rule_find', r'No hidden blockers'))
+    return f'{base} ({ref})' if ref else base
 
 
 def settings_hooks(path):
@@ -604,16 +845,17 @@ def settings_hooks(path):
     return out
 
 
-def blocker_items(cfg, home, settings, repos):
+def blocker_items(cfg, home, settings, repos, rules=None):
     """Everything that can refuse or rewrite a tool call: settings hooks (user, local, project), plugin hooks, mods
-    whose hooks module answers with a deny, hook scripts on disk, permission deny rules. V5 expects none."""
+    whose hooks module answers with a deny, hook scripts on disk, permission deny rules. The rules expect none."""
     known = cfg['known_items']
     items = []
+    text = block_text(cfg, rules)
 
     def add(name, path, what, kind='blocker'):
         items.append({'name': name, 'path': str(path).replace('\\', '/'), 'exists': True, 'size': None,
                       'changed': iso_mtime(path) if os.path.exists(path) else None, 'what': what,
-                      'flags': [{'kind': kind, 'text': BLOCK_TEXT}], 'hidden': True})
+                      'flags': [{'kind': kind, 'text': text}], 'hidden': True})
     files = [os.path.join(home, 'settings.json'), os.path.join(home, 'settings.local.json')]
     for repo in repos:
         files += [os.path.join(repo, '.claude', 'settings.json'), os.path.join(repo, '.claude', 'settings.local.json')]
@@ -621,7 +863,7 @@ def blocker_items(cfg, home, settings, repos):
         for event, matcher, cmd in settings_hooks(f):
             script = re.search(r'[\w./\\:-]+\.(py|ps1|js|sh|cmd)', cmd)
             base = os.path.basename(script.group(0)) if script else cmd
-            add(f'settings hook {event}[{matcher}] {cut(base, 60)}', f, known.get(base) or cut(cmd, 160))
+            add(f'settings hook {event}[{matcher}] {cut(base, 60)}', f, known.get(base) or cut(strip_secrets(cmd), 160))
     # synced plugins are installed for the account; a marketplace plugin only counts once enabledPlugins turns it on
     enabled = {k for k, v in (settings.get('enabledPlugins') or {}).items() if v}
     market = [d for d in sorted(glob.glob(os.path.join(home, 'plugins', 'marketplaces', '*', 'plugins', '*', 'hooks')))
@@ -636,9 +878,11 @@ def blocker_items(cfg, home, settings, repos):
                 name = None
             add(f'plugin hooks {name or os.path.basename(root)}', hj,
                 'plugin hooks.json: runs on events when the plugin is enabled · ' + cut(read_text(hj, 300), 140))
-    loaded = [os.path.normpath(expand(x)).lower() for x in
-              (settings.get('env') or {}).get('CLAUDE_CODE_PLUGIN_DIRS', '').split(';') if x]
-    for folder in sorted(glob.glob(os.path.join(home, 'mods', '*'))):
+    loaded = {norm(x) for x in plugin_dirs((settings.get('env') or {}).get('CLAUDE_CODE_PLUGIN_DIRS'))
+              + plugin_dirs(os.environ.get('CLAUDE_CODE_PLUGIN_DIRS'))}
+    folders = sorted(glob.glob(os.path.join(home, 'mods', '*')))
+    folders += [expand(x) for x in loaded if norm(x) not in {norm(f) for f in folders}]
+    for folder in folders:
         hits = []
         for src in glob.glob(os.path.join(folder, 'hooks', '*')):
             if os.path.splitext(src)[1] not in ('.ts', '.tsx', '.js', '.mjs', '.cjs', '.mts', '.jsx'):
@@ -647,7 +891,7 @@ def blocker_items(cfg, home, settings, repos):
                 if re.search(r'\bdeny\s*:|\{\s*deny\b', line):
                     hits.append(f'{os.path.basename(src)}:{n}')
         if hits:
-            state = 'LOADED' if os.path.normpath(folder).lower() in loaded else 'installed, not loaded'
+            state = 'LOADED' if norm(folder) in loaded else 'installed, not loaded'
             add(f'mod deny path {os.path.basename(folder)} ({state})', folder,
                 f"{len(hits)} deny answer(s): {', '.join(hits[:6])}", 'blocker' if state == 'LOADED' else 'blocker_idle')
     for p in sorted(glob.glob(os.path.join(home, 'hooks', '*'))):
@@ -690,7 +934,36 @@ def memory_items(home, repos):
     return out
 
 
-def scan_setup(cfg, out_dir, run_schtasks=True):
+def sec_title(cfg, sid, default):
+    return ((cfg.get('labels') or {}).get('sections') or {}).get(sid, default)
+
+
+def workflow_items(home):
+    out = []
+    for p in sorted(glob.glob(os.path.join(home, 'workflows', '*'))):
+        if os.path.splitext(p)[1] not in ('.js', '.mjs', '.ts', '.cjs'):
+            continue
+        src = read_text(p, 6000)
+        name = re.search(r"name:\s*['\"]([^'\"]+)", src)
+        desc = re.search(r"description:\s*['\"]([^'\"]+)", src)
+        out.append(file_item(name.group(1) if name else os.path.basename(p), p,
+                             cut(desc.group(1) if desc else first_line(src), 160)))
+    return out
+
+
+def settings_hook_items(home):
+    """Hooks declared in the user's settings files: event, matcher and script name only (no arguments)."""
+    out = []
+    for f in (os.path.join(home, 'settings.json'), os.path.join(home, 'settings.local.json')):
+        for event, matcher, cmd in settings_hooks(f):
+            script = re.search(r'[\w./\\:-]+\.(py|ps1|js|mjs|sh|cmd)', cmd)
+            base = os.path.basename(script.group(0)) if script else cut(strip_secrets(cmd).split(' ')[0], 60)
+            out.append(file_item(f'{event}[{matcher}] {base}', f, 'settings hook: runs on every matching event',
+                                 hidden=True))
+    return out
+
+
+def scan_setup(cfg, out_dir, run_schtasks=True, environ=None):
     home = expand(cfg['paths']['claude_home'])
     known = cfg['known_items']
     sections = []
@@ -699,38 +972,52 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
     except ValueError:
         settings = {}
     claude_md = read_text(os.path.join(home, 'CLAUDE.md'))
+    rules = parse_rules(claude_md, cfg)
+    version = rules['title']
 
-    # settings.json
+    # settings.json: names only, a value only for the names in secrets.show_values
     st = []
     sp = os.path.join(home, 'settings.json')
     perms = settings.get('permissions') or {}
     st.append(file_item('settings.json', sp,
                         f"permissions {perms.get('defaultMode', 'default')} · {len(perms.get('allow') or [])} allow · "
-                        f"{len(perms.get('deny') or [])} deny · output style {settings.get('outputStyle', 'default')}"))
+                        f"{len(perms.get('deny') or [])} deny · output style {settings.get('outputStyle', 'default')} · "
+                        f"keys: {', '.join(sorted(settings.keys()))}"))
+    env_names = []
     for k, v in (settings.get('env') or {}).items():
         why = cfg['hidden_env'].get(k)
-        st.append({'name': f'env {k}={v}', 'path': sp.replace('\\', '/'), 'exists': True, 'size': None,
-                   'changed': iso_mtime(sp), 'what': why or 'Environment variable for every session.',
-                   'flags': [], 'hidden': bool(why)})
+        val = env_value(k, v, cfg)
+        env_names.append(k)
+        st.append({'name': f'env {k}' + (f' = {val}' if val is not None else ''), 'path': sp.replace('\\', '/'),
+                   'exists': True, 'size': None, 'changed': iso_mtime(sp),
+                   'what': (why or 'Environment variable for every session.')
+                   + ('' if val is not None else ' (value not shown)'),
+                   'flags': [], 'hidden': bool(why), 'secret': secret_name(k, cfg)})
     if settings.get('outputStyle'):
         st.append({'name': f"outputStyle {settings['outputStyle']}", 'path': sp.replace('\\', '/'), 'exists': True,
                    'size': None, 'changed': iso_mtime(sp), 'what': 'Changes how every session answers and acts.',
                    'flags': [], 'hidden': True})
-    sections.append({'id': 'settings', 'title': 'settings.json', 'items': st})
-    sections.append({'id': 'permissions', 'title': 'Permissions (settings.json)', 'items': permission_items(home, settings)})
+    hooks = settings_hook_items(home)
+    sections.append({'id': 'settings', 'title': sec_title(cfg, 'settings', 'settings.json'), 'items': st})
+    sections.append({'id': 'settings_hooks', 'title': sec_title(cfg, 'settings_hooks', 'Hooks (settings)'),
+                     'items': hooks})
+    sections.append({'id': 'permissions', 'title': sec_title(cfg, 'permissions', 'Permissions (settings.json)'),
+                     'items': permission_items(home, settings)})
 
-    # global CLAUDE.md
-    heads = re.findall(r'^# (.+)$', claude_md, re.M)
-    version = (claude_md.splitlines() or [''])[0].lstrip('# ').strip()
-    cm = [file_item('CLAUDE.md (global)', os.path.join(home, 'CLAUDE.md'), f'{version} · {len(heads)} sections')]
-    for h in heads:
-        cm.append({'name': f'§ {h}', 'path': os.path.join(home, 'CLAUDE.md').replace('\\', '/'), 'exists': True,
-                   'size': None, 'changed': None, 'what': cut(section_first_line(claude_md, h), 150), 'flags': [],
-                   'hidden': False})
-    sections.append({'id': 'claude_md', 'title': 'Global CLAUDE.md', 'items': cm})
+    # global CLAUDE.md, read live: title line, version, one item per heading
+    cmp_ = os.path.join(home, 'CLAUDE.md')
+    cm = [file_item('CLAUDE.md (global)', cmp_, f"{version or 'no title line'} · {len(rules['sections'])} sections")]
+    for sec in rules['sections']:
+        cites = sum(len(ln['citations']) for ln in sec['lines'])
+        first = next((ln['text'] for ln in sec['lines']), '')
+        cm.append({'name': f"§ {sec['heading']}", 'path': cmp_.replace('\\', '/'), 'exists': True, 'size': None,
+                   'changed': None, 'what': cut(f"{len(sec['lines'])} lines · {cites} evidence · {first}", 170),
+                   'flags': [], 'hidden': False})
+    sections.append({'id': 'claude_md', 'title': sec_title(cfg, 'claude_md', 'Global CLAUDE.md'), 'items': cm})
 
     # repos
-    sections.append({'id': 'repos', 'title': 'Repos under ' + cfg['paths']['projects_root'], 'items': repo_items(cfg, claude_md)})
+    sections.append({'id': 'repos', 'title': sec_title(cfg, 'repos', 'Repos under') + ' ' + cfg['paths']['projects_root'],
+                     'items': repo_items(cfg, claude_md)})
 
     # agents
     ag = []
@@ -740,7 +1027,7 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
         ag.append(file_item(fm.get('name') or os.path.basename(p), p,
                             f"{model} · effort {fm.get('effort', 'default')} · {cut(fm.get('description', ''), 110)}",
                             extra={'model': model, 'effort': fm.get('effort', 'default')}))
-    sections.append({'id': 'agents', 'title': 'Agents (~/.claude/agents)', 'items': ag})
+    sections.append({'id': 'agents', 'title': sec_title(cfg, 'agents', 'Agents (~/.claude/agents)'), 'items': ag})
 
     # skills: user, synced, plugin
     sk = []
@@ -750,7 +1037,10 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
         where = 'synced' if os.sep + 'synced' + os.sep in p else 'user'
         sk.append(file_item(fm.get('name') or os.path.basename(os.path.dirname(p)), p,
                             f"{where} · {cut(fm.get('description', ''), 130)}"))
-    sections.append({'id': 'skills', 'title': 'Skills', 'items': sk})
+    sections.append({'id': 'skills', 'title': sec_title(cfg, 'skills', 'Skills'), 'items': sk})
+    wf = workflow_items(home)
+    sections.append({'id': 'workflows', 'title': sec_title(cfg, 'workflows', 'Workflows (~/.claude/workflows)'),
+                     'items': wf})
 
     # hooks folder
     hk = []
@@ -758,25 +1048,18 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
         if os.path.isfile(p):
             hk.append(file_item(os.path.basename(p), p, known.get(os.path.basename(p)) or first_line(read_text(p, 2000)),
                                 hidden=True))
-    sections.append({'id': 'hooks', 'title': 'Hook scripts (~/.claude/hooks)', 'items': hk})
+    sections.append({'id': 'hooks', 'title': sec_title(cfg, 'hooks', 'Hook scripts (~/.claude/hooks)'), 'items': hk})
 
-    # mods
-    loaded = [expand(x) for x in re.split(r'[;]', (settings.get('env') or {}).get('CLAUDE_CODE_PLUGIN_DIRS', '')) if x]
-    md = []
-    for folder in sorted(glob.glob(os.path.join(home, 'mods', '*'))) + sorted(glob.glob(os.path.join(home, 'dev-mods', '*', '*'))):
-        man = os.path.join(folder, '.claude-plugin', 'plugin.json')
-        if not os.path.isfile(man):
-            continue
-        try:
-            info = json.loads(read_text(man))
-        except ValueError:
-            info = {}
-        kind = 'dev-mod (hot reload in its own session)' if 'dev-mods' in folder else (
-            'loaded by CLAUDE_CODE_PLUGIN_DIRS' if os.path.normpath(folder) in loaded else 'installed, not loaded')
-        md.append(file_item(f"{info.get('name', os.path.basename(folder))} {info.get('version', '')}".strip(), man,
-                            f"{kind} · {cut(info.get('description') or known.get(info.get('name', ''), ''), 120)}",
-                            hidden=kind.startswith('loaded')))
-    sections.append({'id': 'mods', 'title': 'Mods', 'items': md})
+    # mods: loaded / installed not loaded / dev
+    mods = mod_states(cfg, home, settings, environ)
+    state_lbl = (cfg.get('labels') or {}).get('mod_states') or {}
+    md = [{'name': f"{m['name']} {m['version']}".strip(), 'path': m['path'], 'exists': m['state'] != 'missing',
+           'size': None, 'changed': None,
+           'what': state_lbl.get(m['state'], m['state'])
+           + (f" ({', '.join(m['sources'])})" if m['sources'] else '') + f" · {m['description']}",
+           'flags': [{'kind': 'missing', 'text': 'listed in CLAUDE_CODE_PLUGIN_DIRS but no plugin.json there'}]
+           if m['state'] == 'missing' else [], 'hidden': False, 'state': m['state']} for m in mods['items']]
+    sections.append({'id': 'mods', 'title': sec_title(cfg, 'mods', 'Mods'), 'items': md})
 
     # scheduled tasks
     sch = []
@@ -810,17 +1093,17 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
     except ValueError:
         cjd = {}
     for name, s in (cjd.get('mcpServers') or {}).items():
-        mc.append(file_item(f'mcp {name}', cj, f"user scope · {s.get('type', 'stdio')} · {cut(s.get('command') or s.get('url') or '', 90)}"))
+        mc.append(file_item(f'mcp {name}', cj, f"user scope · {s.get('type', 'stdio')} · {cut(strip_secrets(s.get('command') or s.get('url') or ''), 90)}"))
     for proj, pd in (cjd.get('projects') or {}).items():
         for name, s in (pd.get('mcpServers') or {}).items():
-            mc.append(file_item(f'mcp {name}', cj, f"project {proj} · {cut(s.get('command') or s.get('url') or '', 80)}"))
+            mc.append(file_item(f'mcp {name}', cj, f"project {proj} · {cut(strip_secrets(s.get('command') or s.get('url') or ''), 80)}"))
     desk = os.path.join(os.environ.get('APPDATA', ''), 'Claude', 'claude_desktop_config.json')
     try:
         dd = json.loads(read_text(desk) or '{}')
     except ValueError:
         dd = {}
     for name, s in (dd.get('mcpServers') or {}).items():
-        mc.append(file_item(f'mcp {name}', desk, f"desktop app · {cut(s.get('command') or s.get('url') or '', 90)}"))
+        mc.append(file_item(f'mcp {name}', desk, f"desktop app · {cut(strip_secrets(s.get('command') or s.get('url') or ''), 90)}"))
     for man in sorted(glob.glob(os.path.join(home, 'plugins', 'synced', '*', '*', '.claude-plugin', 'plugin.json'))):
         try:
             info = json.loads(read_text(man))
@@ -843,9 +1126,15 @@ def scan_setup(cfg, out_dir, run_schtasks=True):
 
     repos = discover_repos(expand(cfg['paths']['projects_root']))
     sections.append({'id': 'memory', 'title': 'Memory files', 'items': memory_items(home, repos)})
-    blockers = blocker_items(cfg, home, settings, repos)
+    blockers = blocker_items(cfg, home, settings, repos, rules)
     hidden = [dict(it, section=s['title']) for s in sections for it in s['items'] if it.get('hidden')]
-    data = {'generated': now_utc().strftime('%Y-%m-%dT%H:%M:%SZ'), 'rules_version': version,
+    live = {'title': version, 'version': rules['version'], 'label': rules['label'],
+            'claude_md': cmp_.replace('\\', '/'), 'changed': iso_mtime(cmp_), 'sections': len(rules['sections']),
+            'env_names': env_names, 'settings_hooks': len(hooks), 'agents': len(ag), 'skills': len(sk),
+            'workflows': len(wf), 'mods_loaded': sum(1 for m in mods['items'] if m['state'] == 'loaded'),
+            'mods_total': len(mods['items'])}
+    data = {'generated': now_utc().strftime('%Y-%m-%dT%H:%M:%SZ'), 'rules_version': version, 'live': live,
+            'mods': mods,
             'sections': sections, 'hidden': hidden, 'blockers': blockers,
             'active_blockers': sum(1 for b in blockers if b['flags'][0]['kind'] == 'blocker'),
             'counts': {s['id']: len(s['items']) for s in sections}}
@@ -891,10 +1180,21 @@ def score(m):
     return (t['green'] - v) / span if t['better'] == 'low' else (v - t['green']) / span
 
 
+def worst_state(states):
+    order = {'red': 0, 'amber': 1, 'green': 2}
+    rated = [x for x in states if x in order]
+    return min(rated, key=lambda st: order[st]) if rated else 'not measured'
+
+
 def scan_practices(cfg, out_dir, usage=None, setup=None):
+    """PRACTICES from the live rules file: one section per heading, each line with the evidence it cites (dates, PRs,
+    audits, quotes, PRACTICES ids resolved in docs/PRACTICES.md) and, when config evidence_links ties the line to a
+    metric or a SETUP flag, its measured state. Plus the pending V6 changes when the rules repo has them on main."""
     home = expand(cfg['paths']['claude_home'])
     claude_md = read_text(os.path.join(home, 'CLAUDE.md'))
-    report = read_text(expand(cfg['paths']['audit_report']))
+    rules = parse_rules(claude_md, cfg)
+    report = read_text(expand(cfg['paths'].get('audit_report', '')))
+    practices_md = read_text(expand(cfg['paths'].get('practices_md', ''))) if cfg['paths'].get('practices_md') else ''
     if usage is None:
         try:
             usage = json.loads(read_text(os.path.join(out_dir, 'usage.json')))
@@ -916,39 +1216,54 @@ def scan_practices(cfg, out_dir, usage=None, setup=None):
         for b in setup.get('blockers', []):
             for f in b.get('flags', []):
                 flagged.setdefault(f['kind'], []).append(f"{b['name']}: {b['what']}")
-        for s in setup['sections']:
-            for it in s['items']:
+        for sec in setup['sections']:
+            for it in sec['items']:
                 for f in it.get('flags', []):
                     flagged.setdefault(f['kind'], []).append(f"{it['name']}: {f['text']}")
-    order = {'red': 0, 'amber': 1, 'green': 2}
-    items = []
-    for p in cfg['practices']:
-        m = re.search(p['find'], claude_md, re.I)
-        line = ''
-        if m:
-            start = claude_md.rfind('\n', 0, m.start()) + 1
-            end = claude_md.find('\n', m.end())
-            line = cut(re.sub(r'\*\*', '', claude_md[start:end if end > 0 else None].strip().lstrip('-').strip()), 260)
-        linked = [by_id[i] for i in p['metrics'] if i in by_id]
-        rated = [x['state'] for x in linked if x['state'] in order]
-        state = min(rated, key=lambda s: order[s]) if rated else 'not measured'
-        evidence = [f"{x['label']}: {fmt(x)} ({x['state']})" for x in linked]
-        if p.get('setup_flag'):
-            hits = flagged.get(p['setup_flag'], [])
-            state = 'red' if hits else 'green'
-            evidence += hits[:5] or [f"no {p['setup_flag'].replace('_', ' ')} found by SETUP"]
-        items.append({'id': p['id'], 'title': p['title'], 'rule_line': line or 'not found in CLAUDE.md',
-                      'in_rules': bool(m), 'state': state, 'metrics': p['metrics'], 'evidence': evidence})
+    ref_rx = re.compile(rules_cfg(cfg)['practices_ref_regex'])
+    links = [(re.compile(x['find'], re.I), x) for x in cfg.get('evidence_links', [])]
+    sections = []
+    for sec in rules['sections']:
+        lines = []
+        for ln in sec['lines']:
+            metrics, flags = [], []
+            for rx, x in links:
+                if rx.search(ln['text']):
+                    metrics += [i for i in x.get('metrics', []) if i not in metrics]
+                    if x.get('setup_flag') and x['setup_flag'] not in flags:
+                        flags.append(x['setup_flag'])
+            evidence, states = [], []
+            for c in ln['citations']:
+                evidence.append({'kind': 'cite', 'text': c, 'state': 'info'})
+            for rid in dict.fromkeys(ref_rx.findall(ln['text'])):
+                for t in practices_lines(practices_md, rid) or [f'{rid}: not found in docs/PRACTICES.md']:
+                    evidence.append({'kind': 'practices', 'text': t, 'state': 'info'})
+            for i in metrics:
+                if i in by_id:
+                    x = by_id[i]
+                    evidence.append({'kind': 'metric', 'text': f"{x['label']}: {fmt(x)} (target {x['target']})",
+                                     'state': x['state']})
+                    states.append(x['state'])
+            for fl in flags:
+                hits = flagged.get(fl, [])
+                states.append('red' if hits else 'green')
+                for h in hits[:5] or [f"no {fl.replace('_', ' ')} found by SETUP"]:
+                    evidence.append({'kind': 'setup', 'text': h, 'state': 'red' if hits else 'green'})
+            lines.append({'text': cut(ln['text'], 400), 'evidence': evidence, 'state': worst_state(states),
+                          'metrics': metrics})
+        sections.append({'num': sec['num'], 'title': sec['title'], 'heading': sec['heading'], 'lines': lines,
+                         'state': worst_state([x['state'] for x in lines]),
+                         'evidence': sum(len(x['evidence']) for x in lines)})
     scored = [(score(m), m) for m in by_id.values()]
-    scored = [(s, m) for s, m in scored if s is not None]
-    best = [f"{m['label']}: {fmt(m)} (target {m['target']})" for s, m in sorted(scored, key=lambda x: -x[0]) if m['state'] == 'green'][:5]
-    worst = [f"{m['label']}: {fmt(m)} (target {m['target']})" for s, m in sorted(scored, key=lambda x: x[0]) if m['state'] in ('red', 'amber')][:5]
+    scored = [(sc, m) for sc, m in scored if sc is not None]
+    best = [f"{m['label']}: {fmt(m)} (target {m['target']})" for sc, m in sorted(scored, key=lambda x: -x[0]) if m['state'] == 'green'][:5]
+    worst = [f"{m['label']}: {fmt(m)} (target {m['target']})" for sc, m in sorted(scored, key=lambda x: x[0]) if m['state'] in ('red', 'amber')][:5]
     right, wrong = audit_lists(report)
     data = {'generated': now_utc().strftime('%Y-%m-%dT%H:%M:%SZ'), 'window': win['label'] if win else None,
-            'rules_version': (claude_md.splitlines() or [''])[0].lstrip('# ').strip(),
-            'practices': items, 'best': best, 'worst': worst,
+            'rules_version': rules['title'], 'version': rules['version'], 'label': rules['label'],
+            'sections': sections, 'v6': read_v6(cfg), 'best': best, 'worst': worst,
             'audit_right': right[:5], 'audit_wrong': wrong[:5],
-            'reference_md': read_text(expand(cfg['paths'].get('practices_md', ''))) if cfg['paths'].get('practices_md') else '',
+            'reference_md': practices_md,
             'history_md': read_text(expand(cfg['paths'].get('history_md', ''))) if cfg['paths'].get('history_md') else ''}
     write_json(os.path.join(out_dir, 'practices.json'), data)
     return data
