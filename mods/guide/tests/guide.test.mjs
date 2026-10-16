@@ -101,7 +101,7 @@ test('no mod of this repo can block, and the Nos mods block lists every mod and 
     return card(entry, catalog, read('.claude-plugin/plugin.json'), rel ? read(rel) : undefined)
   })
   for (const c of cards.filter(x => x.found)) assert.equal(c.blocks, false, `${c.name} never blocks`)
-  for (const dir of ['factory', 'control', 'ci', 'scenarios', 'guide', 'band']) assert.ok(cards.some(c => c.dir === dir && c.found), `${dir} card`)
+  for (const dir of ['factory', 'control', 'ci', 'scenarios', 'guide', 'band', '../vendor/filetree']) assert.ok(cards.some(c => c.dir === dir && c.found), `${dir} card`)
   const block = modsMarkdown(cards, catalog)
   for (const name of ['cc-control', 'cost-tracker', 'activity-pane', 'launchpad', 'night', 'context-meter']) assert.match(block, new RegExp(name))
   const swapped = between('a\n<!-- mods:start -->\nold\n<!-- mods:end -->\nb', 'mods', 'new')

@@ -19,6 +19,19 @@ PATTERNS = [
     ('e-mail address', re.compile(r'\b[A-Za-z0-9._%+-]+@(?!example\.|anthropic\.com)[A-Za-z0-9-]+\.[A-Za-z.]{2,}\b')),
 ]
 SKIP = {os.path.join('tools', 'confidentiality_scan.py')}
+# Vendored upstream tests use made-up homes for a one-letter user (/home/k/, /Users/k/, C:/Users/k). That user is
+# allowed there and only there; every other pattern still applies to those files.
+FIXTURE_USERS = {('vendor/', '/tests/'): {'k'}}
+HOME_PATTERNS = {'user home path', 'unix home path'}
+
+
+def fixture_users(rel):
+    rel = rel.replace(os.sep, '/')
+    return set().union(*[users for (top, sub), users in FIXTURE_USERS.items() if rel.startswith(top) and sub in rel])
+
+
+def home_user(hit):
+    return re.split(r'[\\/]+', hit.rstrip('/\\'))[-1].lower()
 
 
 def files(root):
@@ -40,11 +53,14 @@ def main(root):
                 lines = f.read().splitlines()
         except OSError:
             continue
+        allowed = fixture_users(rel)
         for n, line in enumerate(lines, 1):
             for name, rx in PATTERNS:
-                m = rx.search(line)
-                if m:
+                for m in rx.finditer(line):
+                    if name in HOME_PATTERNS and home_user(m.group(0)) in allowed:
+                        continue
                     bad.append((rel, n, name, m.group(0)[:12] + '…'))
+                    break
     for rel, n, name, hit in bad:
         print(f'{rel}:{n}: {name} {hit}')
     print('confidentiality scan:', 'FAIL' if bad else 'PASS', f'({len(files(root))} files)')

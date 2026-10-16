@@ -54,8 +54,10 @@ export function card(entry: CatalogEntry, catalog: ModsCatalog, manifest?: strin
     return `${key}${f.title ? ` « ${f.title} »` : ''}${choices}, défaut ${JSON.stringify(f.default ?? '')}`
   })
   const found = Boolean(manifest)
+  const path = entry.path ?? `mods/${entry.dir}`
   return {
     dir: entry.dir,
+    path,
     name: m.name ?? entry.name ?? entry.dir,
     version: m.version ?? '',
     description: m.description ?? entry.description ?? '',
@@ -69,7 +71,7 @@ export function card(entry: CatalogEntry, catalog: ModsCatalog, manifest?: strin
     data: entry.data ?? '',
     note: entry.note ?? '',
     tests: entry.tests ?? [],
-    enable: found ? `ajoute <dépôt>/mods/${entry.dir} à CLAUDE_CODE_PLUGIN_DIRS, ou lance claude --plugin-dir mods/${entry.dir}` : 'pas encore dans le dépôt',
+    enable: found ? `ajoute <dépôt>/${path} à CLAUDE_CODE_PLUGIN_DIRS, ou lance claude --plugin-dir ${path}` : 'pas encore dans le dépôt',
   }
 }
 
@@ -83,7 +85,7 @@ export function cardMarkdown(c: Card): string {
     `- **État** : ${c.state}${c.version ? ` · version ${c.version}` : ''}${c.note ? ` · ${c.note}` : ''}`,
     `- **Fonctionnement** : ${c.found ? `événements ${c.events.map(e => `\`${e}\``).join(', ') || 'aucun'}` : 'pas encore écrit'} · lit : ${c.data || '—'} · ${c.found ? (c.blocks ? '⚠ peut refuser un appel' : 'aucun blocage') : 'sans blocage prévu'}`,
     `- **Fonctionnalités** : commandes ${c.commands.map(x => `\`${x}\``).join(', ') || 'aucune'} · affiche : ${c.draws.join(', ') || 'rien'} · options userConfig : ${c.options.length ? c.options.join(' ; ') : 'aucune'}`,
-    `- **Activer** : ${c.found ? `\`<dépôt>/mods/${c.dir}\` dans \`CLAUDE_CODE_PLUGIN_DIRS\`, ou \`claude --plugin-dir mods/${c.dir}\`` : c.enable}`,
+    `- **Activer** : ${c.found ? `\`<dépôt>/${c.path}\` dans \`CLAUDE_CODE_PLUGIN_DIRS\`, ou \`claude --plugin-dir ${c.path}\`` : c.enable}`,
     `- **Tests** : ${c.tests.length ? c.tests.map(t => `\`${t}\``).join(' · ') : 'aucun pour l’instant'}`,
   ]
   return rows.join('\n')

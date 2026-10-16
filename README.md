@@ -15,6 +15,7 @@ Needs **Claude Code 2.1.287 or later** (function-hook mods, panes, `Svg` element
 | [`usage`](mods/usage) | `/conso [aujourdhui\|semaine\|prevision\|scenarios\|plein\|codex] [refresh]` | Consommation, in French: tokens and list-price cost equivalent today and over the week, per hour (heatmap), project, model, kind (main thread, Agent subagent, Workflow agent, sub-conversation), app surface, effort, skill and MCP server, top 10 sessions. Forecast of the 5-hour and weekly limits from the official % (`$.session.usage()`) and the measured pace (last 2 h, today, 7 days) with calme / normal / intense projections; which scenario (S1-S5) fits the quota left before the reset; suggests S5 "Plein régime" when much of the week would be left. Optional status-line entry. **Codex** tab: Codex tokens today and over 7 days, per model, and the plan % Codex writes in its local session files (`~/.codex/sessions/**/rollout-*.jsonl`, the files the codex-hud plugin reads), next to Claude's on one line; « non disponible » when nothing is written (option `codex`: config/on/off). Its parser and price table are a shared module (`mods/usage/lib`). |
 | [`band`](mods/band) | `/jauge [refresh]` | Jauge, always visible above the prompt (French labels): this conversation's context in tokens and % of the window, where auto-compact sits and how far it is (with « compactage dans ~N min » at the current context growth), markers when it nears the RESUME hand-off threshold (250 K) or a compaction at rest, the burn rate in tok/s at the scopes you pick (this conversation, + its subagents, its Workflow agents, the project with its worktrees, the whole PC) and « semaine X % » when the account reports its 7-day limit. `/jauge` adds the per-scope table (tok/s, /min, /h, list-price $/h, over 60 s and 10 min), the 5 hottest sessions with their compactions, projects, 30-minute sparklines with compaction markers, and each conversation's compactions (time, auto / `/compact` / at rest, context before → after). Optional status-line entry. |
 | [`guide`](mods/guide) | `/mods-guide [onglet ou section]` | Mode d'emploi des mods, in French: tabs (Sommaire, Bases, Événements, Interface, Configuration, Installer et activer, Tester, Écrire un mod pas à pas, Référence API, Nos mods, FAQ), foldable categories, and one card per mod of this repo built live from its `plugin.json` and hooks module. Same content in [`MODE-EMPLOI.md`](mods/guide/MODE-EMPLOI.md). |
+| [`filetree`](vendor/filetree) (external, MIT, [data-goblin](https://github.com/data-goblin/claude-code-filetree)) | `/filetree [path]` | Vendored unchanged at release v0.2.26 (see its [`NOTICE`](vendor/filetree/NOTICE)). File tree of the session's folder in the right pane: git status per file with lines added/removed, branch and ahead/behind, files Claude reads (purple), writes (orange) and commits (green) shimmer, search, sizes, double-click to open. It sends one context line to the model only while you have a file selected (click a file; the ⊘ button clears it). English labels (the author's). |
 
 `factory` and `control` read local files only (transcripts under `~/.claude/projects`, the desktop app's session files, your settings) through a Python scanner (standard library) and draw the result. Dollar figures are **estimates** from token counts and the rate table in each mod's config.
 
@@ -33,6 +34,7 @@ What was kept from the earlier mods when this repo was set up (V6, Oct 2026). On
 | scenarios | **new** (Oct 2026) | Which model, effort and unit each role uses, with the doc that says so, instead of rules text that drifts. |
 | usage | **new** (Oct 2026) | Where the tokens go and when the plan runs out, from the transcripts and the official %, instead of guessing; tokens per 1 % calibrated locally. |
 | guide | **new** (Oct 2026) | How mods work and how to write one, plus a card per mod that reads the mod itself. |
+| filetree (data-goblin, MIT) | **vendored** (Oct 2026) | An IDE-style file tree with live git status and Claude's reads/writes, better than writing our own. Copied unchanged from a release into `vendor/filetree`; checked: no blocking, prompt context only for a file you selected. |
 | cost-tracker, activity-pane, launchpad, night | drop | Wrong numbers for new model ids, superseded by factory, or built on timer wake-ups. |
 | V4 pages and watcher | drop | Dead since early Oct, replaced by factory and the app's own agent view. |
 
@@ -60,7 +62,9 @@ or straight from a clone, with absolute paths (Windows example):
 "CLAUDE_CODE_PLUGIN_DIRS": "D:/code/claude-mod/mods/band;D:/code/claude-mod/mods/factory;D:/code/claude-mod/mods/usage;D:/code/claude-mod/mods/scenarios;D:/code/claude-mod/mods/ci;D:/code/claude-mod/mods/control;D:/code/claude-mod/mods/guide"
 ```
 
-Every mod here is safe to load by default: none adds text to your prompts or to the system prompt, none blocks or rewrites anything, none calls a model. The one prompt note (`ci`'s route) is off until you set `prompt_note: true`.
+Every mod here is safe to load by default: none adds text to your prompts or to the system prompt, none blocks or rewrites anything, none calls a model. The one prompt note (`ci`'s route) is off until you set `prompt_note: true`. The external `filetree` (in `vendor/filetree`, not under `mods/`) is the exception you opt into by loading it: while you have a file selected in its tree (you clicked it), each prompt carries one context line with that file's path; the ⊘ button clears it.
+
+To load `filetree`, add `<repo>/vendor/filetree` to the same list, or run `claude --plugin-dir vendor/filetree`.
 
 Or load one as a dev-mod in the desktop app for one session. Python 3 must be on `PATH` (the scanners); `gh` / `glab` are used, when present, for PR/MR and CI state.
 
@@ -112,6 +116,8 @@ claude plugin test mods/scenarios
 claude plugin test mods/guide
 claude plugin test mods/usage
 claude plugin test mods/band
+claude plugin validate vendor/filetree/.claude-plugin/plugin.json
+claude plugin test vendor/filetree
 # before every push (public repo): no private paths, tokens, e-mails or transcripts
 python -I tools/confidentiality_scan.py .
 ```

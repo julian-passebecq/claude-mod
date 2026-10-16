@@ -5,7 +5,10 @@ export type Tab = { id: string; title: string; intro: string; cats: Section[] }
 export type Doc = { title: string; intro: string; tabs: Tab[] }
 
 export type CatalogEntry = {
+  /** folder relative to mods/ (an external mod: '../vendor/<name>') */
   dir: string
+  /** folder relative to the repo, shown in « Activer » (default mods/<dir>) */
+  path?: string
   name?: string
   state: string
   description?: string
@@ -20,6 +23,8 @@ export type ModsCatalog = {
 }
 export type Card = {
   dir: string
+  /** folder relative to the repo */
+  path: string
   name: string
   version: string
   description: string
