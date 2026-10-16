@@ -1,0 +1,17 @@
+{
+  "name": "veille",
+  "version": "0.1.0",
+  "description": "Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. E-mail et notification Windows quand une conversation attend Julian. /veille [mode <x>|ack <clé>|coordinateur|tour]",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "veille", "watcher", "alerts", "merge", "task scheduler"],
+  "userConfig": {
+    "band": {
+      "type": "string",
+      "title": "Band entry above the prompt",
+      "description": "on: one line above the prompt with the veille mode and its last tour (red when two tours were missed). off: only /veille.",
+      "default": "on",
+      "options": ["on", "off"]
+    }
+  }
+}

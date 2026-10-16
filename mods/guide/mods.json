@@ -84,6 +84,19 @@
       "data": "CLAUDE_CODE_PLUGIN_DIRS, $.command.list() et $.session.version() ; pour chaque mod : plugin.json, hooks.json, JSON de config, caches (taille, dernière modification), journaux, fiches ~/.claude/mods-health/<mod>.json ; ~/.claude/mods et ~/.claude/plugins/installed_plugins.json ; rapport dans ~/.claude/sante-mod (scanner Node, seulement quand le panneau est demandé)",
       "note": "rien n'est supprimé : les commandes de nettoyage sont affichées avec un bouton Copier. Convention proposée : ~/.claude/mods-health/<mod>.json (lastRun, durationMs, cpuMs, error, lastOk, fenêtre 24 h), écrite par band, usage, metrics, ci et machine. Non vérifié : champ de version minimale dans plugin.json (absent de la doc), format de installed_plugins.json, plugin toujours renseigné par $.command.list().",
       "tests": ["node --test mods/sante/tests/logic.test.mjs", "claude plugin test mods/sante", "claude plugin validate mods/sante"]
+    },
+    {
+      "dir": "veille",
+      "name": "veille (Veille)",
+      "state": "building",
+      "description": "Veille : un script sans tokens (tâche Windows ClaudeVeille, toutes les 5 min, même Claude fermé) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes : ce panneau les montre avec gravité, depuis quand, conversation ou PR, lien et bouton Ack, le dernier tour (rouge si deux tours manqués) et chaque action avec sa raison. Une ligne au-dessus du prompt donne le mode. En nuit-active le script merge lui-même une PR/MR verte et à jour (chaque check success, ni skipped ni cancelled). Quand une conversation attend Julian : notification Windows et e-mail.",
+      "data": "mêmes sources que « Ça t'attend » du mod factory (son scanner et waiting.mjs importés, pas copiés) : fichiers de session de l'app, transcripts, gh search / glab api (jetons gardés par gh et glab, jamais lus) ; état dans ~/.claude/veille (state.json, heartbeat.json, events.jsonl, acks.jsonl, config.json) ; smtp.json créé par toi",
+      "note": "réveil d'une conversation par claude -p --resume <id> (documenté ; vérifié ici sur une session jetable : même transcript, même modèle ; non vérifié : effort, mode de permission différent du défaut, affichage dans l'app Desktop) ; désactivé par défaut (wake.enabled false). Push téléphone : aucun moyen documenté pour un script (PushNotification est un outil de Claude) ; option push.claude (claude -p, coûte des tokens, non vérifié) désactivée ; l'e-mail arrive sur le téléphone par l'app mail.",
+      "tests": [
+        "node --test mods/veille/tests/logic.test.mjs",
+        "node --test mods/veille/tests/mail.test.mjs",
+        "claude plugin test mods/veille"
+      ]
     }
   ],
   "archived": [

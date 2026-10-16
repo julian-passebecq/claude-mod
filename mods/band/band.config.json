@@ -35,7 +35,8 @@
       { "label": "CI", "mod": "ci", "command": "ci" },
       { "label": "Control", "mod": "control", "command": "control" },
       { "label": "Guide", "mod": "guide", "command": "mods-guide" },
-      { "label": "Santé", "mod": "sante", "command": "sante" }
+      { "label": "Santé", "mod": "sante", "command": "sante" },
+      { "label": "Veille", "mod": "veille", "command": "veille" }
     ]
   },
   "handoff": {

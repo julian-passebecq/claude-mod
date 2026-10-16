@@ -98,6 +98,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [machine](#machine)
     - [metrics](#metrics)
     - [sante](#sante)
+    - [veille](#veille)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -522,6 +523,16 @@ Santé des mods : une ligne verte / orange / rouge en haut, puis chaque mod char
 - **Fonctionnalités** : commandes `/sante` · affiche : panneau · options userConfig : config « Settings file », défaut ""
 - **Activer** : `<dépôt>/mods/sante` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/sante`
 - **Tests** : `node --test mods/sante/tests/logic.test.mjs` · `claude plugin test mods/sante` · `claude plugin validate mods/sante`
+
+#### veille
+
+Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. E-mail et notification Windows quand une conversation attend Julian. /veille [mode <x>|ack <clé>|coordinateur|tour]
+
+- **État** : en construction · version 0.1.0 · réveil d'une conversation par claude -p --resume <id> (documenté ; vérifié ici sur une session jetable : même transcript, même modèle ; non vérifié : effort, mode de permission différent du défaut, affichage dans l'app Desktop) ; désactivé par défaut (wake.enabled false). Push téléphone : aucun moyen documenté pour un script (PushNotification est un outil de Claude) ; option push.claude (claude -p, coûte des tokens, non vérifié) désactivée ; l'e-mail arrive sur le téléphone par l'app mail.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : mêmes sources que « Ça t'attend » du mod factory (son scanner et waiting.mjs importés, pas copiés) : fichiers de session de l'app, transcripts, gh search / glab api (jetons gardés par gh et glab, jamais lus) ; état dans ~/.claude/veille (state.json, heartbeat.json, events.jsonl, acks.jsonl, config.json) ; smtp.json créé par toi · aucun blocage
+- **Fonctionnalités** : commandes `/veille` · affiche : panneau, bandeau · options userConfig : band « Band entry above the prompt » (on | off), défaut "on"
+- **Activer** : `<dépôt>/mods/veille` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/veille`
+- **Tests** : `node --test mods/veille/tests/logic.test.mjs` · `node --test mods/veille/tests/mail.test.mjs` · `claude plugin test mods/veille`
 
 ### Archivés / rejetés
 

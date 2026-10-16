@@ -1,0 +1,86 @@
+{
+  "_readme": "Veille settings. Your own ~/.claude/veille/config.json is deep-merged over this file (mode, coordinator_session, mail, wake, merge...). Change the mode with /veille mode <x>, the pane buttons or `node <bin>/veille/watcher/veille.mjs mode <x>`. Secrets never go here: SMTP credentials live only in ~/.claude/veille/smtp.json (see smtp.example.json).",
+  "home": "~/.claude/veille",
+  "task_name": "ClaudeVeille",
+  "fire_every_min": 5,
+  "launcher": "wscript",
+  "_launcher": "wscript: a hidden VBScript starts node (no console flash). conhost: `conhost.exe --headless`, the fallback when VBScript is disabled.",
+  "mode": "légère",
+  "quiet_hours": "23:00-07:30",
+  "tour_deadline_s": 480,
+  "scan_hours": 36,
+  "_actions": "alert: write the alert to the pane. notify: Windows notification for every new alert. notify_julian: Windows notification only for alerts that need Julian. mail: e-mail digest for alerts that need Julian. push_claude: a headless `claude -p` that calls PushNotification (off unless push.claude is true; costs tokens). merge: the script merges a green, up-to-date PR/MR itself (gh/glab, no Claude). wake: `claude -p --resume <id>` sends a ≤ 10-line brief to a conversation (off unless wake.enabled is true).",
+  "modes": {
+    "rien": { "label": "Rien", "interval_min": 0, "may": [], "claude_tokens_per_hour": 0, "help": "Veille éteinte : aucun tour, aucune alerte." },
+    "légère": { "label": "Légère", "interval_min": 30, "may": ["alert", "notify", "mail"], "claude_tokens_per_hour": 0, "help": "Un tour toutes les 30 min. Alerte et prévient seulement ; ne merge rien, ne réveille personne, aucun token." },
+    "active": { "label": "Active", "interval_min": 5, "may": ["alert", "notify", "mail", "wake"], "claude_tokens_per_hour": 600000, "help": "Un tour toutes les 5 min. Prévient et réveille la lane ou le coordinateur (si wake.enabled), dans le budget de tokens." },
+    "nuit-active": { "label": "Nuit active", "interval_min": 10, "may": ["alert", "notify_julian", "mail", "merge", "wake"], "claude_tokens_per_hour": 600000, "help": "Un tour toutes les 10 min. Merge les PR/MR vertes et à jour, relance une lane ou un Workflow arrêté (si wake.enabled) ; notifications seulement pour ce qui attend Julian." },
+    "nuit-test-légère": { "label": "Nuit test légère", "interval_min": 30, "may": ["alert", "notify", "mail", "push_claude"], "claude_tokens_per_hour": 100000, "help": "Un tour toutes les 30 min. Prévient seulement ; petit budget de tokens pour un éventuel push Claude." }
+  },
+  "alerts": {
+    "_doc": "Rows come from the factory mod's « Ça t'attend » logic (mods/factory/hooks/waiting.mjs, its `waiting` settings apply) plus veille's own: missed (the watcher stopped), workflow (a Workflow agent stopped while its conversation is idle), manual (a GitLab pipeline waits on a manual job: never merged by the veille), exhausted (woken twice without effect), scan (gh / glab unreadable).",
+    "julian_kinds": ["ask", "needs", "awaiting", "exhausted"],
+    "severity": { "ask": "julian", "needs": "julian", "awaiting": "julian", "exhausted": "julian", "idle": "bad", "missed": "bad", "workflow": "bad", "green": "warn", "manual": "warn", "scan": "info" },
+    "workflow_idle_min": 20,
+    "workflow_max_age_h": 24,
+    "keep_resolved": 30
+  },
+  "mail": {
+    "repeat_h": 6,
+    "subject": "[Veille] {n} conversation(s) t'attendent",
+    "gap_subject": "[Veille] veille arrêtée de {from} à {to}",
+    "manual_check": true
+  },
+  "push": {
+    "claude": false,
+    "_claude": "true: also run `claude -p --model haiku` asking for a PushNotification (counted in the mode's token budget). Not verified that a -p session reaches the phone: phone pushes need Remote Control connected. The e-mail reaches the phone through its mail app.",
+    "model": "haiku",
+    "est_tokens": 30000,
+    "repeat_h": 6
+  },
+  "wake": {
+    "enabled": false,
+    "_enabled": "Off until one test on a throwaway session shows that `claude -p --resume <id>` keeps the model, effort and permission mode and is not run beside an open Desktop session.",
+    "target": "coordinator",
+    "_target": "coordinator: always the conversation registered with /veille coordinateur. owner: the conversation that owns the row, else the coordinator.",
+    "kinds": ["idle", "green", "workflow", "manual"],
+    "min_idle_min": 5,
+    "row_repeat_h": 2,
+    "max_per_row": 2,
+    "max_per_row_window_h": 12,
+    "est_tokens_default": 300000
+  },
+  "merge": {
+    "repos": ["julian-passebecq/*", "juliandatapass-group/*"],
+    "stable_min": 30,
+    "max_per_tour": 3,
+    "markers": ["no-merge", "do-not-merge", "wip", "veille:skip"]
+  },
+  "links": {
+    "session": "claude://claude.ai/epitaxy/{id}"
+  },
+  "pane": { "events": 25, "refresh_s": 60 },
+  "labels": {
+    "title": "Veille",
+    "mode": "Mode",
+    "may": "Peut",
+    "may_names": { "alert": "alerter", "notify": "notifier", "notify_julian": "notifier (Julian seulement)", "mail": "e-mail", "push_claude": "push Claude", "merge": "merger", "wake": "réveiller" },
+    "last_tour": "Dernier tour",
+    "never": "jamais",
+    "stopped": "VEILLE ARRÊTÉE : pas de tour depuis {since}",
+    "not_installed": "tâche ClaudeVeille non installée (veille install)",
+    "alerts": "Alertes",
+    "none": "Rien à signaler.",
+    "actions": "Actions et événements",
+    "ack": "Ack",
+    "acked": "vu",
+    "mail_off": "e-mail non configuré",
+    "mail_on": "e-mail configuré",
+    "wake_off": "réveils désactivés (wake.enabled false)",
+    "coordinator": "Coordinateur",
+    "no_coordinator": "aucun (tape /veille coordinateur dans sa conversation)",
+    "band": "Veille",
+    "severity": { "julian": "attend Julian", "bad": "bloqué", "warn": "à faire", "info": "info" }
+  },
+  "colors": { "julian": "#dc2626", "bad": "#dc2626", "warn": "#d97706", "info": "#6b7280", "ok": "#16a34a", "dim": "#6b7280" }
+}

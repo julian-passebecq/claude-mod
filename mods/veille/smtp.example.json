@@ -1,0 +1,9 @@
+{
+  "_readme": "Copy to ~/.claude/veille/smtp.json (outside any repo) and fill it. Gmail: turn on 2-step verification, create an app password at https://myaccount.google.com/apppasswords and paste its 16 letters as password. Port 587 uses STARTTLS. The watcher reads this file only to send; the password is never logged or printed. Test with: node ~/.claude/veille/bin/veille/watcher/veille.mjs test-mail",
+  "host": "smtp.gmail.com",
+  "port": 587,
+  "user": "<you@example.com>",
+  "password": "<app password>",
+  "from": "<you@example.com>",
+  "to": ["<you@example.com>"]
+}
