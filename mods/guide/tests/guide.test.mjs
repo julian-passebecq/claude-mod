@@ -11,7 +11,7 @@ const md = readFileSync(new URL('MODE-EMPLOI.md', here), 'utf8').replace(/\r\n/g
 const catalog = JSON.parse(readFileSync(new URL('mods.json', here), 'utf8'))
 const doc = parse(md)
 
-const TABS = ['Bases', 'Événements', 'Interface', 'Configuration', 'Installer et activer', 'Tester', 'Écrire un mod pas à pas', 'Référence API', 'Nos mods', 'FAQ et pièges']
+const TABS = ['Démarrer', 'Jauge', 'Cockpit', 'Veille', 'À toi', 'Registres', 'Référence', 'La nuit', 'Possible ou pas avec les mods', 'À essayer', 'Écrire un mod', 'Nos mods', 'FAQ et pièges']
 
 test('MODE-EMPLOI.md has the agreed tabs, each with categories and sub-sections', () => {
   assert.equal(doc.title, "Mode d'emploi des mods")
@@ -31,11 +31,23 @@ test('every anchor is unique and the table of contents is up to date', () => {
 })
 
 test('the guide talks about mods only and cites the official docs', () => {
-  // the generated « Nos mods » cards may name what a mod reads (the usage mod reads Codex's session files)
+  // Codex is a button and a tab of the Cockpit (Claude ↔ Codex); plans and other chat products stay out
   const prose = md.replace(/<!-- mods:start -->[\s\S]*?<!-- mods:end -->/, '')
-  assert.doesNotMatch(prose, /\b(abonnement|subscription|Codex|ChatGPT)\b/i)
+  assert.doesNotMatch(prose, /\b(abonnement|subscription|ChatGPT)\b/i)
   assert.ok((md.match(/https:\/\/code\.claude\.com\/docs\/en\/plugins\//g) ?? []).length >= 30)
   assert.match(md, /non vérifié/)
+  assert.match(md, /non vérifié dans l'app/)
+})
+
+test('the user guide: the day, the night, the limits, the ideas, old commands, data and updates', () => {
+  const ids = anchors(doc)
+  for (const id of ['ma-journée', 'bilan-avant-la-nuit', 'ce-qui-ne-tourne-pas', 'ce-quun-mod-ne-peut-pas-faire', 'les-cinq-premiers', 'anciennes-commandes', 'tes-données', 'mettre-à-jour'])
+    assert.ok(ids.includes(id), id)
+  const old = doc.tabs[0].cats.find(c => c.id === 'anciennes-commandes').subs.map(s => s.body).join('\n')
+  for (const cmd of ['/factory', '/machine', '/conso', '/problemes', '/tests', '/regles', '/menage', '/config-claude', '/control', '/mods-guide', '/scenarios', '/sante', '/ci', '/export-eta', '/a-toi'])
+    assert.ok(old.includes('`' + cmd), cmd)
+  const ideas = doc.tabs.find(t => t.id === 'à-essayer').cats[0].subs.map(s => s.title).join(' | ')
+  for (const x of ['Projects', 'claude agents', '/advisor', '/skill-doctor', 'Auto-continue']) assert.ok(ideas.includes(x), x)
 })
 
 test('slug follows GitHub anchors; parse ignores headings in code fences', () => {
@@ -51,9 +63,9 @@ test('slug follows GitHub anchors; parse ignores headings in code fences', () =>
 })
 
 test('locate: a Sommaire link leads to its tab, unfolds its category, marks its sub-section', () => {
-  assert.deepEqual(locate(doc, 'tester'), { tab: 'tester', cat: '', sub: '' })
-  assert.deepEqual(locate(doc, 'commandes-slash'), { tab: 'interface', cat: 'commandes-slash', sub: '' })
-  assert.deepEqual(locate(doc, '5-prévenir-sans-bloquer'), { tab: 'écrire-un-mod-pas-à-pas', cat: 'exemple--scenarios', sub: '5-prévenir-sans-bloquer' })
+  assert.deepEqual(locate(doc, 'cockpit'), { tab: 'cockpit', cat: '', sub: '' })
+  assert.deepEqual(locate(doc, 'galerie'), { tab: 'cockpit', cat: 'galerie', sub: '' })
+  assert.deepEqual(locate(doc, 'commandes-slash'), { tab: 'écrire-un-mod', cat: 'interface', sub: 'commandes-slash' })
   assert.equal(locate(doc, 'nowhere'), undefined)
 })
 
