@@ -1,12 +1,38 @@
 // veille - the pane « Veille » and a one-line band entry. Read-only view of ~/.claude/veille (written by the watcher,
 // the scheduled task ClaudeVeille); the buttons run the watcher's own commands (mode, ack, tour, coordinator), so there
 // is one code path. Nothing here blocks, rewrites or adds text to a prompt, and nothing calls a model.
-//   /veille [mode <x> | ack <clé|all> | coordinateur | tour | close]
+//   /veille [fil | mode <x> | ack <clé|all> | coordinateur | tour | close]
+// Two tabs: Alertes, and Fil (every conversation's last message, from ~/.claude/veille/fil.json, see fil-view.mjs).
 import { deepMerge, modeName } from '../lib/modes.mjs'
+import { markAllRead, markRead } from '../lib/fil.mjs'
 import { viewModel, bandLine, eventText, ago } from './view.mjs'
+import { drawFil, filLabels } from './fil-view.mjs'
 
 let options = {}
-const D = { cfg: null, state: null, heartbeat: null, acks: [], open: false, busy: '', msg: '', at: 0 }
+const D = { cfg: null, state: null, heartbeat: null, acks: [], open: false, busy: '', msg: '', at: 0,
+  tab: 'alertes', fil: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {} } }
+
+// Fil: the digest file (read on demand only), the « read » marks and the folds, kept in the mod's $.store.
+async function loadFil($) {
+  D.fil = await readJson($, (await vhome($)) + '/fil.json')
+  D.filLoaded = true
+  try { D.read = (await $.store.get('fil.read')) || null } catch { D.read = null }
+  try { const u = await $.store.get('fil.ui'); if (u && typeof u === 'object') D.filUi = { ...D.filUi, ...u, openConv: {} } } catch { /* defaults */ }
+  if (!D.read || !D.read.since) { D.read = markAllRead(Date.now()); try { await $.store.set('fil.read', D.read) } catch { /* memory only */ } }
+}
+
+// Hands a claude:// link to the OS (its handler is the desktop app). Windows: url.dll's FileProtocolHandler, no shell.
+async function openUrl($, url) {
+  if (!/^claude:\/\/claude\.ai\/epitaxy\/[\w-]+$/.test(String(url || ''))) return false
+  let win = false
+  try { win = (await $.env.get('OS')) === 'Windows_NT' } catch { win = false }
+  const argv = win ? ['rundll32.exe', 'url.dll,FileProtocolHandler', url] : ['xdg-open', url]
+  try { const r = await $.process.run(argv, { timeoutMs: 10000 }); return r.exitCode === 0 } catch { return false }
+}
+
+async function saveFilUi($) {
+  try { await $.store.set('fil.ui', { filter: D.filUi.filter, project: D.filUi.project, openProj: D.filUi.openProj }) } catch { /* memory only */ }
+}
 
 const root = ($) => $.plugin.root.replace(/\\/g, '/')
 
@@ -109,8 +135,8 @@ export function register(on, raw) {
     try {
       await $.command.register({
         name: 'veille', immediate: true,
-        description: 'Veille : mode du veilleur (rien, légère, active, nuit-active, nuit-test-légère), alertes, dernier tour, actions',
-        argumentHint: 'mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
+        description: 'Veille : fil des conversations (dernier message de chacune, /veille fil), mode du veilleur (rien, légère, active, nuit-active, nuit-test-légère), alertes, dernier tour, actions',
+        argumentHint: 'fil | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
       })
     } catch { /* a name clash must not break the rest */ }
     const every = Math.max(15, ((D.cfg && D.cfg.pane) || {}).refresh_s || 60) * 1000
@@ -124,6 +150,14 @@ export function register(on, raw) {
     const [verb, ...rest] = q.split(/\s+/)
     const v = (verb || '').toLowerCase()
     if (v === 'close') { D.open = false; await $.ui.close({ id: 'veille' }); return {} }
+    if (v === 'fil') {
+      D.tab = 'fil'
+      D.open = true
+      await loadFil($)
+      await $.ui.open({ id: 'veille', title: 'Veille', focus: true, closeOnEscape: true })
+      $.ui.invalidate('ui.render')
+      return {}
+    }
     if (v === 'mode') {
       const m = modeName(D.cfg, rest.join(' '))
       if (!m) return { text: `veille: mode inconnu « ${rest.join(' ')} » (${Object.keys(D.cfg.modes || {}).join(', ')})` }
@@ -139,6 +173,7 @@ export function register(on, raw) {
       return { text: `veille: coordinateur = cette conversation (${sid})` }
     }
     D.open = true
+    if (!v) D.tab = 'alertes'
     await $.ui.open({ id: 'veille', title: 'Veille', focus: true, closeOnEscape: true })
     if (v === 'tour') void act($, 'tour', ['tour'], 300000)
     $.ui.invalidate('ui.render')
@@ -151,14 +186,44 @@ export function register(on, raw) {
     if (e.requestId !== 'veille') return next(e)
     const el = $.ui.resolve(e)
     if (!D.cfg) await load($).catch(() => { D.cfg = {} })
-    const vm = viewModel(D.cfg || {}, D.state, D.heartbeat, D.acks, D.at || Date.now())
-    return draw(el, D.cfg || {}, vm, {
+    const cfg = D.cfg || {}
+    const vm = viewModel(cfg, D.state, D.heartbeat, D.acks, D.at || Date.now())
+    const FL = filLabels(cfg)
+    const colors = cfg.colors || {}
+    const tabs = el.Box({ flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginBottom: 1, alignItems: 'center', children: [
+      el.Button({ children: [FL.tab_alerts || 'Alertes'], variant: D.tab === 'alertes' ? 'primary' : 'secondary', onPress: () => { D.tab = 'alertes'; $.ui.invalidate('ui.render') } }),
+      el.Button({ children: [FL.tab_fil || 'Fil'], variant: D.tab === 'fil' ? 'primary' : 'secondary', onPress: () => { D.tab = 'fil'; void (D.filLoaded ? Promise.resolve() : loadFil($)).then(() => $.ui.invalidate('ui.render')) } }),
+      vm.julian ? el.Text({ children: [String(FL.julian_counter || 'attend Julian : {n}').replace('{n}', vm.julian)], bold: true, ...(colors.julian ? { color: colors.julian } : {}) }) : null,
+    ].filter(Boolean) })
+    if (D.tab === 'fil') {
+      if (!D.filLoaded) await loadFil($).catch(() => undefined)
+      const now = Date.now()
+      const body = drawFil(el, cfg, D.fil, D.filUi, {
+        now, ago, busy: D.busy, msg: D.msg, read: D.read,
+        filter: (f) => { D.filUi.filter = f; void saveFilUi($); $.ui.invalidate('ui.render') },
+        project: (p) => { D.filUi.project = D.filUi.project === p ? '' : p; void saveFilUi($); $.ui.invalidate('ui.render') },
+        toggleProj: (name, open) => { D.filUi.openProj = { ...D.filUi.openProj, [name]: open }; void saveFilUi($); $.ui.invalidate('ui.render') },
+        toggleConv: (sid) => {
+          const open = !D.filUi.openConv[sid]
+          D.filUi.openConv = { ...D.filUi.openConv, [sid]: open }
+          if (open) { D.read = markRead(D.read, sid, Date.now()); void $.store.set('fil.read', D.read).catch(() => undefined) }
+          $.ui.invalidate('ui.render')
+        },
+        markAll: () => { D.read = markAllRead(Date.now()); void $.store.set('fil.read', D.read).catch(() => undefined); $.ui.invalidate('ui.render') },
+        refresh: () => { void (async () => { await act($, 'fil', ['fil'], 120000); await loadFil($); $.ui.invalidate('ui.render') })() },
+        openConv: (url) => { void openUrl($, url).then((ok) => { D.msg = ok ? `${FL.opened || 'lien envoyé à l’app'} : ${url}` : `${FL.open_failed || 'ouverture impossible, copie l’id'} : ${url}`; $.ui.invalidate('ui.render') }) },
+        copy: (sid, press) => { void $.ui.copy({ text: sid, surface: press && press.surface }).then((r) => { D.msg = r && r.isCopied === false ? sid : `${FL.copied || 'id copié'} : ${sid}`; $.ui.invalidate('ui.render') }).catch(() => { D.msg = sid; $.ui.invalidate('ui.render') }) },
+      })
+      return el.Box({ flexDirection: 'column', children: [tabs, body] })
+    }
+    const alertsView = draw(el, cfg, vm, {
       now: D.at || Date.now(), busy: D.busy, msg: D.msg,
       mode: (m) => void act($, 'mode', ['mode', m]),
       ack: (k) => void act($, 'ack', ['ack', k]),
       tour: () => void act($, 'tour', ['tour'], 300000),
       refresh: () => { void load($).then(() => $.ui.invalidate('ui.render')) },
     })
+    return el.Box({ flexDirection: 'column', children: [tabs, alertsView] })
   })
 
   // One line above the prompt (mode, last tour, needs Julian), below what the mods after this one draw (theirs kept).

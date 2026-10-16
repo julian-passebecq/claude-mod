@@ -19,8 +19,9 @@
   },
   "alerts": {
     "_doc": "Rows come from the factory mod's « Ça t'attend » logic (mods/factory/hooks/waiting.mjs, its `waiting` settings apply) plus veille's own: missed (the watcher stopped), workflow (a Workflow agent stopped while its conversation is idle), manual (a GitLab pipeline waits on a manual job: never merged by the veille), exhausted (woken twice without effect), scan (gh / glab unreadable).",
-    "julian_kinds": ["ask", "needs", "awaiting", "exhausted"],
-    "severity": { "ask": "julian", "needs": "julian", "awaiting": "julian", "exhausted": "julian", "idle": "bad", "missed": "bad", "workflow": "bad", "green": "warn", "manual": "warn", "scan": "info" },
+    "julian_kinds": ["ask", "needs", "awaiting", "exhausted", "fil_pending_ask", "fil_wrap", "fil_needs", "fil_awaiting", "fil_question", "fil_approval", "fil_incoherence"],
+    "_fil": "fil_* rows come from the Fil (lib/fil.mjs julianSignal): fil_pending_ask an AskUserQuestion with no answer, fil_wrap a wrap_up with an ask or blocked, fil_needs / fil_awaiting the app's needs_action / interrupted turn, fil_question a conversation at rest whose last message ends on a question to Julian (heuristic), fil_approval a tool call with no result for fil.approval_min while the transcript is silent (probable approval card, not verified), fil_incoherence a session reporting contradicting instructions (keywords in its last message or wrap_up). Every fire (not only tours) announces new ones at once: Windows notification, e-mail when smtp.json exists.",
+    "severity": { "ask": "julian", "needs": "julian", "awaiting": "julian", "exhausted": "julian", "fil_pending_ask": "julian", "fil_wrap": "julian", "fil_needs": "julian", "fil_awaiting": "julian", "fil_question": "julian", "fil_approval": "julian", "fil_incoherence": "julian", "idle": "bad", "missed": "bad", "workflow": "bad", "green": "warn", "manual": "warn", "scan": "info" },
     "workflow_idle_min": 20,
     "workflow_max_age_h": 24,
     "keep_resolved": 30
@@ -29,6 +30,7 @@
     "repeat_h": 6,
     "subject": "[Veille] {n} conversation(s) t'attendent",
     "gap_subject": "[Veille] veille arrêtée de {from} à {to}",
+    "incoherence_subject": "[Veille] incohérence entre consignes ({n} conversation(s))",
     "manual_check": true
   },
   "push": {
@@ -58,6 +60,49 @@
   },
   "links": {
     "session": "claude://claude.ai/epitaxy/{id}"
+  },
+  "fil": {
+    "_doc": "The Fil (/veille fil): every conversation's last message, grouped by project, lead → sub-conversations, written by the watcher to ~/.claude/veille/fil.json at every fire and tour (files only, zero model tokens). The pane reads that file and refreshes only on « Rafraîchir ». projects: [] = all, else project names. per_project: most recent conversations per project (those waiting on Julian are never cut). preview_chars: collapsed preview. full_chars: expanded message. archived: non | aujourdhui | oui. live_s: transcript written this recently = en cours. approval_min: probable approval card after this many silent minutes.",
+    "hours": 48,
+    "projects": [],
+    "per_project": 15,
+    "preview_chars": 240,
+    "full_chars": 6000,
+    "archived": "aujourdhui",
+    "live_s": 180,
+    "approval_min": 12,
+    "tail_kb": 512,
+    "max_tail_kb": 4096,
+    "link": "claude://claude.ai/epitaxy/{id}",
+    "labels": {
+      "tab_alerts": "Alertes",
+      "tab_fil": "Fil",
+      "title": "Fil des conversations",
+      "julian_counter": "attend Julian : {n}",
+      "states": { "en_cours": "en cours", "attend": "attend Julian", "bloquee": "bloquée", "terminee": "terminée", "repos": "au repos" },
+      "filters": { "tout": "Tout", "attend": "Attend Julian", "bloquee": "Bloquées", "terminee_auj": "Terminées aujourd'hui", "projet": "Projet" },
+      "new": "Nouveau",
+      "mark_all": "Tout marquer lu",
+      "refresh": "Rafraîchir",
+      "refreshing": "Lecture des fichiers…",
+      "open": "Ouvrir la conversation",
+      "open_note": "ouverture par le lien claude:// de l’app : non vérifiée",
+      "opened": "lien envoyé à l’app",
+      "open_failed": "ouverture impossible, copie l’id",
+      "copy_id": "Copier l'id",
+      "copied": "id copié",
+      "ask": "Question",
+      "buttons": "Boutons proposés",
+      "prs": "PR/MR",
+      "recap": "Récap (wrap_up)",
+      "message": "Dernier message",
+      "none": "Aucune conversation dans la fenêtre.",
+      "missing": "fil.json absent : « Rafraîchir » le construit (ou la tâche ClaudeVeille au prochain passage).",
+      "generated": "lu à {time} ({age})",
+      "more": "+ {n} autres (fil.per_project)",
+      "under": "sous {title}",
+      "empty_message": "(pas de message texte)"
+    }
   },
   "pane": { "events": 25, "refresh_s": 60 },
   "labels": {

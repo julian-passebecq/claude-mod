@@ -59,7 +59,7 @@ test('missed tours: a gap of more than two fires is detected; the pane goes red'
   const vm = viewModel(cfgOf({ installed: true, mode: 'légère' }), {}, { last_fire: NOW - 40 * MIN, last_tour: NOW - 40 * MIN }, [], NOW)
   assert.equal(vm.watcher.tone, 'bad')
   assert.match(vm.watcher.text, /VEILLE ARRÊTÉE/)
-  assert.equal(bandLine(vm, BASE)[1].tone, 'bad')
+  assert.equal(bandLine(vm, BASE).find((p) => p.tone === 'bad' && /ARRÊTÉE|arrêtée/i.test(p.text)).tone, 'bad')
   const off = viewModel(cfgOf({ installed: true, mode: 'rien' }), {}, { last_fire: NOW - 40 * MIN }, [], NOW)
   assert.notEqual(off.watcher.tone, 'bad', 'rien: a silent watcher is expected')
 })
@@ -242,7 +242,7 @@ test('view: alerts sorted by severity, acked last; events in French', () => {
   assert.deepEqual(vm.alerts.map((a) => a.key), ['b', 'a', 'c'])
   assert.equal(vm.julian, 1)
   assert.equal(vm.mail, 'e-mail non configuré')
-  assert.match(bandLine(vm, BASE).map((p) => p.text).join(' · '), /Veille : Légère · tour \d\d:\d\d .* · 1 attend\(ent\) Julian/)
+  assert.match(bandLine(vm, BASE).map((p) => p.text).join(' · '), /^attend Julian : 1 · Veille : Légère · tour \d\d:\d\d/)
   assert.match(eventText({ at: NOW, kind: 'merged', pr: 'x#7', reason: 'ok' }), /mergée : x#7/)
 })
 

@@ -24,6 +24,8 @@ import {
   isLoaded,
   launcherButtons,
   launcherPress,
+  launcherKey,
+  launcherTyped,
   rateOf,
   recentHandoffs,
   repoKey,
@@ -245,13 +247,13 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
 
 test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   const L = CFG.launcher
-  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Ménage=menage', 'Cockpit=cockpit'])
+  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Fil=veille', 'Ménage=menage', 'Cockpit=cockpit'])
   const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
   assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
   assert.equal(isLoaded(L.items[4], cmds), true)
   let open = []
   let bs = launcherButtons(L, cmds, open, CFG.labels)
-  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false, false])
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false, false, false])
   assert.equal(bs[5].hint, 'non chargé : ajouter mods/guide à CLAUDE_CODE_PLUGIN_DIRS')
   assert.deepEqual(launcherPress(bs[5]), { toast: bs[5].hint })
   const a = launcherPress(bs[1], L.close_args)
@@ -263,6 +265,17 @@ test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   assert.deepEqual(b, { run: { command: 'conso', args: 'close' }, open: false })
   assert.deepEqual(toggleOpen(open, 'usage', b.open), [])
   assert.deepEqual(launcherButtons({ ...L, enabled: false }, cmds, [], CFG.labels), [])
+  // Fil: a second button on the veille mod, with args and its own open state
+  const vcmds = [{ name: 'veille', plugin: 'veille' }]
+  const fil = launcherButtons(L, vcmds, [], CFG.labels).find(b => b.label === 'Fil')
+  assert.deepEqual(launcherPress(fil, L.close_args), { run: { command: 'veille', args: 'fil' }, open: true })
+  assert.equal(launcherKey(fil), 'veille-fil')
+  const both = launcherButtons(L, vcmds, ['veille-fil'], CFG.labels).filter(b => b.mod === 'veille')
+  assert.deepEqual(both.map(b => b.label + '=' + b.open), ['Veille=false', 'Fil=true'])
+  assert.deepEqual(launcherTyped(L.items, 'veille', 'fil', 'close'), { open: ['veille-fil'], close: ['veille'] })
+  assert.deepEqual(launcherTyped(L.items, 'veille', '', 'close'), { open: ['veille'], close: ['veille-fil'] })
+  assert.deepEqual(launcherTyped(L.items, 'veille', 'close', 'close'), { open: [], close: ['veille', 'veille-fil'] })
+  assert.equal(launcherTyped(L.items, 'nope', '', 'close'), null)
   assert.equal(launcherButtons(L, [], ['usage'], CFG.labels)[1].open, false, 'a mod not loaded is never shown open')
 })
 
@@ -408,6 +421,8 @@ test('band sections: defaults folded, order and enabled from config, toggle, rem
   assert.equal(v.open, 2)
   assert.equal(S.veilleLine(v, L), '2 alerte(s) · 1 attend Julian · PR à merger')
   assert.equal(S.veilleLine(S.veilleSummary(null, []), L), 'veille absente')
+  assert.equal(S.julianCounter(v, L), 'attend Julian : 1')
+  assert.equal(S.julianCounter(S.veilleSummary({ alerts: {} }, []), L), '')
   for (const line of [S.headLine({ ctxPct: 8, etaMin: 16, tps: 434, limits }, L), S.convSummary(facts, L), S.usageSummary(limits, 0.23, L), S.veilleLine(v, L)]) {
     assert.ok(!line.includes('\n') && line.length <= 75, `one short line: ${line}`)
   }

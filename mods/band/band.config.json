@@ -47,7 +47,7 @@
     "scopes": ["conv", "all"]
   },
   "launcher": {
-    "_doc": "Mods button bar in the band. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash. A press runs /<command> (the mod opens its own pane); a second press, or its ✕, runs /<command> <close_args>. A mod whose command is not in this session greys out. Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
+    "_doc": "Mods button bar in the band. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash, args = what a press passes (optional: « fil » opens /veille fil), key = the open-state id when two buttons share a mod (optional). A press runs /<command> (the mod opens its own pane); a second press, or its ✕, runs /<command> <close_args>. A mod whose command is not in this session greys out. Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
     "enabled": true,
     "close_args": "close",
     "items": [
@@ -59,6 +59,7 @@
       { "label": "Guide", "mod": "guide", "command": "mods-guide" },
       { "label": "Santé", "mod": "sante", "command": "sante" },
       { "label": "Veille", "mod": "veille", "command": "veille" },
+      { "label": "Fil", "mod": "veille", "command": "veille", "args": "fil", "key": "veille-fil" },
       { "label": "Ménage", "mod": "menage", "command": "menage" },
       { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" }
     ]

@@ -1,7 +1,7 @@
 {
   "name": "veille",
-  "version": "0.1.0",
-  "description": "Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. E-mail et notification Windows quand une conversation attend Julian. /veille [mode <x>|ack <clé>|coordinateur|tour]",
+  "version": "0.2.0",
+  "description": "Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations, sans token (/veille fil). « Attend Julian » (question ouverte, wrap_up, question finale, incohérence entre consignes) : notification Windows et e-mail tout de suite, compteur rouge. /veille [fil|mode <x>|ack <clé>|coordinateur|tour]",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "keywords": ["mod", "veille", "watcher", "alerts", "merge", "task scheduler"],
