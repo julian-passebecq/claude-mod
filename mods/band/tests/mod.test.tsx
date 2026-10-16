@@ -15,7 +15,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
   ...extra,
 })
 
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown } = {}) {
   const tokens = opts.tokens ?? 164000
   mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -29,7 +29,11 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     session: 'me',
     cwd: 'C:/code/app/.claude/worktrees/band',
   })
-  on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
+  const stored: Record<string, unknown> = { ...(opts.stored ? { sections: opts.stored } : {}) }
+  on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : e.name === 'CLAUDE_EFFORT' ? 'medium' : undefined }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('store.get', ($: any, e: any) => ({ value: stored[e.key] }))
+  on('store.set', ($: any, e: any) => ((stored[e.key] = e.value), { value: undefined }))
   on('fs.read', ($: any, e: any) => {
     const p = String(e.path).replace(/\\/g, '/')
     if (p.endsWith('/band.config.json')) return { value: SHIPPED }
@@ -56,7 +60,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', ($: any, e: any) => (statuses.push(e.text), { value: undefined }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
-  return { runs, statuses }
+  return { runs, statuses, stored }
 }
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 150, scroll: { offset: 0, bodyRows: 10 } }
@@ -70,12 +74,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(w.runs[0][1]).toMatch(/scanner\/scan\.mjs$/)
     expect(r.text).toMatch(/ctx 41 % \(164 k\) · compact à 92 % · reste 51 %/)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-    expect(await band.find({ type: 'Text', text: /ctx 41 %/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /cette conv 120 tok\/s/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /^ctx 41 % \(164 k\)$/ })).toBeDefined() // the gauge's title
-    expect(await band.find({ type: 'Text', text: /projet 2,1 k tok\/s/ })).toBeUndefined() // gauge.scopes: conv and all only
-    expect(await band.find({ type: 'Text', text: /tout 3,1 k tok\/s/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /semaine 37 %/ })).toBeDefined()
+    // line 1: the slim gauge, then one short line, then the ▸ toggle; every section folded by default
+    expect(await band.find({ type: 'Text', text: /^ctx 41 % · (compact ~\d+ min · )?120 tok\/s · sem 37 %$/ })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: '▸' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: /Cette conversation/ })).toBeUndefined()
+    expect(await band.find({ type: 'Text', text: /^Mods :$/ })).toBeDefined() // the Mods row stays
     await band.unmount()
     const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface, viewport: { columns: 160, rows: 120 }, props: PANE } as any)
     expect(await pane.find({ type: 'Text', text: /seuil d'auto-compact 368 k \(92 %\)/ })).toBeDefined()
@@ -86,11 +89,44 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`sections: ▸ unfolds one-line summaries (all closed), a section opens, the state goes to $.store (${surface})`, async ($, on) => {
+    const w = world(on)
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+    await band.press({ key: 'band-toggle' })
+    expect(await band.find({ type: 'Button', text: '▾' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: '▸ Cette conversation' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'opus 5.5 · medium · agents 1/1' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: '▸ Usage' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'sem 37 %' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: '▸ Veille' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'veille absente' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^agents 1 en cours/ })).toBeUndefined() // closed: summary only
+    await band.press({ key: 'sec-conv' })
+    expect(await band.find({ type: 'Button', text: '▾ Cette conversation' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'agents 1 en cours / 1' })).toBeDefined()
+    expect(w.stored.sections).toEqual({ expanded: true, open: ['conv'] })
+    await band.unmount()
+  })
+}
+
+test('sections: the state remembered in $.store comes back at session start', async ($, on) => {
+  world(on, { stored: { expanded: true, open: ['usage'] } })
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Button', text: '▾ Usage' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: '▸ Cette conversation' })).toBeDefined()
+  await band.unmount()
+})
+
 test('no seven_day reading: the band leaves the week out; status line off by default', async ($, on) => {
   const w = world(on, { week: false })
   await $.command.run({ command: 'jauge', args: '' } as any)
   const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-  expect(await band.find({ type: 'Text', text: /semaine/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /sem/ })).toBeUndefined()
   expect(w.statuses.length).toBe(0)
   await band.unmount()
 })

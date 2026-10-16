@@ -11,7 +11,6 @@ import { deepMerge, pickSession, scanArgs, repoOf } from '../lib/factory/hooks/l
 import { waitingArgs } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
 import { el, renderText, widest } from '../lib/factory/scanner/textrender.mjs'
-import { gaugeModel } from '../lib/band/hooks/gauge.ts'
 import { initialNav, select, zoomTo, usageCard, crumbText, crumbs, convForest, agentNodes, findSession } from '../hooks/nav.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
 
@@ -38,8 +37,17 @@ const me = findSession(s, cli)
 const now = Date.now()
 const noop = () => {}
 const usage = usageCard(null, me, fcfg, now)
-const gauge = me ? gaugeModel({ tokens: me.ctx, window: fcfg.context_window || 1000000, handoffAt: (fcfg.thresholds || {}).handoff_tokens || 250000, compactAt: Math.round((fcfg.context_window || 1000000) * 0.92) }) : null
 let nav = initialNav(s, cli, { ...ccfg, default_level: 'macro' })
+// --defaults: the pane as it opens (this conversation selected, only its section unfolded)
+if (argv.includes('--defaults')) {
+  const n = initialNav(s, cli, ccfg)
+  const open = Object.fromEntries((ccfg.sections.open || []).map((k) => [k, true]))
+  const V = { cfg: ccfg, fcfg, scan: s, nav: n, self: cli, busy: false, error: '', at: now, columns: cols, filter: 'all', usage, veille: null, open,
+    act: { crumb: noop0, select: noop0, refresh: noop0, filter: noop0, toggle: noop0, files: noop0, machine: noop0 } }
+  console.log(renderText(drawCockpit(el, V), cols))
+  process.exit(0)
+}
+function noop0() {}
 // micro: an agent of this conversation, else of the first lane it spawned that has agents (its detail is scanned then)
 const agentsOf = (sc, id) => { const a = agentNodes(sc, id, fcfg); return [...a.plain, ...a.workflows.flatMap((w) => w.children)] }
 let microScan = s
@@ -60,8 +68,8 @@ const levels = [
 ]
 for (const [name, n, sc] of levels) {
   if (!n) { console.log(`\n=========== ${name} : aucun agent dans cette conversation ni ses sous-conversations ===========`); continue }
-  const V = { cfg: ccfg, fcfg, scan: sc, nav: n, self: cli, busy: false, error: '', at: now, columns: cols, filter: 'all', usage, gauge, veille: null,
-    open: { jauge: true, usage: true }, act: { crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop } }
+  const V = { cfg: ccfg, fcfg, scan: sc, nav: n, self: cli, busy: false, error: '', at: now, columns: cols, filter: 'all', usage, veille: null,
+    open: { conv: true, project: true, all: true, global: true }, act: { crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop, machine: noop } }
   const text = renderText(drawCockpit(el, V), cols)
   console.log(`\n=========== ${name} · ${crumbText(crumbs(n, sc, ccfg))} (${cols} colonnes, plus large ligne ${widest(text)}) ===========`)
   console.log(text)

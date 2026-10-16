@@ -49,19 +49,62 @@ export function gaugeModel(g: GaugeIn, labels: GaugeLabels = {}): Gauge {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/** A thin rounded bar with tick marks, as an SVG document (Svg `source`). width in CSS px. */
-export function gaugeSvg(m: Gauge, colors: GaugeColors = {}, width = 320): string {
+export type PlacedMark = GaugeMark & { x: number; anchor: 'start' | 'middle' | 'end'; show: boolean }
+
+/** The mark the context reaches next (the first threshold above the fill), else the last one passed. */
+export function nearestMark(m: Gauge): GaugeMark | undefined {
+  const sorted = [...m.marks].sort((a, b) => a.pct - b.pct)
+  return sorted.find((k) => k.pct > (m.pct ?? 0)) ?? sorted[sorted.length - 1]
+}
+
+/**
+ * Where each mark's label goes on a bar `width` px wide, and which labels show: never two that overlap. The nearest
+ * threshold ahead wins, then the others by distance to the fill; a label whose box (length x charPx, anchored start,
+ * middle or end so it stays inside the bar) comes within `gap` px of an accepted one is hidden.
+ * mode 'nearest' shows only the nearest one, 'none' none (ticks only).
+ */
+export function placeMarks(m: Gauge, width: number, mode: 'all' | 'nearest' | 'none' = 'all', charPx = 5.2, gap = 6): PlacedMark[] {
+  const near = nearestMark(m)
+  const isNear = (k: GaugeMark) => Boolean(near && k.kind === near.kind && k.pct === near.pct)
+  const at = m.pct ?? 0
+  const placed: PlacedMark[] = m.marks.map((k) => {
+    const x = Math.round((width * k.pct) / 100)
+    const w = k.label.length * charPx
+    const anchor: PlacedMark['anchor'] = x + w / 2 > width ? 'end' : x - w / 2 < 0 ? 'start' : 'middle'
+    return { ...k, x, anchor, show: false }
+  })
+  if (mode === 'none') return placed
+  const span = (p: PlacedMark): [number, number] => {
+    const w = p.label.length * charPx
+    return p.anchor === 'start' ? [p.x, p.x + w] : p.anchor === 'end' ? [p.x - w, p.x] : [p.x - w / 2, p.x + w / 2]
+  }
+  const order = [...placed].sort((a, b) => Number(isNear(b)) - Number(isNear(a)) || Math.abs(a.pct - at) - Math.abs(b.pct - at))
+  const taken: [number, number][] = []
+  for (const p of order) {
+    if (mode === 'nearest' && !isNear(p)) continue
+    const [a, b] = span(p)
+    if (taken.some(([c, d]) => a < d + gap && c < b + gap)) continue
+    taken.push([a, b])
+    p.show = true
+  }
+  return placed
+}
+
+/**
+ * A thin rounded bar with tick marks, as an SVG document (Svg `source`). width in CSS px. labels: 'all' (default;
+ * overlapping ones dropped by placeMarks), 'nearest' (the next threshold only) or 'none' (ticks only, a slimmer bar).
+ */
+export function gaugeSvg(m: Gauge, colors: GaugeColors = {}, width = 320, labels: 'all' | 'nearest' | 'none' = 'all'): string {
   const C = { ...DEF_COLORS, ...colors }
-  const h = m.marks.length ? 26 : 10
+  const marks = placeMarks(m, width, labels)
+  const h = marks.some((k) => k.show) ? 22 : 10
   const y = 2
   const bh = 6
   const fill = m.pct === undefined ? 0 : Math.max(bh, (width * m.pct) / 100)
-  const ticks = m.marks.map((k) => {
-    const x = Math.round((width * k.pct) / 100)
-    const anchor = x > width - 60 ? 'end' : x < 60 ? 'start' : 'middle'
+  const ticks = marks.map((k) => {
     const dash = k.kind === 'handoff' ? ' stroke-dasharray="2 2"' : ''
-    return `<line x1="${x}" y1="0" x2="${x}" y2="${y + bh + 2}" stroke="${C.mark}" stroke-width="1.5"${dash}/>` +
-      `<text x="${x}" y="${h - 2}" font-size="9" font-family="sans-serif" fill="${C.text}" text-anchor="${anchor}">${esc(k.label)}</text>`
+    return `<line x1="${k.x}" y1="0" x2="${k.x}" y2="${y + bh + 2}" stroke="${C.mark}" stroke-width="1.5"${dash}/>` +
+      (k.show ? `<text x="${k.x}" y="${h - 2}" font-size="9" font-family="sans-serif" fill="${C.text}" text-anchor="${k.anchor}">${esc(k.label)}</text>` : '')
   }).join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">` +
     `<rect x="0" y="${y}" width="${width}" height="${bh}" rx="3" fill="${C.track}"/>` +

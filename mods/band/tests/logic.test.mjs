@@ -358,3 +358,68 @@ test('gauge: bar with the hand-off and auto-compact marks, colour by level, one 
   assert.equal(gaugeModel({ window: 200000 }).hasReading, false)
   assert.match(barSvg(21, '#2f81f7', 200), /width="42.0"/)
 })
+
+test('gauge labels never overlap: relais 250 k and compact 37 % close together keep one label, the nearest ahead', async () => {
+  const { gaugeModel, gaugeSvg, placeMarks, nearestMark } = await import('../hooks/gauge.ts')
+  // screenshot case: 1 M window, hand-off at 25 %, auto-compact at 37 %, context at 8 %
+  const g = gaugeModel({ tokens: 79000, window: 1000000, compactAt: 370000, handoffAt: 250000 })
+  assert.equal(nearestMark(g).kind, 'handoff')
+  const all = placeMarks(g, 320, 'all')
+  assert.deepEqual(all.filter(m => m.show).map(m => m.kind), ['handoff'])
+  const boxes = all.filter(m => m.show).map(m => { const w = m.label.length * 5.2; return m.anchor === 'start' ? [m.x, m.x + w] : m.anchor === 'end' ? [m.x - w, m.x] : [m.x - w / 2, m.x + w / 2] })
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.ok(boxes[i][1] <= boxes[j][0] || boxes[j][1] <= boxes[i][0])
+  // far apart, both fit; past the hand-off, the compact mark is the nearest
+  assert.equal(placeMarks(gaugeModel({ tokens: 79000, window: 1000000, compactAt: 920000, handoffAt: 250000 }), 320, 'all').filter(m => m.show).length, 2)
+  assert.equal(nearestMark(gaugeModel({ tokens: 300000, window: 1000000, compactAt: 370000, handoffAt: 250000 })).kind, 'compact')
+  // labels stay inside the bar: a mark at 98 % is anchored at its end
+  assert.equal(placeMarks(gaugeModel({ tokens: 1, window: 100, compactAt: 98 }), 200).find(m => m.kind === 'compact').anchor, 'end')
+  // nearest: one <text>; none: ticks only and a slimmer bar
+  assert.equal((gaugeSvg(g, {}, 120, 'nearest').match(/<text /g) || []).length, 1)
+  assert.equal((gaugeSvg(g, {}, 120, 'none').match(/<text /g) || []).length, 0)
+  assert.match(gaugeSvg(g, {}, 120, 'none'), /height="10"/)
+})
+
+test('band sections: defaults folded, order and enabled from config, toggle, remembered state, one-line summaries', async () => {
+  const S = await import('../hooks/sections.ts')
+  const shipped = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
+  const c = S.sectionsCfg(shipped.sections)
+  assert.deepEqual(S.sectionList(c), ['conv', 'usage', 'veille', 'mods'])
+  assert.deepEqual(S.initialUi(c), { expanded: false, open: [] }) // collapsed by default
+  assert.deepEqual(S.sectionList(S.sectionsCfg({ order: ['veille', 'nope', 'conv'], enabled: ['conv', 'veille'] })), ['veille', 'conv'])
+  assert.deepEqual(S.initialUi(c, { expanded: true, open: ['usage'] }), { expanded: true, open: ['usage'] })
+  assert.deepEqual(S.initialUi(S.sectionsCfg({ remember: 'session' }), { expanded: true, open: ['usage'] }), { expanded: false, open: [] })
+  let ui = S.toggleSection(S.initialUi(c), 'band')
+  ui = S.toggleSection(ui, 'conv')
+  assert.deepEqual(ui, { expanded: true, open: ['conv'] })
+  assert.deepEqual(S.toggleSection(ui, 'conv').open, [])
+  const L = c.labels
+  const limits = [{ kind: 'five_hour', percentUsed: 24.2 }, { kind: 'seven_day', percentUsed: 14 }]
+  assert.equal(S.headLine({ ctxPct: 8.1, etaMin: 15.6, tps: 434.2, limits }, L), 'ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 %')
+  assert.equal(S.headLine({}, L), 'ctx ?')
+  const facts = { model: 'claude-opus-5-5', effort: 'medium', agents: { running: 1, total: 3, workflow: 'wf_9' }, pr: { number: 12 } }
+  assert.equal(S.convSummary(facts, L), 'opus 5.5 · medium · agents 1/3 · wf wf_9 · PR #12')
+  assert.equal(S.convSummary({}, L), 'modèle ?')
+  assert.equal(S.usageSummary(limits, 0.234, L), '5 h 24 % · sem 14 % · $0.23')
+  assert.equal(S.usageSummary([], undefined, L), 'non lisible')
+  const now = Date.parse('2026-10-16T16:00:00Z')
+  const rows = S.usageRows([{ kind: 'five_hour', percentUsed: 24, resetsAt: new Date(now + 136 * 60000).toISOString() }], now, L)
+  assert.deepEqual(rows.map(r => [r.label, r.when]), [['5 h', 'reset dans 2 h 16']])
+  const v = S.veilleSummary({ alerts: { a: { key: 'a', what: 'CI rouge', severity: 'warn' }, b: { key: 'b', what: 'PR à merger', julian: true }, c: { key: 'c', what: 'vu' } } }, ['c'])
+  assert.equal(v.open, 2)
+  assert.equal(S.veilleLine(v, L), '2 alerte(s) · 1 attend Julian · PR à merger')
+  assert.equal(S.veilleLine(S.veilleSummary(null, []), L), 'veille absente')
+  for (const line of [S.headLine({ ctxPct: 8, etaMin: 16, tps: 434, limits }, L), S.convSummary(facts, L), S.usageSummary(limits, 0.23, L), S.veilleLine(v, L)]) {
+    assert.ok(!line.includes('\n') && line.length <= 75, `one short line: ${line}`)
+  }
+  assert.equal(S.modelShort('claude-sonnet-5-5[1m]'), 'sonnet 5.5')
+})
+
+test('scanner view: this conversation\'s agents (running within running_s), its Workflow and its PR link', () => {
+  const now = Date.parse('2026-10-16T12:00:00Z')
+  const ev = (sAgo, s, extra = {}) => ({ t: now - sAgo * 1000, s, m: 'claude-opus-5-5', u: { inp: 100, cw: 0, cr: 0, out: 0 }, ...extra })
+  const sessions = { me: { s: 'me', cwd: 'C:/code/app', last: now, compactions: [], samples: [], pr: { number: 7, url: 'https://example.invalid/pr/7' } } }
+  const cfg = { windows_s: [60, 600], spark_min: 30, bucket_s: 60, count: 'fresh', rates: {}, top_n: 5, compact_history_hours: 24, worktree_markers: [], sections: { running_s: 120 } }
+  const v = buildView([ev(10, 'me', { a: 'x', w: 'wf_1' }), ev(30, 'me', { a: 'y' }), ev(900, 'me', { a: 'z' }), ev(5, 'other', { a: 'q' })], sessions, cfg, { now, session: 'me' })
+  assert.deepEqual(v.conv.agents, { running: 2, total: 3, workflow: 'wf_1' })
+  assert.equal(v.conv.pr.number, 7)
+})

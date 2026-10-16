@@ -7,15 +7,17 @@ import { titleOf, repoOf, short, ctxPct, billByModel, sumCost, tokensOf, family,
 import { sessionState, mission, effortBars } from '../lib/factory/hooks/screens.mjs'
 
 export const LEVELS = ['mega', 'macro', 'medium', 'micro']
-export const SECTIONS = ['breadcrumb', 'tree', 'diagram', 'detail', 'jauge', 'usage', 'veille', 'fichiers']
+// Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
+export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'global', 'fichiers']
+export const FOLDABLE = ['conv', 'project', 'all', 'global']
 
 export const DEFAULTS = {
-  sections: { order: SECTIONS, enabled: SECTIONS, open: ['jauge', 'usage'] },
-  default_level: 'macro',
+  sections: { order: SECTIONS, enabled: SECTIONS, open: ['conv'] },
+  default_level: 'medium',
   auto_open: true,
   refresh_s: 20,
   strips_refresh_s: 60,
-  diagram: { enabled: true, width: 340, row_h: 22, max_rows: 40 },
+  diagram: { enabled: false, width: 340, row_h: 22, max_rows: 40 },
   tree: { max_convs: 30, max_agents: 20, show_done_agents: true },
   colors: { running: '#58a6ff', ok: '#3fb950', warn: '#d29922', bad: '#f85149', dim: '#8b949e', line: '#8b949e88', text: '#c9d1d9', selected: '#d2a8ff', usage: '#2f81f7' },
   labels: {
@@ -47,12 +49,24 @@ export const DEFAULTS = {
     session: 'Session (5 h)',
     week_all: 'Semaine · tous modèles',
     week_fable: 'Semaine · Fable',
-    credits: 'Crédits de session cloud',
+    credits: 'Crédits cloud',
     reset_in: 'reset dans {in}',
     reset_at: 'reset {at}',
-    this_session: 'Cette session',
-    cost: 'Coût',
-    cache_hit: 'Cache hit',
+    this_session: 'cette session',
+    cache_hit: 'cache',
+    sec_conv: 'Cette conversation',
+    sec_conv_other: 'Conversation',
+    sec_project: 'Ce projet',
+    sec_all: 'Tous les projets',
+    sec_global: 'Claude global',
+    step: 'étape',
+    no_pr: 'pas de PR',
+    machine: 'Machine',
+    machine_button: '/machine',
+    states: { working: 'en cours', julian: 'attend Julian', blocked: 'bloquée', done: 'terminée', idle: 'au repos', archived: 'archivée' },
+    today: 'aujourd’hui',
+    show_done: '+ {n} terminé(s)',
+    hide_done: 'masquer les terminés',
     contributing: 'Ce qui pèse (cette session)',
     main_thread: 'fil principal',
     veille_off: 'veille : aucune lecture (mod veille absent ou jamais lancé)',
@@ -248,9 +262,20 @@ export function agentNodes(scan, cli, cfg) {
 }
 
 // The rows the pane draws (and the diagram), top to bottom, each with its depth and whether it is the selection.
-export function treeRows(nav, scan, cfg, nowMs, self) {
+// opts.convOnly: only the lead tree holding nav.conv (lead → sub-conversations → Workflows → agents), no project row,
+// depth from 0: the « Cette conversation » section.
+export function treeRows(nav, scan, cfg, nowMs, self, opts = {}) {
   const rows = []
   const add = (r) => rows.push(r)
+  if (opts.convOnly) {
+    if (!nav.repo || !nav.conv) return rows
+    const forest = convForest(scan, nav.repo, cfg)
+    const has = (n) => n.id === nav.conv || n.children.some(has)
+    const root = forest.find(has)
+    if (!root) return rows
+    const sub = treeRows({ ...nav, level: nav.level === 'micro' ? 'micro' : 'medium' }, { ...scan }, cfg, nowMs, self, { only: root.id })
+    return sub.filter((r) => r.kind !== 'project').map((r) => ({ ...r, depth: r.depth - 1 }))
+  }
   if (nav.level === 'mega' || !nav.repo) {
     for (const p of projectsOf(scan, cfg, nowMs)) {
       add({ key: 'p-' + p.repo, kind: 'project', id: p.repo, depth: 0, label: p.repo, tone: p.tone, selected: p.repo === nav.repo,
@@ -277,7 +302,7 @@ export function treeRows(nav, scan, cfg, nowMs, self) {
       walk(n.children, depth + 1)
     }
   }
-  walk(convForest(scan, nav.repo, cfg), 1)
+  walk(convForest(scan, nav.repo, cfg).filter((n) => !opts.only || n.id === opts.only), 1)
   return rows
 }
 
@@ -386,6 +411,93 @@ export function usageLine(card) {
   for (const x of s.share) parts.push(`${x.family[0].toUpperCase()}${x.family.slice(1)} ${x.pct} %`)
   if (s.cacheHit !== null) parts.push(`cache ${s.cacheHit} %`)
   return parts.join(' · ')
+}
+
+// ---- the four scoped sections: one-line summaries --------------------------------------------------------------------
+
+// One conversation's status: model · effort, ctx, state, its agents (running / all), the running Workflow, the
+// current step (last tool), its PR and CI.
+export function convHead(scan, cli, cfg, nowMs) {
+  const s = findSession(scan, cli)
+  if (!s) return null
+  const L = cockpitConfig(cfg).labels
+  const st = sessionState(s, cfg)
+  const a = agentNodes(scan, cli, cfg)
+  const all = [...a.plain, ...a.workflows.flatMap((w) => w.children)]
+  const wf = a.workflows.find((w) => w.state === 'running')
+  const ci = s.ci || {}
+  const d = scan && scan.detail && scan.detail.cli === cli ? scan.detail : s
+  return {
+    title: titleOf(s), model: short(s.app_model || s.model), effort: s.app_effort || s.effort || '?', ctxPct: ctxPct(s.ctx, cfg),
+    state: st.state, stateLabel: (L.states || {})[st.state] || st.state, tone: STATE_TONE[st.state] || 'dim', reason: st.reason,
+    agents: { running: all.filter((x) => x.state === 'running').length, total: all.length },
+    workflow: wf ? wf.title : '', step: d.last_tool || '',
+    pr: s.pr ? { number: s.pr.number, url: s.pr.url || '', state: ci.state || '?', ci: ci.ci || '?' } : null,
+  }
+}
+
+export function convSummary(h, cfg) {
+  if (!h) return ''
+  const bits = [`${h.model} · ${h.effort}`, `ctx ${h.ctxPct} %`, h.stateLabel]
+  if (h.agents.total) bits.push(`agents ${h.agents.running}/${h.agents.total}`)
+  if (h.pr) bits.push(`PR #${h.pr.number}`)
+  return bits.join(' · ')
+}
+
+// The project's line: « 4 conv · 1 en cours · $7.00 aujourd'hui »
+export function projectSummary(p, cfg) {
+  if (!p) return ''
+  const L = cockpitConfig(cfg).labels
+  const bits = [`${p.sessions} conv`]
+  if (p.working) bits.push(`${p.working} ${L.states.working}`)
+  if (p.julian) bits.push(`${p.julian} ${L.states.julian}`)
+  if (p.blocked) bits.push(`${p.blocked} ${L.states.blocked}`)
+  bits.push(`${fmtUsd(p.cost)} ${L.today}`)
+  return bits.join(' · ')
+}
+
+// Every project: « 2 en cours · 3 au repos · 1 attend Julian · $424 »
+export function allCounters(projects) {
+  const sum = (k) => projects.reduce((a, p) => a + (p[k] || 0), 0)
+  return { working: sum('working'), idle: sum('idle'), julian: sum('julian'), blocked: sum('blocked'), done: sum('done'), cost: sum('cost'), projects: projects.length }
+}
+
+export function allSummary(projects, cfg) {
+  const L = cockpitConfig(cfg).labels
+  const c = allCounters(projects)
+  const bits = [`${c.working} ${L.states.working}`, `${c.idle} ${L.states.idle}`]
+  if (c.julian) bits.push(`${c.julian} ${L.states.julian}`)
+  if (c.blocked) bits.push(`${c.blocked} ${L.states.blocked}`)
+  bits.push(fmtUsd(c.cost))
+  return bits.join(' · ')
+}
+
+// A project's second line in « Tous les projets »: counters only, no prose.
+export function projectLine(p, cfg) {
+  const L = cockpitConfig(cfg).labels
+  const bits = [`${p.sessions} conv`]
+  if (p.working) bits.push(`${p.working} ${L.states.working}`)
+  if (p.julian) bits.push(`${p.julian} ${L.states.julian}`)
+  if (p.blocked) bits.push(`${p.blocked} ${L.states.blocked}`)
+  if (p.workers) bits.push(`agents ${p.workers}`)
+  if (p.maxCtxPct) bits.push(`ctx max ${p.maxCtxPct} %`)
+  return bits.join(' · ')
+}
+
+// Claude global: « 5 h 24 % · sem 14 % · 2 alertes »
+export function globalSummary(card, veille) {
+  const bits = []
+  if (card) for (const [w, k] of [[card.windows[0], '5 h'], [card.windows[1], 'sem']]) if (w && w.available) bits.push(`${k} ${Math.round(w.pct)} %`)
+  if (veille) {
+    const n = veille.alerts.filter((a) => !a.acked).length
+    bits.push(n ? `${n} alerte(s)` : 'aucune alerte')
+  }
+  return bits.join(' · ')
+}
+
+// Which section a click opens: a project its « Ce projet », a conversation, workflow or agent « Cette conversation ».
+export function sectionFor(node) {
+  return !node ? null : node.kind === 'project' ? 'project' : 'conv'
 }
 
 export { hhmm, fmtTokens, fmtUsd, short, effortBars, titleOf, repoOf, tokensOf }

@@ -15,13 +15,26 @@
   "first_read_mb": 64,
   "worktree_markers": ["/.claude/worktrees/", "/.worktrees/"],
   "gauge": {
-    "_doc": "Style of the band above the prompt. gauge (default): a thin rounded context bar with a mark at the hand-off threshold (context.handoff_tokens) and one at auto-compact, green -> orange -> red, then one short line (compaction ETA, the rates of `scopes`, week %). text: the older single line of band.items. The desktop draws the bar as an Svg, the terminal as text (text_width cells). Same gauge in cockpit's Jauge strip.",
-    "style": "gauge",
-    "scopes": ["conv", "all"],
-    "width": 320,
-    "text_width": 30,
-    "colors": { "ok": "#3fb950", "warn": "#d29922", "bad": "#f85149", "track": "#8b949e55", "mark": "#8b949e", "text": "#8b949e" },
+    "_doc": "Style of the band above the prompt. compact (default): ONE line, a slim context bar (width px; ticks at the hand-off threshold context.handoff_tokens and at auto-compact, green -> orange -> red) then « ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 % » (tok/s of the first scope in `scopes`) and a ▸ that unfolds `sections`. mark_labels: nearest (only the next threshold is named under its tick), all (every label that does not overlap another), none. gauge: the older bar on its own line plus a second line. text: the older single line of band.items. The desktop draws the bar as an Svg, the terminal as text (text_width cells).",
+    "style": "compact",
+    "scopes": ["conv"],
+    "width": 120,
+    "text_width": 12,
+    "mark_labels": "nearest",
+    "colors": { "ok": "#3fb950", "warn": "#d29922", "bad": "#f85149", "track": "#8b949e55", "mark": "#8b949e", "text": "#8b949e", "usage": "#2f81f7" },
     "labels": { "ctx": "ctx", "compact_in": "compactage dans", "week": "semaine", "handoff_mark": "relais", "compact_mark": "compact", "no_reading": "pas encore de mesure" }
+  },
+  "sections": {
+    "_doc": "Foldable sections under line 1 (style compact). order/enabled: which and in which order (conv = Cette conversation: model · effort, agents running/seen, current Workflow, PR; usage = session 5 h and week bars, this session's $; veille = veille's open alerts, top one; mods = the Mods button row, always unfolded). expanded/open: the state when nothing is remembered (all folded by default). remember: store (kept across sessions in the mod's own $.store) or session. running_s: an agent counts as running when it wrote within this many seconds.",
+    "order": ["conv", "usage", "veille", "mods"],
+    "enabled": ["conv", "usage", "veille", "mods"],
+    "open": [],
+    "expanded": false,
+    "remember": "store",
+    "running_s": 120,
+    "usage_bar_width": 120,
+    "veille_home": "~/.claude/veille",
+    "labels": { "conv": "Cette conversation", "usage": "Usage", "veille": "Veille", "five": "5 h", "week": "sem", "compact": "compact" }
   },
   "band": {
     "_items": "in order: ctx, compact, relay, idle, rates, week. rates draws one entry per scope listed in scopes.",

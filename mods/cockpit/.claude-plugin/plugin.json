@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
   "version": "0.1.0",
-  "description": "Cockpit, un seul panneau latéral qui zoome, en lecture seule : Méga (tous les projets du PC) › Projet (lead et sous-conversations, en arbre) › Conversation (Workflows et agents) › Agent (modèle, effort, tokens, journal). Fil d'Ariane, arbre cliquable dessiné, détail de la sélection (écrans de factory), bandes Jauge, Usage, Veille et Fichiers. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]",
+  "description": "Cockpit, un seul panneau latéral en lecture seule, rangé par périmètre, chaque section repliable avec un résumé d'une ligne : Cette conversation (ouverte et sélectionnée : modèle, effort, ctx, état, arbre lead › sous-conversations › Workflows › agents, étape, PR/CI), Ce projet (arbre, Focus et Pipeline), Tous les projets (une ou deux lignes par projet), Claude global (quotas, Veille, /machine). Petit fil d'Ariane, un clic sur un nœud descend. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "keywords": ["mod", "pane", "agents", "tree", "factory"],

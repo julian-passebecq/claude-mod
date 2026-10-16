@@ -9,7 +9,7 @@ import { localDay } from '../lib/factory/hooks/logic.mjs'
 import { el, renderText, widest } from '../lib/factory/scanner/textrender.mjs'
 import {
   cockpitConfig, sectionsOf, initialNav, zoomTo, select, crumbs, crumbText, convForest, treeRows, agentNodes, agentCard, scanForRepo,
-  projectsOf, usageCard, rowText, inText,
+  projectsOf, usageCard, rowText, inText, convHead, projectSummary, allSummary, convSummary, sectionFor,
 } from '../hooks/nav.mjs'
 import { treeSvg } from '../hooks/svg.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
@@ -47,17 +47,25 @@ const SCAN = {
   reviews: null,
 }
 
-test('config: defaults merged with the shipped file; sections in order, filtered by enabled', () => {
+test('config: defaults merged with the shipped file; sections by scope, filtered by enabled; only « Cette conversation » open', () => {
   const c = cockpitConfig(CCFG)
-  assert.equal(c.default_level, 'macro')
+  assert.equal(c.default_level, 'medium')
   assert.equal(c.labels.levels.mega, 'Méga')
   assert.equal(c.labels.tree, 'Arbre') // a default the file does not repeat
-  assert.deepEqual(sectionsOf(CCFG), ['breadcrumb', 'tree', 'diagram', 'detail', 'jauge', 'usage', 'veille', 'fichiers'])
-  assert.deepEqual(sectionsOf({ sections: { order: ['detail', 'nope', 'tree'], enabled: ['tree', 'detail'] } }), ['detail', 'tree'])
+  assert.deepEqual(sectionsOf(CCFG), ['breadcrumb', 'conv', 'project', 'all', 'global', 'fichiers'])
+  assert.deepEqual(c.sections.open, ['conv'])
+  assert.equal(c.diagram.enabled, false) // the drawn tree repeated the rows
+  assert.deepEqual(sectionsOf({ sections: { order: ['all', 'nope', 'conv'], enabled: ['conv', 'all'] } }), ['all', 'conv'])
+  assert.ok(!Object.values(c.labels).some((v) => typeof v === 'string' && /Co0t/.test(v)))
+})
+
+test('default selection is the current conversation (medium), not Méga', () => {
+  assert.deepEqual(initialNav(SCAN, 'child-cli', CCFG), { level: 'medium', repo: 'eta', conv: 'child-cli', agent: null })
+  assert.deepEqual(initialNav(SCAN, 'lead-cli', {}), { level: 'medium', repo: 'eta', conv: 'lead-cli', agent: null }) // the built-in default too
 })
 
 test('navigation: opens on this conversation\'s project at macro; select zooms in, the breadcrumb zooms out', () => {
-  let nav = initialNav(SCAN, 'lead-cli', CCFG)
+  let nav = initialNav(SCAN, 'lead-cli', { default_level: 'macro' })
   assert.deepEqual(nav, { level: 'macro', repo: 'eta', conv: 'lead-cli', agent: null })
   assert.equal(initialNav(SCAN, 'unknown', CCFG).level, 'mega')
   assert.equal(initialNav(SCAN, 'lead-cli', { default_level: 'mega' }).level, 'mega')
@@ -145,28 +153,71 @@ test('diagram: one node per row, elbows to the parent, the selection highlighted
   assert.match(svg, /a &lt;b&gt; &amp; c/)
 })
 
-test('pane: sections composed top to bottom at 75 columns, factory screens below the tree at each level', () => {
-  const noop = () => {}
-  const V = (nav) => ({ cfg: CCFG, fcfg: FCFG, scan: SCAN, nav, self: 'lead-cli', busy: false, error: '', at: NOW, columns: 75, filter: 'all',
-    usage: usageCard({ rateLimits: [{ kind: 'five_hour', percentUsed: 21 }] }, LEAD, FCFG, NOW), gauge: null, veille: null, open: { jauge: true, usage: true },
-    act: { crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop } })
+const noop = () => {}
+const VIEW = (nav, open, extra = {}) => ({ cfg: CCFG, fcfg: FCFG, scan: SCAN, nav, self: 'lead-cli', busy: false, error: '', at: NOW, columns: 75, filter: 'all',
+  usage: usageCard({ rateLimits: [{ kind: 'five_hour', percentUsed: 21 }, { kind: 'seven_day', percentUsed: 14 }] }, LEAD, FCFG, NOW), veille: null, open,
+  act: { crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop, machine: noop }, ...extra })
+const DEFAULT_OPEN = Object.fromEntries(cockpitConfig(CCFG).sections.open.map((k) => [k, true]))
+
+test('pane: by scope top to bottom; default only « Cette conversation » open, the others one summary line each', () => {
+  const text = renderText(drawCockpit(el, VIEW(initialNav(SCAN, 'lead-cli', CCFG), DEFAULT_OPEN)), 75)
+  const order = ['Méga', '▾ Cette conversation', '▸ Ce projet', '▸ Tous les projets', '▸ Claude global', 'Ouvrir Fichiers'].map((k) => text.indexOf(k))
+  assert.ok(order.every((i) => i >= 0), text)
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'sections out of order')
+  assert.ok(widest(text) <= 75, `${widest(text)} columns`)
+  // closed sections: header + summary on one line, nothing under them
+  const lines = text.split('\n')
+  const at = (k) => lines.findIndex((l) => l.includes(k))
+  assert.match(lines[at('▸ Ce projet')], /▸ Ce projet · eta\]\s+3 conv · 1 en cours · \$\d+\.\d\d aujourd’hui/)
+  assert.match(lines[at('▸ Tous les projets')], /1 en cours · \d+ au repos · \$\d+\.\d\d/)
+  assert.match(lines[at('▸ Claude global')], /5 h 21 % · sem 14 %/)
+  assert.doesNotMatch(text, /Ce qui me concerne|Travail en vol|Session \(5 h\)/) // closed: no body
+  // open: status line, the lead's tree with its sub-conversations, no PR
+  assert.doesNotMatch(lines[at('▾ Cette conversation')], /opus/) // open: no summary, the status line says it
+  assert.match(lines[at('▾ Cette conversation') + 1], /opus 5\.5 ▮▮▯▯ medium ctx \d+ % en cours/)
+  assert.match(text, /Galaxy finalisation autonome \(cette conversation\)[\s\S]*Mosaic Studio V2 private release[\s\S]*pas de PR/)
+  assert.match(text, /\+ 1 terminé\(s\)/) // the lead's finished explore-fast folds into one button
+  assert.doesNotMatch(text, /explore-fast/)
+  const shown = renderText(drawCockpit(el, VIEW(initialNav(SCAN, 'lead-cli', CCFG), { ...DEFAULT_OPEN, conv_done: true })), 75)
+  assert.match(shown, /explore-fast[\s\S]*masquer les terminés/)
+  assert.doesNotMatch(text, /Co0t/)
+})
+
+test('pane: each section opened, at each zoom level, within 75 columns', () => {
+  const all = { conv: true, project: true, all: true, global: true }
   for (const [nav, expect] of [
-    [{ level: 'mega', repo: 'eta' }, /Détail · Méga[\s\S]*Projets/],
-    [{ level: 'macro', repo: 'eta', conv: 'lead-cli' }, /Détail · Projet[\s\S]*Ce qui me concerne[\s\S]*Travail en vol/],
-    [{ level: 'medium', repo: 'eta', conv: 'child-cli' }, /Détail · Conversation[\s\S]*Mosaic Studio V2 private release[\s\S]*workflow package-wave/],
-    [{ level: 'micro', repo: 'eta', conv: 'child-cli', agent: 'w1' }, /Détail · Agent[\s\S]*Agent · coder[\s\S]*Journal de l’agent[\s\S]*Edit src\/a\.ts/],
+    [{ level: 'mega', repo: 'eta', conv: 'lead-cli' }, /▾ Tous les projets[\s\S]*eta[\s\S]*3 conv · 1 en cours/],
+    [{ level: 'macro', repo: 'eta', conv: 'lead-cli' }, /▾ Ce projet · eta[\s\S]*Ce qui me concerne[\s\S]*Travail en vol/],
+    [{ level: 'medium', repo: 'eta', conv: 'child-cli' }, /▾ Conversation · Mosaic Studio V2 private[\s\S]*workflow package-wave[\s\S]*coder · build/],
+    [{ level: 'micro', repo: 'eta', conv: 'child-cli', agent: 'w1' }, /Agent · coder[\s\S]*Journal de l’agent[\s\S]*Edit src\/a\.ts/],
   ]) {
-    const text = renderText(drawCockpit(el, V(nav)), 75)
+    const text = renderText(drawCockpit(el, VIEW(nav, all)), 75)
     assert.match(text, expect)
     assert.ok(widest(text) <= 75, `${nav.level}: ${widest(text)} columns`)
-    const order = ['Méga', 'Arbre ·', 'Détail ·', 'Jauge', 'Usage', 'Veille', 'Ouvrir Fichiers'].map((k) => text.indexOf(k))
-    assert.deepEqual([...order].sort((a, b) => a - b), order, `${nav.level}: sections out of order`)
+    assert.match(text, /Session \(5 h\)\s+21 %/) // right-aligned number
+    assert.match(text, /Crédits cloud\s+non lisible depuis un mod/) // one line, no gap
+    assert.match(text, /cette session\s+\$\d/)
   }
-  // the terminal has no Svg: no diagram; a surface with Svg draws it
+  // the « Tous les projets » list says each project in two short lines, no lead / sous-conv prose
+  const mega = renderText(drawCockpit(el, VIEW({ level: 'mega', repo: 'eta' }, { all: true })), 75)
+  assert.doesNotMatch(mega, /sous-conv|lead /)
+  // the drawn tree is off by default (it repeated the rows); on, a surface with Svg draws it in « Ce projet »
   const withSvg = { ...el, Svg: (props) => ({ type: 'Svg', props }) }
-  const tree = drawCockpit(withSvg, V({ level: 'macro', repo: 'eta', conv: 'lead-cli' }))
-  assert.match(JSON.stringify(tree), /"type":"Svg"/)
-  assert.doesNotMatch(JSON.stringify(drawCockpit(el, V({ level: 'macro', repo: 'eta' }))), /"type":"Svg"/)
+  const on = { ...CCFG, diagram: { ...CCFG.diagram, enabled: true } }
+  assert.match(JSON.stringify(drawCockpit(withSvg, VIEW({ level: 'macro', repo: 'eta', conv: 'lead-cli' }, all, { cfg: on }))), /"alt":"Arbre dessiné/)
+  assert.doesNotMatch(JSON.stringify(drawCockpit(withSvg, VIEW({ level: 'macro', repo: 'eta', conv: 'lead-cli' }, all))), /"alt":"Arbre dessiné/)
+})
+
+test('summaries: conversation head, project, all projects, global; a click opens the section that shows the node', () => {
+  const h = convHead(SCAN, 'child-cli', FCFG, NOW)
+  assert.equal(h.workflow, 'workflow package-wave')
+  assert.deepEqual(h.agents, { running: 1, total: 3 })
+  const ps = projectsOf(SCAN, FCFG, NOW)
+  assert.match(projectSummary(ps.find((p) => p.repo === 'eta'), FCFG), /^3 conv · 1 en cours · \$\d+\.\d\d aujourd’hui$/)
+  assert.match(allSummary(ps, FCFG), /^1 en cours · \d+ au repos · \$\d+\.\d\d$/)
+  assert.equal(sectionFor({ kind: 'project' }), 'project')
+  assert.equal(sectionFor({ kind: 'agent' }), 'conv')
+  for (const s of [convSummary(h, FCFG), projectSummary(ps[0], FCFG), allSummary(ps, FCFG)]) assert.ok(!s.includes('\n') && s.length <= 60, s)
 })
 
 test('lib/ is a byte copy of factory, band and veille (node mods/cockpit/scripts/sync-libs.mjs after changing them)', () => {

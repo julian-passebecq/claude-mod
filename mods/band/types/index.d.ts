@@ -33,6 +33,8 @@ export type SessionMeta = {
   compactions: Compaction[]
   /** main thread [t, ctx] samples within the kept window */
   samples: [number, number][]
+  /** the last PR/MR the app linked to this conversation (transcript entry type "pr-link") */
+  pr?: { number: number; url?: string }
 }
 
 export type CountMode = 'fresh' | 'all'
@@ -70,7 +72,16 @@ export type View = {
   projects: { repo: string; tps: number; usdPerH: number; sessions: number }[]
   compactions: CompactRow[]
   marks: { conv: number[]; project: number[]; all: number[] }
-  conv?: { ctx?: number; ctxT?: number; growthTpm?: number; last?: number; title?: string }
+  conv?: {
+    ctx?: number
+    ctxT?: number
+    growthTpm?: number
+    last?: number
+    title?: string
+    /** its agents seen in the kept window: running = wrote within sections.running_s; the running Workflow's id */
+    agents?: { running: number; total: number; workflow?: string }
+    pr?: { number: number; url?: string }
+  }
   files: number
   ms: number
   /** where the per-line usage and the prices came from: "mods/usage/lib" (shared) or "band" (fallback) */
@@ -86,8 +97,28 @@ export type EngineFigures = {
   autoCompactThreshold?: number
   /** rateLimits seven_day percentUsed, when the account reports it */
   week?: number
+  /** every rate limit the account reports (five_hour, seven_day, ...), with when it resets */
+  limits?: { kind: string; percentUsed: number; resetsAt?: string }[]
+  /** this session's cost from the engine ($.session.usage().cost.usd) */
+  cost?: number
+  /** this session's model ($.session.model()) and effort (CLAUDE_EFFORT, when the engine sets it) */
+  model?: string
+  effort?: string
   at: number
 }
+
+/** The compact band's folding: the sections list unfolded under line 1, and which sections are open. */
+export type BandUi = { expanded: boolean; open: string[] }
+
+/** Veille's open alerts as the band reads them from veille's own files (state.json, acks.jsonl). */
+export type VeilleBand = {
+  available: boolean
+  open: number
+  julian: number
+  top?: VeilleBandAlert
+  alerts: VeilleBandAlert[]
+}
+export type VeilleBandAlert = { key: string; what?: string; title?: string; severity?: string; julian?: boolean; acked?: boolean; since?: number }
 
 /** The hand-off helper's state in this session. */
 export type HandoffState = {
@@ -116,6 +147,10 @@ declare module 'claude-code' {
       launcher: { commands: { name: string; plugin?: string }[]; open: string[] }
       /** the hand-off helper: RESUME found (path, mtime), /handoff runs seen in this session, the RESUME preview */
       handoff: HandoffState
+      /** the compact band's folding (remembered in $.store under "sections" when sections.remember is "store") */
+      ui: BandUi
+      /** veille's open alerts, read from its files at each refresh while the Veille section is enabled */
+      veille: VeilleBand | null
     }
   }
 }

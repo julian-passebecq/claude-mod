@@ -37,8 +37,25 @@ import {
   toggleOpen,
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
-import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
+import { gaugeModel, gaugeSvg, gaugeText, barSvg } from './gauge'
 import type { Gauge } from './gauge'
+import {
+  sectionsCfg,
+  sectionList,
+  initialUi,
+  toggleSection,
+  isOpen,
+  headLine,
+  convSummary,
+  convLines,
+  usageRows,
+  usageSummary,
+  textBar,
+  veilleSummary,
+  veilleLine,
+  alertText,
+} from './sections'
+import type { BandUi, SectionsCfg } from './sections'
 
 // The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
 const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number | undefined): Gauge => {
@@ -72,6 +89,70 @@ const engineAtom = atom({ plugin: 'band', key: 'engine' } as const, null)
 const errorAtom = atom({ plugin: 'band', key: 'error' } as const, '')
 const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { commands: [], open: [] })
 const handoffAtom = atom({ plugin: 'band', key: 'handoff' } as const, { ran: [], show: false })
+const uiAtom = atom({ plugin: 'band', key: 'ui' } as const, { expanded: false, open: [] })
+const veilleAtom = atom({ plugin: 'band', key: 'veille' } as const, null)
+const STORE_KEY = 'sections'
+
+const secCfg = (c: Config): SectionsCfg => sectionsCfg((c as any).sections)
+
+// The folding at session start: $.store's (remember "store"), else the config's defaults. A reload keeps $.state's.
+const loadUi = async ($: EngineInterface, c: Config) => {
+  const sc = secCfg(c)
+  let stored: unknown
+  if (sc.remember === 'store') {
+    try {
+      stored = await $.store.get(STORE_KEY)
+    } catch {}
+  }
+  const ui = initialUi(sc, stored)
+  await update($, uiAtom, () => ui)
+}
+
+const toggleUi = async ($: EngineInterface, id: string) => {
+  const c = await loadConfig($)
+  const next = await update($, uiAtom, u => toggleSection(u as BandUi, id))
+  if (secCfg(c).remember === 'store') {
+    try {
+      await $.store.set(STORE_KEY, next)
+    } catch {}
+  }
+}
+
+const readText = async ($: EngineInterface, p: string) => {
+  try {
+    return (await $.fs.read(p, { as: 'text' })) as string
+  } catch {
+    return undefined
+  }
+}
+
+// Veille's own files, read-only (the veille mod's watcher writes them): open alerts minus the acknowledged ones.
+const seeVeille = async ($: EngineInterface, c: Config) => {
+  const sc = secCfg(c)
+  if (!sectionList(sc).includes('veille')) return
+  let dir = ''
+  try {
+    dir = (await $.env.get('VEILLE_HOME')) ?? ''
+  } catch {}
+  dir = (dir || expandHome((sc as any).veille_home ?? '~/.claude/veille', await home($))).replace(/\\/g, '/')
+  const st = await readText($, `${dir}/state.json`)
+  let state: any = null
+  try {
+    state = st ? JSON.parse(st.replace(/^﻿/, '')) : null
+  } catch {}
+  const acks = (await readText($, `${dir}/acks.jsonl`) ?? '')
+    .split('\n')
+    .filter(Boolean)
+    .map(l => {
+      try {
+        return String(JSON.parse(l).key)
+      } catch {
+        return ''
+      }
+    })
+    .filter(Boolean)
+  await update($, veilleAtom, () => veilleSummary(state, acks))
+}
 
 type Options = { config?: string; band?: string; status_line?: string }
 
@@ -122,13 +203,30 @@ const loadConfig = async ($: EngineInterface): Promise<Config> => {
   return base
 }
 
-const figures = async ($: EngineInterface, context?: { tokens?: number; window: number; percent?: number }, limits?: { kind: string; percentUsed: number }[]) => {
+let sessionFacts: { model?: string; effort?: string; at: number } = { at: 0 }
+
+const figures = async ($: EngineInterface, context?: { tokens?: number; window: number; percent?: number }, limits?: { kind: string; percentUsed: number; resetsAt?: string }[]) => {
   const now = await $.clock.now()
+  let cost: number | undefined
   if (!context || !limits) {
     try {
       const u = await $.session.usage()
       context = u.context
       limits = u.rateLimits
+      cost = (u as any).cost?.usd
+    } catch {}
+  } else {
+    const prev = await read($, engineAtom)
+    cost = prev?.cost
+  }
+  // model and effort: cheap, local, once a minute
+  if (now - sessionFacts.at > 60000) {
+    sessionFacts = { at: now }
+    try {
+      sessionFacts.model = await $.session.model()
+    } catch {}
+    try {
+      sessionFacts.effort = (await $.env.get('CLAUDE_EFFORT')) || undefined
     } catch {}
   }
   // The auto-compact threshold is only in the breakdown; "summary" counts locally and sends nothing. Every 5 min.
@@ -146,6 +244,10 @@ const figures = async ($: EngineInterface, context?: { tokens?: number; window: 
     ...(context?.percent !== undefined ? { percent: context.percent } : {}),
     ...(threshold !== undefined ? { autoCompactThreshold: threshold } : {}),
     ...(week !== undefined ? { week } : {}),
+    ...(limits ? { limits: limits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, ...(l.resetsAt ? { resetsAt: l.resetsAt } : {}) })) } : {}),
+    ...(cost !== undefined && Number.isFinite(cost) ? { cost } : {}),
+    ...(sessionFacts.model ? { model: sessionFacts.model } : {}),
+    ...(sessionFacts.effort ? { effort: sessionFacts.effort } : {}),
     at: now,
   }
   await update($, engineAtom, () => f)
@@ -315,6 +417,7 @@ const refresh = async ($: EngineInterface) => {
     await statusLine($)
     await seeCommands($)
     await seeResume($, c)
+    await seeVeille($, c)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -336,6 +439,7 @@ export const register: Register = (on, raw) => {
       argumentHint: '[refresh]',
     })
     const c = await loadConfig($)
+    await loadUi($, c)
     timer?.cancel()
     timer = $.clock.every(Math.max(5, c.refresh_s) * 1000, () => void refresh($))
     void seeCommands($)
@@ -400,7 +504,148 @@ export const register: Register = (on, raw) => {
     const Svg = e.surface === 'terminal' ? undefined : (els as any).Svg
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
     const isWorking = e.props.isWorking
-    const gaugeStyle = ((c as any).gauge?.style ?? 'gauge') === 'gauge'
+    const style = (c as any).gauge?.style ?? 'compact'
+    if (style === 'compact') {
+      const sc = secCfg(c)
+      const L = sc.labels
+      const ui = (await read($, uiAtom)) as BandUi
+      const ve = await read($, veilleAtom)
+      const g = gaugeOf(c, ctx, v ?? null, undefined)
+      const gw = (c as any).gauge?.width ?? 120
+      const scope = (((c as any).gauge?.scopes as string[] | undefined) ?? ['conv'])[0]
+      const srow = v?.scopes.find(r => r.id === scope)
+      const rate = srow ? (srow.rates.find(x => x.w === c.band_window_s) ?? srow.rates[0]) : undefined
+      const head = headLine({ ctxPct: g.pct, etaMin: ctx?.etaMin, tps: rate?.tps, limits: en?.limits }, L)
+      const tone = c.colors[g.level]
+      const marks = g.marks.map(m => m.label).join(' · ')
+      const line1 = (
+        <Box key="band-line" flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
+          {Svg && g.hasReading ? (
+            <Svg key="band-gauge" source={gaugeSvg(g, (c as any).gauge?.colors ?? {}, gw, (c as any).gauge?.mark_labels ?? 'nearest')} alt={`${g.title} · ${marks}`} />
+          ) : (
+            <Text key="band-gauge-t" color={tone}>{gaugeText(g, (c as any).gauge?.text_width ?? 12)}</Text>
+          )}
+          <Text key="band-head" color={tone} wrap="truncate-end">{head}</Text>
+          <Button key="band-toggle" onPress={() => toggleUi($, 'band')}>
+            {ui.expanded ? '▾' : '▸'}
+          </Button>
+        </Box>
+      )
+      const facts = {
+        model: en?.model,
+        effort: en?.effort,
+        agents: v?.conv?.agents,
+        pr: v?.conv?.pr,
+        tokens: ctx?.tokens,
+        handoffAt: c.context.handoff_tokens,
+      }
+      const header = (id: string, title: string, summary: string) => (
+        <Box key={`sec-h-${id}`} flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
+          <Button key={`sec-${id}`} onPress={() => toggleUi($, id)}>
+            {`${isOpen(ui, id) ? '▾' : '▸'} ${title}`}
+          </Button>
+          {isOpen(ui, id) ? null : <Text dimColor wrap="truncate-end">{summary}</Text>}
+        </Box>
+      )
+      const bw = sc.usage_bar_width
+      const sections = sectionList(sc).map(id => {
+        if (id === 'mods') return null
+        if (!ui.expanded) return null
+        if (id === 'conv') {
+          return (
+            <Box key="sec-conv" flexDirection="column">
+              {header('conv', L.conv, convSummary(facts, L))}
+              {isOpen(ui, 'conv') ? (
+                <Box flexDirection="column" marginLeft={2}>
+                  {convLines(facts, L).map((t, i) => (
+                    <Text key={`cl${i}`} dimColor={i > 0}>{t}</Text>
+                  ))}
+                </Box>
+              ) : null}
+            </Box>
+          )
+        }
+        if (id === 'usage') {
+          const rows = usageRows(en?.limits, v?.now ?? Date.now(), L)
+          return (
+            <Box key="sec-usage" flexDirection="column">
+              {header('usage', L.usage, usageSummary(en?.limits, en?.cost, L))}
+              {isOpen(ui, 'usage') ? (
+                <Box flexDirection="column" marginLeft={2}>
+                  {rows.length === 0 ? <Text dimColor>{L.not_readable}</Text> : null}
+                  {rows.map(r => (
+                    <Box key={`ur-${r.id}`} flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
+                      <Text>{r.label.padEnd(4)}</Text>
+                      {Svg ? <Svg source={barSvg(r.pct, (c as any).gauge?.colors?.usage ?? '#2f81f7', bw)} alt={`${r.label} ${Math.round(r.pct)} %`} /> : <Text>{textBar(r.pct)}</Text>}
+                      <Text>{`${String(Math.round(r.pct)).padStart(3)} %`}</Text>
+                      {r.when ? <Text dimColor>{r.when}</Text> : null}
+                    </Box>
+                  ))}
+                </Box>
+              ) : null}
+            </Box>
+          )
+        }
+        const vs = ve ?? { available: false, open: 0, julian: 0, alerts: [] }
+        return (
+          <Box key="sec-veille" flexDirection="column">
+            {header('veille', L.veille, veilleLine(vs, L))}
+            {isOpen(ui, 'veille') ? (
+              <Box flexDirection="column" marginLeft={2}>
+                {vs.alerts.length === 0 ? <Text dimColor>{vs.available ? L.veille_none : L.veille_off}</Text> : null}
+                {vs.alerts.slice(0, 5).map((a, i) => (
+                  <Text key={`va${i}`} {...(a.julian ? { color: c.colors.warn } : a.severity === 'bad' ? { color: c.colors.bad } : {})} wrap="truncate-end">{`• ${alertText(a)}`}</Text>
+                ))}
+              </Box>
+            ) : null}
+          </Box>
+        )
+      })
+      let relayC = null
+      if (advice.show && c.handoff) {
+        const hs = await read($, handoffAtom)
+        const lc = await read($, launcherAtom)
+        const hb = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)
+        relayC = (
+          <Box key="band-relay" flexDirection="row" flexWrap="wrap" gap={1}>
+            <Text color={c.colors.warn}>{`${c.labels.handoff_advice ?? 'Passation conseillée'} : ${handoffReason(advice, ctx, c.handoff, c.labels)}`}</Text>
+            {hb.map(b => (
+              <Button key={b.key} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, b, isWorking)}>
+                {b.label}
+              </Button>
+            ))}
+            <Text dimColor>{`RESUME ${ageText(hs.resume?.mtime, v?.now ?? Date.now(), c.labels)}`}</Text>
+          </Box>
+        )
+      }
+      const modsRow =
+        sectionList(sc).includes('mods') && buttons.length ? (
+          <Box key="band-mods" flexDirection="row" flexWrap="wrap" gap={1}>
+            <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
+            {buttons.map(b => (
+              <Button
+                key={`mod-${b.mod}`}
+                {...(b.loaded ? {} : { dimColor: true })}
+                {...(b.open ? { variant: 'primary' as const } : {})}
+                onPress={() => press($, b, isWorking)}
+              >
+                {b.open ? `${b.label} ✕` : b.label}
+              </Button>
+            ))}
+          </Box>
+        ) : null
+      const order = sectionList(sc)
+      const body = order.map((id, i) => (id === 'mods' ? modsRow : sections[i]))
+      return (
+        <Box flexDirection="column">
+          {line1}
+          {relayC}
+          {body}
+          {theirs ?? null}
+        </Box>
+      )
+    }
+    const gaugeStyle = style === 'gauge'
     const g = gaugeStyle ? gaugeOf(c, ctx, v ?? null, en?.week) : undefined
     const gaugeEl = g ? (
       <Box flexDirection="column">
@@ -524,7 +769,7 @@ export const register: Register = (on, raw) => {
     if (hc && hc.enabled !== false) {
       const hs = await read($, handoffAtom)
       const lc = await read($, launcherAtom)
-      const advice = handoffAdvice(ctx, h)
+      const advice = handoffAdvice(ctx, hc)
       const hb = handoffButtons(hc, lc.commands, hs.resume, lb)
       const mine = v?.compactions.find(r => r.isThis)?.items ?? []
       const hist = recentHandoffs(mine, hs.ran, hs.resume, hs.startedAt, hc.history_n, lb, c.idle_compact.idle_min)

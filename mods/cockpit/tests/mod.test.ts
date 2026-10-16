@@ -21,7 +21,7 @@ function world(on: any) {
   on('clock.now', () => ({ value: NOW }))
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   on('fs.exists', ($: any, e: any) => ({ value: /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$/.test(String(e.path)) && !String(e.path).includes('effort-board') }))
-  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('cockpit.config.json') ? JSON.stringify({ default_level: 'macro' })
+  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('cockpit.config.json') ? JSON.stringify({})
     : JSON.stringify({ context_window: 400000, rates: { opus: { in: 4, out: 20, cache_read: 0.4, cache_write_5m: 5, cache_write_1h: 8 } }, thresholds: { handoff_tokens: 250000 } }) }))
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
@@ -45,7 +45,7 @@ async function has(ui: any, re: RegExp) {
   return (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
 }
 
-test('opens by itself at session start, on this conversation\'s project at the Projet level', async ($, on) => {
+test('opens by itself at session start, on this conversation',async ($, on) => {
   const w = world(on)
   on('session.start', ($: any, e: any) => e)
   await $.session.start({ cwd: 'C:/code/eta', surface: 'desktop', isInteractive: true } as any)
@@ -60,24 +60,31 @@ test('start = off: nothing opens at session start', { options: { start: 'off' } 
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`/cockpit draws the breadcrumb, the tree with the sub-conversation, the detail and the strips; a click zooms in (${surface})`, async ($, on) => {
+  test(`/cockpit opens on this conversation (selected, its section open, the others folded); a click drills down (${surface})`, async ($, on) => {
     const w = world(on)
     await $.command.run({ command: 'cockpit', args: '' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 80 }, props: PANE } as any)
     expect(await has(ui, /^Méga$/)).toBe(true)
     expect(await has(ui, /^eta$/)).toBe(true)
+    expect(await ui.find({ key: 'crumb-medium' })).toBeDefined() // the breadcrumb ends on this conversation
+    expect(await has(ui, /^▾ Cette conversation$/)).toBe(true)
+    expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true)
+    expect(await has(ui, /^▸ Tous les projets$/)).toBe(true)
+    expect(await has(ui, /^▸ Claude global$/)).toBe(true)
     expect(await has(ui, /Galaxy finalisation autonome \(cette conversation\)/)).toBe(true)
     expect(await has(ui, /Mosaic Studio V2 private release/)).toBe(true)
-    expect(await has(ui, /Détail · Projet/)).toBe(true)
     expect(await has(ui, /Ouvrir Fichiers/)).toBe(true)
+    expect(await has(ui, /Session \(5 h\)/)).toBe(false) // Claude global folded
+    expect(await has(ui, /5 h 21 % · sem 14 %/)).toBe(true) // its one-line summary
+    await ui.press({ plugin: 'cockpit', key: 'sec-global' })
     expect(await has(ui, /Session \(5 h\)/)).toBe(true)
-    expect(await has(ui, /ctx 10 % \(103 k\)/)).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'node-c-child-cli' })
     expect(w.scans.at(-1)).toBe('child-cli')
-    expect(await has(ui, /Détail · Conversation/)).toBe(true)
+    expect(await has(ui, /^▾ Conversation · Mosaic Studio/)).toBe(true)
     expect(await has(ui, /coder · build/)).toBe(true)
-    await ui.press({ plugin: 'cockpit', key: 'crumb-mega' })
-    expect(await has(ui, /Détail · Méga/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'sec-all' })
+    await ui.press({ plugin: 'cockpit', key: 'proj-eta' })
+    expect(await has(ui, /^▾ Ce projet · eta$/)).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'files' })
     expect(JSON.stringify(w.ran)).toContain('filetree')
   })
