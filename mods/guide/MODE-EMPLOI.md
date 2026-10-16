@@ -92,7 +92,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [scenarios](#scenarios)
     - [usage](#usage)
     - [guide](#guide)
-    - [band V6](#band-v6)
+    - [band](#band)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -462,22 +462,22 @@ Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux,
 - **Activer** : `<dépôt>/mods/guide` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/guide`
 - **Tests** : `node --test mods/guide/tests/guide.test.mjs` · `claude plugin test mods/guide`
 
-#### band V6
+#### band
 
-Bandeau au-dessus du prompt : taille du contexte face au seuil de relais du rôle, en lecture seule (reprend context-meter et le bandeau de cc-control).
+Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages. /jauge
 
-- **État** : prévu
-- **Fonctionnement** : pas encore écrit · lit : usage de la session ($.session.usage) · sans blocage prévu
-- **Fonctionnalités** : commandes aucune · affiche : rien · options userConfig : aucune
-- **Activer** : pas encore dans le dépôt
-- **Tests** : aucun pour l’instant
+- **État** : en construction · version 0.1.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.
+- **Fonctionnement** : événements `session.start`, `session.measure`, `command.run`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
+- **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
+- **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
+- **Tests** : `node --test mods/band/tests/logic.test.mjs` · `claude plugin test mods/band`
 
 ### Archivés / rejetés
 
 | Mod | Verdict | Pourquoi |
 |---|---|---|
 | cc-control (gardes) | rejeté | Refusait et réécrivait des appels d'outils (plafonds d'envois et de lancements, réécritures) : le bloqueur caché. Éteint le 9 oct. |
-| cc-control (bandeau), context-meter | fusionné → band V6 | Petits et justes : seul le bandeau de contexte en lecture seule est repris. |
+| cc-control (bandeau), context-meter | fusionné → band (Jauge) | Petits et justes : seul le bandeau de contexte en lecture seule est repris. |
 | coordinator | fusionné → factory | Les sous-conversations liées suppriment la plupart des collisions ; on garde seulement « PR verte non mergée » et « attend Julian ». |
 | cost-tracker | rejeté | Affichait 0,00 $ pour les nouveaux ids de modèle ; factory fait la facture. |
 | activity-pane | rejeté | Remplacé par factory et la vue Agents de l'app. |

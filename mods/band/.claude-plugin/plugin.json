@@ -1,0 +1,31 @@
+{
+  "name": "band",
+  "version": "0.1.0",
+  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages. /jauge",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "band", "status line", "context", "tokens", "compaction"],
+  "userConfig": {
+    "config": {
+      "type": "string",
+      "title": "Settings file",
+      "description": "Path to your own JSON deep-merged over band.config.json (thresholds, windows, scopes, labels, colors, rates; ~ allowed). Empty: shipped settings.",
+      "default": ""
+    },
+    "band": {
+      "type": "string",
+      "title": "Band above the prompt",
+      "description": "on: the gauge band above the prompt. off: only /jauge and the status line entry.",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "status_line": {
+      "type": "string",
+      "title": "Status line entry",
+      "description": "on: a short entry (status_line items and scopes of the settings, ctx and rates by default) in the status line. off: none.",
+      "default": "off",
+      "options": ["on", "off"]
+    }
+  }
+}

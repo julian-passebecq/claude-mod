@@ -41,16 +41,17 @@
     },
     {
       "dir": "band",
-      "name": "band V6",
-      "state": "planned",
-      "description": "Bandeau au-dessus du prompt : taille du contexte face au seuil de relais du rôle, en lecture seule (reprend context-meter et le bandeau de cc-control).",
-      "data": "usage de la session ($.session.usage)",
-      "tests": []
+      "name": "band (Jauge, bandeau V6)",
+      "state": "building",
+      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Reprend context-meter et le bandeau de cc-control.",
+      "data": "$.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json",
+      "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.",
+      "tests": ["node --test mods/band/tests/logic.test.mjs", "claude plugin test mods/band"]
     }
   ],
   "archived": [
     { "name": "cc-control (gardes)", "verdict": "rejeté", "why": "Refusait et réécrivait des appels d'outils (plafonds d'envois et de lancements, réécritures) : le bloqueur caché. Éteint le 9 oct." },
-    { "name": "cc-control (bandeau), context-meter", "verdict": "fusionné → band V6", "why": "Petits et justes : seul le bandeau de contexte en lecture seule est repris." },
+    { "name": "cc-control (bandeau), context-meter", "verdict": "fusionné → band (Jauge)", "why": "Petits et justes : seul le bandeau de contexte en lecture seule est repris." },
     { "name": "coordinator", "verdict": "fusionné → factory", "why": "Les sous-conversations liées suppriment la plupart des collisions ; on garde seulement « PR verte non mergée » et « attend Julian »." },
     { "name": "cost-tracker", "verdict": "rejeté", "why": "Affichait 0,00 $ pour les nouveaux ids de modèle ; factory fait la facture." },
     { "name": "activity-pane", "verdict": "rejeté", "why": "Remplacé par factory et la vue Agents de l'app." },
