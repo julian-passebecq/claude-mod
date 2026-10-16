@@ -97,6 +97,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [filetree](#filetree)
     - [machine](#machine)
     - [metrics](#metrics)
+    - [sante](#sante)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -286,7 +287,7 @@ Trois chemins : un dossier, une marketplace, ou l'app Desktop.
 Pour les sessions qu'on ne lance pas soi-même (app Desktop, SDK) : chemins absolus séparés par `;` sous Windows (`:` ailleurs), dans l'environnement ou dans le bloc `env` de `~/.claude/settings.json`. Exemple pour ce dépôt :
 
 ```json
-"env": { "CLAUDE_CODE_PLUGIN_DIRS": "<dépôt>/mods/factory;<dépôt>/mods/control;<dépôt>/mods/ci;<dépôt>/mods/scenarios;<dépôt>/mods/guide;<dépôt>/mods/usage;<dépôt>/mods/band;<dépôt>/mods/machine" }
+"env": { "CLAUDE_CODE_PLUGIN_DIRS": "<dépôt>/mods/factory;<dépôt>/mods/control;<dépôt>/mods/ci;<dépôt>/mods/scenarios;<dépôt>/mods/guide;<dépôt>/mods/usage;<dépôt>/mods/band;<dépôt>/mods/machine;<dépôt>/mods/metrics;<dépôt>/mods/sante" }
 ```
 
 Une session longue non interactive recharge aussi à la sauvegarde avec `CLAUDE_CODE_PLUGIN_DIR_WATCH=1`. ([reference](https://code.claude.com/docs/en/plugins/mods/reference))
@@ -460,7 +461,7 @@ Consommation : tokens et coût équivalent par jour, heure, projet, modèle, ses
 - **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json ; onglet Codex : ~/.codex/sessions/**/rollout-*.jsonl (token_count, turn_context), jamais auth.json ni config.toml · aucun blocage
 - **Fonctionnalités** : commandes `/conso` · affiche : panneau, ligne de statut · options userConfig : status_line « Ligne de statut » (config | on | off), défaut "config" ; codex « Onglet Codex » (config | on | off), défaut "config"
 - **Activer** : `<dépôt>/mods/usage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/usage`
-- **Tests** : `node --test mods/usage/tests/logic.test.mjs` · `node --test mods/usage/tests/codex.test.mjs` · `claude plugin test mods/usage`
+- **Tests** : `node --test mods/usage/tests/logic.test.mjs` · `node --test mods/usage/tests/health.test.mjs` · `node --test mods/usage/tests/codex.test.mjs` · `claude plugin test mods/usage`
 
 #### guide
 
@@ -480,7 +481,7 @@ Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte
 - **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
 - **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut, toasts · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
 - **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
-- **Tests** : `node --test mods/band/tests/logic.test.mjs` · `claude plugin test mods/band`
+- **Tests** : `node --test mods/band/tests/logic.test.mjs` · `node --test mods/band/tests/health.test.mjs` · `claude plugin test mods/band`
 
 #### filetree
 
@@ -510,7 +511,17 @@ Les règles marchent ? PR/MR mergées par jour, tokens par PR, part Opus / Sonne
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : transcripts ~/.claude/projects (lecture incrémentale, parseur de mods/usage/lib), git remote de tes repos, gh search prs / gh run list et glab mr list / glab ci list (lecture seule, au plus toutes les 30 min), git log du fichier de règles ; caches dans ~/.claude/metrics-mod · aucun blocage
 - **Fonctionnalités** : commandes `/regles` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/metrics` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/metrics`
-- **Tests** : `node --test mods/metrics/tests/logic.test.mjs` · `claude plugin test mods/metrics`
+- **Tests** : `node --test mods/metrics/tests/logic.test.mjs` · `node --test mods/metrics/tests/health.test.mjs` · `claude plugin test mods/metrics`
+
+#### sante
+
+Santé des mods : une ligne verte / orange / rouge en haut, puis chaque mod chargé par CLAUDE_CODE_PLUGIN_DIRS ou installé : chargé ou non, version, commandes enregistrées, dernier rafraîchissement de ses caches, erreurs, durée et CPU de ses scans (fiches ~/.claude/mods-health), taille des caches, JSON de config invalides, version de Claude Code face au minimum. Lecture seule. /sante
+
+- **État** : en construction · version 0.1.0 · rien n'est supprimé : les commandes de nettoyage sont affichées avec un bouton Copier. Convention proposée : ~/.claude/mods-health/<mod>.json (lastRun, durationMs, cpuMs, error, lastOk, fenêtre 24 h), écrite par band, usage, metrics, ci et machine. Non vérifié : champ de version minimale dans plugin.json (absent de la doc), format de installed_plugins.json, plugin toujours renseigné par $.command.list().
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : CLAUDE_CODE_PLUGIN_DIRS, $.command.list() et $.session.version() ; pour chaque mod : plugin.json, hooks.json, JSON de config, caches (taille, dernière modification), journaux, fiches ~/.claude/mods-health/<mod>.json ; ~/.claude/mods et ~/.claude/plugins/installed_plugins.json ; rapport dans ~/.claude/sante-mod (scanner Node, seulement quand le panneau est demandé) · aucun blocage
+- **Fonctionnalités** : commandes `/sante` · affiche : panneau · options userConfig : config « Settings file », défaut ""
+- **Activer** : `<dépôt>/mods/sante` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/sante`
+- **Tests** : `node --test mods/sante/tests/logic.test.mjs` · `claude plugin test mods/sante` · `claude plugin validate mods/sante`
 
 ### Archivés / rejetés
 
@@ -530,7 +541,7 @@ Les règles marchent ? PR/MR mergées par jour, tokens par PR, part Opus / Sonne
 
 #### Mon mod ne fait rien
 
-Lance `claude plugin validate` puis `claude --debug` : un hook qui plante est sauté et la raison est dans le journal (et dans une ligne grise du fil quand le dossier est rechargé à chaud). ([reference](https://code.claude.com/docs/en/plugins/mods/reference))
+Lance `claude plugin validate` puis `claude --debug` : un hook qui plante est sauté et la raison est dans le journal (et dans une ligne grise du fil quand le dossier est rechargé à chaud). ([reference](https://code.claude.com/docs/en/plugins/mods/reference)) Avant ça, `/sante` dit en une ligne quels mods sont chargés, lesquels n'ont enregistré aucune commande, quels JSON sont invalides et quel scan est en erreur.
 
 #### Un bouton refusé
 

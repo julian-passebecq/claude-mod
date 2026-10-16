@@ -11,6 +11,7 @@ import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { deepMerge, expandHome, fmtNum, metricRows } from '../hooks/view.mjs'
+import { writeHealth } from './health.mjs'
 import {
   DAY, build, ciRuns, detectors, feed, githubPrs, gitlabMrs, hourly, kindOfPath, mergePrs, newFile, parseRemote, pruneFile, versions,
 } from '../lib/collect.mjs'
@@ -348,8 +349,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       console.log(JSON.stringify(info))
       report(model, ctx.cfg)
     } else throw new Error(`unknown command ${cmd}`)
+    writeHealth('metrics')
   } catch (err) {
     console.error(String((err && err.stack) || err))
+    writeHealth('metrics', String((err && err.message) || err))
     process.exit(1)
   }
 }

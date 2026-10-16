@@ -245,13 +245,13 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
 
 test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   const L = CFG.launcher
-  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide'])
+  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante'])
   const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
   assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
   assert.equal(isLoaded(L.items[4], cmds), true)
   let open = []
   let bs = launcherButtons(L, cmds, open, CFG.labels)
-  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false])
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false])
   assert.equal(bs[5].hint, 'non chargé : ajouter mods/guide à CLAUDE_CODE_PLUGIN_DIRS')
   assert.deepEqual(launcherPress(bs[5]), { toast: bs[5].hint })
   const a = launcherPress(bs[1], L.close_args)

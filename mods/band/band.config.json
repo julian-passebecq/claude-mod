@@ -34,7 +34,8 @@
       { "label": "Scénarios", "mod": "scenarios", "command": "scenarios" },
       { "label": "CI", "mod": "ci", "command": "ci" },
       { "label": "Control", "mod": "control", "command": "control" },
-      { "label": "Guide", "mod": "guide", "command": "mods-guide" }
+      { "label": "Guide", "mod": "guide", "command": "mods-guide" },
+      { "label": "Santé", "mod": "sante", "command": "sante" }
     ]
   },
   "handoff": {
