@@ -40,12 +40,9 @@ function base(on, scanOverride?: string) {
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
 }
 
-// The terminal draws Text rows; the desktop draws one Svg whose source carries the same strings.
+// Both surfaces draw native Text and Button rows (no Svg since factory v2).
 async function has(ui, surface: string, re: RegExp) {
-  if (surface === 'terminal') return (await ui.find({ type: 'Text', text: re })) !== undefined
-  const svg = await ui.find({ type: 'Svg' })
-  const src = String(svg?.props?.source ?? '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  return re.test(src) || (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
+  return (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
 }
 
 const PANE = (title: string) => ({ title, isFocused: true, bodyColumns: 160, placement: 'inline', scroll: { offset: 0, bodyRows: 60 }, view: {} })
@@ -55,25 +52,26 @@ for (const surface of ['terminal', 'desktop'] as const) {
     base(on)
     await $.command.run({ command: 'factory', args: 'App One' })
     const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 60 }, props: PANE('Factory: agent tree') })
-    expect(await has(ui, surface, /context 300K ?\/ ?400K/)).toBe(true)
-    expect(await has(ui, surface, /before plan/)).toBe(true)
+    expect(await has(ui, surface, /contexte 300K \/ 400K/)).toBe(true)
+    expect(await has(ui, surface, /avant un plan ×1/)).toBe(true)
     expect(await has(ui, surface, /handoff\/RESUME\.md/)).toBe(true)
     expect(await has(ui, surface, /Permission denied/)).toBe(true)
-    expect(await has(ui, surface, /PR #155 opened CI running/)).toBe(true)
+    expect(await has(ui, surface, /PR #155 opened · CI running/)).toBe(true)
     expect(await has(ui, surface, /start wave/)).toBe(true)
   })
 
   test(`/factory with no argument draws the dashboard with clickable conversations (${surface})`, async ($, on) => {
     base(on)
-    await $.command.run({ command: 'factory', args: '' })
+    await $.command.run({ command: 'factory', args: 'mission' })
     const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 60 }, props: PANE('Factory: all conversations') })
     expect(await has(ui, surface, /App One lane/)).toBe(true)
     expect(await has(ui, surface, /#155 opened.{0,8}running/)).toBe(true)
-    expect(await has(ui, surface, /opus 100%.{0,3}target <= 50%/)).toBe(true)
+    expect(await has(ui, surface, /opus 100 %/)).toBe(true)
+    expect(await has(ui, surface, /cible <= 50%/)).toBe(true)
     expect(await has(ui, surface, /app-one/)).toBe(true)
   })
 
-  test(`"Ça t'attend" strip on top, one notification per new row (${surface})`, async ($, on) => {
+  test(`"Ça t'attend" strip on the Focus screen, one notification per new row (${surface})`, async ($, on) => {
     const session = { ...make(dayOf(NOW)), live: false, last_activity: (NOW - 3600000) / 1000, needs_action: '', parent: 'local_lead', parent_title: 'Lead lane',
       app_prs: [{ url: 'https://github.com/o/app-one/pull/7', number: 7 }] }
     const reviews = { errors: [], items: [
@@ -87,7 +85,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('store.set', ($, e) => { store[e.key] = e.value; return { value: undefined } })
     const sent: string[] = []
     on('ui.notify', ($, e) => { sent.push(e.text); return { value: { isSent: true, channel: 'test' } } })
-    await $.command.run({ command: 'factory', args: '' })
+    await $.command.run({ command: 'factory', args: 'focus' })
     const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 60 }, props: PANE('Factory') })
     expect(await has(ui, surface, /Ça t'attend \(2\)/)).toBe(true)
     expect(await has(ui, surface, /app-one#7 verte depuis 50 min/)).toBe(true)
@@ -95,7 +93,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, surface, /Child|App One lane \(attend|App One lane \(inactive/)).toBe(true)
     expect(sent.length).toBe(2)
     expect(sent[0]).toContain('App One lane')
-    await $.command.run({ command: 'factory', args: '' })
+    await $.command.run({ command: 'factory', args: 'focus' })
     expect(sent.length).toBe(2) // the same rows never notify twice
   })
 
@@ -109,5 +107,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
     await $.command.run({ command: 'factory', args: '' })
     expect(toasts.some((t) => t.includes('Attend Julian : Log in to the provider'))).toBe(true)
+  })
+
+  test(`tabs on top; Quotas shows the official % and "module usage non chargé"; Système without the machine mod (${surface})`, async ($, on) => {
+    base(on)
+    on('session.usage', () => ({ value: { rateLimits: [{ kind: 'seven_day', percentUsed: 42, resetsAt: '2026-10-12T10:00:00Z' }] } }))
+    await $.command.run({ command: 'factory', args: 'quotas' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 80, rows: 60 }, props: { ...PANE('Factory'), bodyColumns: 75 } })
+    for (const tab of ['Mission', 'Focus', 'Arbre', 'Pipeline', 'Quotas', 'Système', 'Journal']) expect(await has(ui, surface, new RegExp(`^${tab}$`))).toBe(true)
+    expect(await has(ui, surface, /Claude semaine/)).toBe(true)
+    expect(await has(ui, surface, /^42 %$/)).toBe(true)
+    expect(await has(ui, surface, /module usage non chargé/)).toBe(true)
+    await ui.unmount()
+    await $.command.run({ command: 'factory', args: 'systeme' })
+    const ui2 = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 80, rows: 60 }, props: { ...PANE('Factory'), bodyColumns: 75 } })
+    expect(await has(ui2, surface, /module machine non chargé/)).toBe(true)
   })
 }

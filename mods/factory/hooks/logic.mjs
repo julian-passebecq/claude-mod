@@ -78,7 +78,7 @@ export function hhmm(ts) {
 
 export function short(model) {
   const m = String(model || '?')
-  return m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2')
+  return m.replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2')
 }
 
 export function repoOf(s) {

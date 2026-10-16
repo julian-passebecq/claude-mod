@@ -1,6 +1,6 @@
 {
   "_doc": "factory mod settings. Override any key in ~/.claude/effort-board/factory.config.json (deep merge). Dollars are an ESTIMATE from tokens x these rates.",
-  "cost_label": "estimate",
+  "cost_label": "estimation",
   "rates_source": "USD per million tokens. in/out from docs/models/models.json (claude.com/pricing, checked 9 Oct); haiku-5-5 assumed = haiku-4-5. Cache: read 0.1x input, 5-min write 1.25x, 1-hour write 2x.",
   "rates": {
     "claude-fable-5-1": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5, "cache_write_1h": 20 },
@@ -26,7 +26,7 @@
   "readonly_agent_types": ["Explore", "explore-fast", "auditor"],
   "readonly_exempt_types": ["architect"],
   "routing_targets": {
-    "_doc": "V4.8 routing (Haiku read-only, Sonnet edits/tests, Opus plans/review/merge) as call shares, today, main + subagents. Proposed numbers; the PM sets them here.",
+    "_doc": "Model share targets (Haiku read-only, Sonnet edits/tests, Opus plans/review/merge) as call shares, today, main + subagents; shown on Mission under screens.labels.share_title ('cibles V6'). Proposed numbers; the PM sets them here.",
     "metric": "calls",
     "opus": { "max": 0.5 },
     "sonnet": { "min": 0.25 },
@@ -48,7 +48,7 @@
   "ci_ttl_s": 600,
   "include_cli": false,
   "python": "python",
-  "svg": { "px_per_column": 8, "max_boxes": 10, "colors": {} },
+  "node": "node",
   "colors": {
     "opus": "#d97706",
     "sonnet": "#2563eb",
@@ -65,20 +65,26 @@
     "architect": "#9333ea",
     "dim": "#6b7280"
   },
-  "legends": {
-    "running": "running",
-    "done": "done",
-    "failed": "failed",
-    "stopped": "stopped (no completion seen)",
-    "waiting_yes": "yes",
-    "waiting_no": "no",
-    "main": "main thread",
-    "bill": "Bill (estimate)",
-    "guards": "Approvals and guards",
-    "log": "Session log",
-    "warnings": "Warnings",
-    "tree": "Agent tree"
-  },
+  "screens": {
+    "_doc": "Side-panel screens (v2). Every key of SCREEN_DEFAULTS in hooks/screens.mjs can be overridden here or in ~/.claude/effort-board/factory.config.json (deep merge): order and enabled list the tabs (mission, focus, arbre, pipeline, quotas, systeme, journal), start is the first tab, labels holds every French text. Minutes unless named _s/_h. quiet_min: a lane with no turn for that long shows as 'Calme' in the Focus timeline. agent_stage maps a running subagent type to a Pipeline stage (heuristic, non vérifié). layout.narrow / wide are pane widths in columns: under narrow the counters go 2 per row, from wide 6 per row and project cards 2 per row.",
+    "order": ["mission", "focus", "arbre", "pipeline", "quotas", "systeme", "journal"],
+    "enabled": ["mission", "focus", "arbre", "pipeline", "quotas", "systeme", "journal"],
+    "start": "mission",
+    "recent_events": 12,
+    "quiet_min": 30,
+    "quiet_max_h": 12,
+    "timeline_max": 25,
+    "journal_max": 60,
+    "pipeline_hours": 24,
+    "quotas_refresh_s": 300,
+    "system_refresh_s": 10,
+    "gpu_every": 6,
+    "layout": { "narrow": 70, "wide": 110, "bar_min": 8, "bar_max": 40 },
+    "labels": {
+      "tabs": { "mission": "Mission", "focus": "Focus", "arbre": "Arbre", "pipeline": "Pipeline", "quotas": "Quotas", "systeme": "Système", "journal": "Journal" },
+      "share_title": "Part des modèles aujourd’hui vs cibles V6 ({metric})"
+    }
+  },
   "waiting": {
     "_doc": "Strip 'Ça t'attend' at the top of /factory. Minutes unless named _s/_h/_days. idle_pr_states among failed, canceled, skipped, conflict, none, manual. session_link: {id} = the app session id (link format non vérifié). notify: one native notification per new row, ever ($.ui.notify, else a toast).",
     "enabled": true,

@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.4.0",
-  "description": "Factory views: a \"Ça t'attend\" strip (green PRs not merged, sessions waiting on Julian, idle lanes on a red PR, sub-conversations per lead, with notifications), the dashboard of all live conversations and each conversation's agent tree with bill, guards, log and warnings. /factory",
+  "version": "0.5.0",
+  "description": "Factory v2, side panel of all your agents, read-only, French labels, stacked top to bottom to the pane's width: Mission (counters, one card per project, model share vs targets, conversation list), Focus (Ça t'attend with notifications, fleet pulse, live timeline, progress today), Arbre (a conversation's lead, sub-conversations, Workflows and agents with model and effort, architect on call, bill, guards, log, status line), Pipeline, Quotas, Système, Journal. /factory [onglet]",
   "author": { "name": "Julian Passebecq" }
 }
