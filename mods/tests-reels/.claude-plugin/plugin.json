@@ -1,0 +1,9 @@
+{
+  "name": "tests-reels",
+  "version": "0.1.0",
+  "description": "Tests réels : le registre des tests hors CI par application (tenant de test, Cloudflare Access et Workers, Power BI Desktop / SSAS / Docker en local, automatisation d'interface, vérifications manuelles), en lecture seule. Par appli : environnements, comptes de test masqués (seulement l'endroit où le secret est rangé, jamais sa valeur), procédures et derniers essais (vert, rouge, jamais), « jamais testé en réel », et la liste « À ranger ». Données locales dans ~/.claude/tests-reels. /tests",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "tests", "registry", "real tests"]
+}

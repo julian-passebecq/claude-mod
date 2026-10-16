@@ -1,0 +1,32 @@
+{
+  "_doc": "Invented example of ~/.claude/tests-reels/registry.json (no real tenant, account, id or URL).",
+  "version": 1,
+  "updated": "2026-10-15T12:00:00Z",
+  "apps": [
+    {
+      "name": "Demo Studio",
+      "repo": "demo-studio",
+      "notes": "Extension de démo, pilote sur un tenant de test",
+      "environments": [
+        { "name": "TEST tenant", "kind": "tenant", "urls": ["https://app.example.org/groups/demo"], "ids": { "tenant": "00000000-0000-4000-8000-000000000001", "workspace": "00000000-0000-4000-8000-000000000002" }, "owner": "Julian", "created": "2026-10-01", "status": "actif" },
+        { "name": "Desktop local", "kind": "local", "owner": "Julian", "status": "actif" }
+      ],
+      "accounts": [
+        { "login": "pilot.tester@example.org", "env": "TEST tenant", "purpose": "lecture seule", "dedicated": true, "secret_ref": { "store": "wincred", "target": "demo-tenant-pilot" } }
+      ],
+      "procedures": [
+        { "name": "Lecture live", "env": "TEST tenant", "account": "pilot.tester@example.org", "kind": "live", "steps": ["se connecter", "ouvrir le workspace", "lire 3 tables"], "commands": ["node scripts/live-read.mjs --env test"], "expected": "3 tables lues, 0 erreur", "evidence": ["reports/live-read.md"] },
+        { "name": "Export PBIX", "env": "Desktop local", "kind": "local", "steps": ["ouvrir Power BI Desktop", "exporter"] }
+      ],
+      "manual_checks": [
+        { "date": "2026-10-13", "what": "panneaux à 150 % sur un vrai écran", "how": "glisser entre deux moniteurs", "status": "à faire" }
+      ]
+    },
+    {
+      "name": "Demo Worker",
+      "environments": [ { "name": "QA worker", "kind": "cloud", "status": "actif" } ],
+      "accounts": [ { "login": "owner@example.org", "env": "QA worker", "purpose": "Access owner" } ],
+      "procedures": []
+    }
+  ]
+}
