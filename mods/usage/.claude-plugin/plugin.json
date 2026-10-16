@@ -1,0 +1,18 @@
+{
+  "name": "usage",
+  "version": "0.1.0",
+  "description": "Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Lecture seule. /conso",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "usage", "tokens", "forecast"],
+  "userConfig": {
+    "status_line": {
+      "type": "string",
+      "title": "Ligne de statut",
+      "description": "on : « Semaine 34 % · épuisé ven 14h au rythme actuel » sous le prompt (jamais bloquant). off : rien. config : la valeur status_line de usage.config.json (off par défaut).",
+      "default": "config",
+      "options": ["config", "on", "off"]
+    }
+  }
+}

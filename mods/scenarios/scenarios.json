@@ -98,6 +98,23 @@
         { "role": "tests", "label": "Tests", "model": "sonnet", "effort": "medium", "unit": "workflow-agent", "max_parallel": 4, "agent": "tester" },
         { "role": "search", "label": "Search", "model": "haiku", "effort": "low", "unit": "workflow-agent", "max_parallel": 4, "agent": "explore-fast" }
       ]
+    },
+    {
+      "id": "S5",
+      "name": "Plein régime",
+      "summary": "Lots of weekly quota left close to the reset: Opus high/xhigh everywhere, more lanes, as parallel as the PC allows; review by Opus high. The usage mod suggests it, nothing launches it.",
+      "escalation": true,
+      "caps": { "ci_pipelines": 4, "npm_ci_tsc": 3 },
+      "defaults": { "subagent_model": "opus", "workflow_model": "opus" },
+      "roles": [
+        { "role": "lead", "label": "Lead", "model": "opus", "effort": "xhigh", "unit": "session", "max_parallel": 1, "note": "plans and dispatches more lanes" },
+        { "role": "lane", "label": "Lanes", "model": "opus", "effort": "high", "unit": "sub-conversation", "max_parallel": 3, "note": "one package each" },
+        { "role": "coder", "label": "Coders", "model": "opus", "effort": "high", "unit": "workflow-agent", "max_parallel": 4, "agent": "coder", "note": "4 = the PC's CI pipeline cap" },
+        { "role": "architect", "label": "Architect", "model": "opus", "effort": "xhigh", "unit": "subagent", "max_parallel": 1, "agent": "architect" },
+        { "role": "review", "label": "Review", "model": "opus", "effort": "high", "unit": "subagent", "max_parallel": 4, "agent": "architect", "note": "fresh context, correctness only" },
+        { "role": "tests", "label": "Tests", "model": "opus", "effort": "high", "unit": "workflow-agent", "max_parallel": 3, "agent": "tester", "note": "3 = the PC's npm ci / tsc cap" },
+        { "role": "search", "label": "Search", "model": "opus", "effort": "high", "unit": "subagent", "max_parallel": 4, "agent": "explore-fast" }
+      ]
     }
   ]
 }

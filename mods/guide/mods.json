@@ -27,6 +27,13 @@
       "tests": ["node --test mods/scenarios/tests/logic.test.mjs", "claude plugin test mods/scenarios"]
     },
     {
+      "dir": "usage",
+      "state": "building",
+      "data": "transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json",
+      "note": "tokens par 1 % calibrés sur ce PC seulement (non vérifié)",
+      "tests": ["node --test mods/usage/tests/logic.test.mjs", "claude plugin test mods/usage"]
+    },
+    {
       "dir": "guide",
       "state": "building",
       "data": "MODE-EMPLOI.md, mods.json et les plugin.json / hooks des mods voisins",

@@ -90,6 +90,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [control](#control)
     - [ci](#ci)
     - [scenarios](#scenarios)
+    - [usage](#usage)
     - [guide](#guide)
     - [band V6](#band-v6)
   - [Archivés / rejetés](#archivés--rejetés)
@@ -440,6 +441,16 @@ Scénarios d'agents: read-only guide and editable presets of roles -> model, eff
 - **Fonctionnalités** : commandes `/scenarios` · affiche : panneau, toasts · options userConfig : file « Extra scenarios file », défaut "" ; warn_no_model « Warn when an Agent call names no model » (on | off), défaut "on"
 - **Activer** : `<dépôt>/mods/scenarios` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/scenarios`
 - **Tests** : `node --test mods/scenarios/tests/logic.test.mjs` · `claude plugin test mods/scenarios`
+
+#### usage
+
+Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Lecture seule. /conso
+
+- **État** : en construction · version 0.1.0 · tokens par 1 % calibrés sur ce PC seulement (non vérifié)
+- **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json · aucun blocage
+- **Fonctionnalités** : commandes `/conso` · affiche : panneau, ligne de statut · options userConfig : status_line « Ligne de statut » (config | on | off), défaut "config"
+- **Activer** : `<dépôt>/mods/usage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/usage`
+- **Tests** : `node --test mods/usage/tests/logic.test.mjs` · `claude plugin test mods/usage`
 
 #### guide
 

@@ -29,7 +29,7 @@ const mount = ($: any, surface: 'terminal' | 'desktop') =>
   $.ui.mount({ plugin: 'scenarios', component: 'Pane', requestId: 'scenarios', surface, viewport: { columns: 120, rows: 80 }, props: PANE })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the pane lists S1-S4, switches scenario and snippet, copies it (${surface})`, async ($, on) => {
+  test(`the pane lists S1-S5, switches scenario and snippet, copies it (${surface})`, async ($, on) => {
     const w = world(on)
     const pane = await mount($, surface)
     expect(await pane.find({ type: 'Button', text: /S1 Standard V6/ })).toBeDefined()
@@ -53,23 +53,23 @@ test('/scenarios S2 env answers with the snippet; an unknown id says so', async 
   on('session.start', ($: any, e: any) => e)
   await $.session.start({ cwd: 'C:/code/x', surface: 'terminal', isInteractive: true })
   const r = await $.command.run({ command: 'scenarios', args: 'S2 env' } as any)
-  expect(r.text).toMatch(/scenarios: 4 scenario\(s\)/)
+  expect(r.text).toMatch(/scenarios: 5 scenario\(s\)/)
   expect(r.text).toMatch(/"CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5"/)
   const bad = await $.command.run({ command: 'scenarios', args: 'S42' } as any)
-  expect(bad.text).toMatch(/no scenario "S42" \(known: S1, S2, S3, S4\)/)
+  expect(bad.text).toMatch(/no scenario "S42" \(known: S1, S2, S3, S4, S5\)/)
 })
 
-test('a user file adds S5 and its broken rows show as errors', { options: { file: USER } } as any, async ($, on) => {
+test('a user file adds S7 and its broken rows show as errors', { options: { file: USER } } as any, async ($, on) => {
   world(on, JSON.stringify({
     scenarios: [
-      { id: 'S5', name: 'Solo Sonnet', roles: [{ role: 'lead', model: 'sonnet', effort: 'medium', unit: 'session', max_parallel: 1 }] },
-      { id: 'S6', name: 'Broken', roles: [{ role: 'x', model: 'nope', effort: 'medium', unit: 'session', max_parallel: 1 }] },
+      { id: 'S7', name: 'Solo Sonnet', roles: [{ role: 'lead', model: 'sonnet', effort: 'medium', unit: 'session', max_parallel: 1 }] },
+      { id: 'S8', name: 'Broken', roles: [{ role: 'x', model: 'nope', effort: 'medium', unit: 'session', max_parallel: 1 }] },
     ],
   }))
   const pane = await mount($, 'terminal')
-  expect(await pane.find({ type: 'Button', text: /S5 Solo Sonnet/ })).toBeDefined()
-  expect(await pane.find({ type: 'Button', text: /S6 Broken/ })).toBeUndefined()
-  expect(await pane.find({ type: 'Text', text: /S6 role x: unknown model "nope"/ })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: /S7 Solo Sonnet/ })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: /S8 Broken/ })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /S8 role x: unknown model "nope"/ })).toBeDefined()
   await pane.unmount()
 })
 
