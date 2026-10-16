@@ -151,6 +151,8 @@ declare module 'claude-code' {
       ui: BandUi
       /** veille's open alerts, read from its files at each refresh while the Veille section is enabled */
       veille: VeilleBand | null
+      /** a-faire's counts (its summary.json), read at each refresh unless todo_home is ""; only `open` is shown */
+      todo: { open?: number; [count: string]: unknown } | null
     }
   }
 }
