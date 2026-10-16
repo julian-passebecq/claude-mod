@@ -128,3 +128,17 @@ test('without a register the command collects once and the pane says it is the f
   expect(await pane.find({ type: 'Text', text: /Premier passage \(14 jours\)/ })).toBeDefined()
   await pane.unmount()
 })
+
+test('« Exporter vers eta » and /problemes export run the scanner export (masked register → eta by PR)', async ($, on) => {
+  const w = world(on)
+  const pane = await mount($, 'terminal')
+  expect(await pane.find({ type: 'Button', text: /^Exporter vers eta$/ })).toBeDefined()
+  await pane.press({ key: 'export-eta' })
+  await w.clock.advance(10)
+  expect(w.runs.some(a => a.join(' ').endsWith('problemes_scan.mjs export'))).toBe(true)
+  await pane.unmount()
+  const n = w.runs.length
+  await $.command.run({ command: 'problemes', args: 'export' } as any)
+  await w.clock.advance(10)
+  expect(w.runs.slice(n).some(a => a.join(' ').endsWith('problemes_scan.mjs export'))).toBe(true)
+})
