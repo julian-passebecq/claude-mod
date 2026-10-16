@@ -31,7 +31,9 @@ test('every anchor is unique and the table of contents is up to date', () => {
 })
 
 test('the guide talks about mods only and cites the official docs', () => {
-  assert.doesNotMatch(md, /\b(abonnement|subscription|Codex|ChatGPT)\b/i)
+  // the generated « Nos mods » cards may name what a mod reads (the usage mod reads Codex's session files)
+  const prose = md.replace(/<!-- mods:start -->[\s\S]*?<!-- mods:end -->/, '')
+  assert.doesNotMatch(prose, /\b(abonnement|subscription|Codex|ChatGPT)\b/i)
   assert.ok((md.match(/https:\/\/code\.claude\.com\/docs\/en\/plugins\//g) ?? []).length >= 30)
   assert.match(md, /non vérifié/)
 })

@@ -11,13 +11,17 @@ const CONFIG = {
   plein_regime: { scenario: 'S5', min_left_pct: 30, max_hours_left: 48 },
   scenario_estimate: { active_hours_per_day: 14, duty: { session: 0.6, 'workflow-agent': 0.5, subagent: 0.3 }, effort_factor: { medium: 1, high: 1.5, xhigh: 2 }, unit_kind: { session: 'main', 'workflow-agent': 'workflow', subagent: 'subagent' } },
   labels: {
-    pane_title: 'Consommation', tabs: { today: "Aujourd'hui", week: 'Semaine', forecast: 'Prévision', scenarios: 'Scénarios de consommation', full: 'Plein régime' },
+    pane_title: 'Consommation', tabs: { today: "Aujourd'hui", week: 'Semaine', forecast: 'Prévision', scenarios: 'Scénarios de consommation', full: 'Plein régime', codex: 'Codex' },
     kinds: { main: 'fil principal', workflow: 'agent de Workflow' }, week_label: 'Semaine', five_hour_label: 'Fenêtre 5 h',
     days: ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'], exhausted: 'épuisé {when}', left_at_reset: 'il restera {pct} % au reset',
     pace_now: 'au rythme actuel', no_reading: 'pas encore de lecture', estimate: 'estimation', fits: 'tient', too_much: 'dépasse',
     suggest_full: 'scénario Plein régime suggéré', no_full: 'Pas de Plein régime',
   },
   heat: ' ░▒▓█',
+  codex: {
+    enabled: 'auto', sessions_dir: '~/.codex/sessions', stale_limits_h: 24, expected_windows: [300, 10080], window_labels: { '300': 'Fenêtre 5 h', '10080': 'Semaine' },
+    labels: { codex: 'Codex', claude: 'Claude', unavailable: 'non disponible', off: 'Codex désactivé', no_dir: 'non disponible : aucun dossier {dir}', no_data: 'non disponible : aucune session {dir}', no_limits: '% : non disponible', stale: 'ancienne lecture', past: 'réinitialisée', source: 'Source : {dir}' },
+  },
 }
 const V = (usd: number) => [1000, 100, 5000, 0, 200, 2, 600, usd]
 const hourly: Record<string, number[]> = {}
@@ -36,7 +40,14 @@ const SCEN = {
   ],
 }
 
-function world(on: any, weekPct?: number) {
+const CX = (n: number) => [n, n / 2, n / 10, n / 40, n + n / 10]
+const CODEX = {
+  generated: NOW, available: true, dir: '~/.codex/sessions', sessions: 2, model: 'gpt-b',
+  days: { '2026-10-16': { 'gpt-b': CX(1000000) }, '2026-10-14': { 'gpt-a': CX(3000000) } },
+  limits: { ts: NOW - H, primary: { pct: 62, windowMin: 10080, reset: NOW + 50 * H }, secondary: null, plan: 'pro' },
+}
+
+function world(on: any, weekPct?: number, codex: any = CODEX) {
   const clock = mock.clock(on, { now: NOW })
   const runs: string[][] = []
   const copies: string[] = []
@@ -47,6 +58,7 @@ function world(on: any, weekPct?: number) {
     if (p.endsWith('/usage/usage.config.json')) return { value: JSON.stringify(CONFIG) }
     if (p.endsWith('/usage-mod/aggregate.json')) return { value: JSON.stringify(AGGR) }
     if (p.endsWith('/scenarios/scenarios.json')) return { value: JSON.stringify(SCEN) }
+    if (p.endsWith('/usage-mod/codex.json') && codex) return { value: JSON.stringify(codex) }
     throw new Error('ENOENT ' + p)
   })
   on('session.usage', () => ({ value: { startedAt: NOW - H, context: {}, rateLimits: weekPct === undefined ? [] : [{ kind: 'seven_day', percentUsed: weekPct, resetsAt: new Date(NOW + 40 * H).toISOString() }, { kind: 'five_hour', percentUsed: 12, resetsAt: new Date(NOW + 3 * H).toISOString() }] } }))
@@ -108,4 +120,28 @@ test('/conso semaine answers with today and the week; session.measure saves a sa
   expect(out).toBeDefined()
   await w.clock.advance(10)
   expect(w.runs.some(a => a.includes('sample'))).toBe(true)
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Codex tab shows today, 7 days, models and the weekly % next to Claude (${surface})`, async ($, on) => {
+    world(on, 10)
+    const pane = await mount($, surface)
+    expect(await pane.find({ type: 'Text', text: /^Claude aujourd'hui .* \|  Codex aujourd'hui 1\.1 M tokens · 7 j 4\.4 M · Semaine 62 %/ })).toBeDefined()
+    await pane.press({ key: 'tab-codex' })
+    expect(await pane.find({ type: 'Text', text: /^Aujourd'hui : 1\.1 M tokens \(entrée 1\.0 M dont cache 500 k/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^7 jours : 4\.4 M tokens/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Semaine : 62 % utilisés · reset/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Fenêtre 5 h : non disponible/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /gpt-a .* 3\.3 M tokens/ })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('without Codex files the tab says « non disponible » instead of guessing', async ($, on) => {
+  world(on, 10, { generated: NOW, available: false, dir: '~/.codex/sessions', error: 'no_dir', days: {} })
+  const pane = await mount($, 'terminal')
+  expect(await pane.find({ type: 'Text', text: /Codex non disponible/ })).toBeDefined()
+  await pane.press({ key: 'tab-codex' })
+  expect(await pane.find({ type: 'Text', text: /non disponible : aucun dossier ~\/\.codex\/sessions/ })).toBeDefined()
+  await pane.unmount()
 })

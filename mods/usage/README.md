@@ -1,6 +1,6 @@
 # usage — « Consommation »
 
-Read-only pane: what your agents burn (tokens and list-price cost equivalent) and when the plan's 5-hour and weekly windows run out. `/conso [aujourdhui|semaine|prevision|scenarios|plein] [refresh]`. UI in French.
+Read-only pane: what your agents burn (tokens and list-price cost equivalent) and when the plan's 5-hour and weekly windows run out. `/conso [aujourdhui|semaine|prevision|scenarios|plein|codex] [refresh]`. UI in French.
 
 ## Onglets
 
@@ -8,6 +8,7 @@ Read-only pane: what your agents burn (tokens and list-price cost equivalent) an
 - **Prévision** : % semaine et 5 h, reset, rythme sur les 2 dernières heures, aujourd'hui et en moyenne 7 jours ; trois projections configurables (calme / normal / intense) ; « épuisé le <jour> à <heure> » ou « il restera X % au reset ».
 - **Scénarios de consommation** : débit estimé de S1-S5 du mod [`scenarios`](../scenarios) à partir de l'historique mesuré (tokens par heure active, par type d'agent et famille de modèle), et lequel tient dans le quota restant avant le reset.
 - **Plein régime** : quand il restera plus de `min_left_pct` % au reset à moins de `max_hours_left` h de celui-ci, suggère S5 « Plein régime » (Opus high/xhigh partout, parallélisme au plafond du PC) et montre le texte à copier. Le mod ne lance rien.
+- **Codex** : tokens Codex aujourd'hui et sur 7 jours (entrée dont cache, sortie dont raisonnement), par modèle et par jour, et les % de limite que Codex écrit lui-même (« Semaine 40 % · reset … · lu à … »). Une ligne en tête du panneau met Claude et Codex côte à côte, et `/conso` l'ajoute à sa réponse. Quand rien n'est écrit : « non disponible », jamais une estimation. Option `codex` (`config` | `on` | `off`) et `codex.enabled` (`auto` par défaut : actif si le dossier existe).
 - **Ligne de statut** (option, off par défaut) : « Semaine 34 % · épuisé ven 14h au rythme actuel ».
 
 ## D'où viennent les chiffres
@@ -21,7 +22,11 @@ Read-only pane: what your agents burn (tokens and list-price cost equivalent) an
 | Sous-conversation | transcript principal dont le premier prompt vient d'une autre session (`origin.kind` = `peer`) | **non vérifié** |
 | Débit d'un scénario | débit mesuré par heure active × `max_parallel` × occupation × facteur d'effort (`scenario_estimate`) | **non vérifié** (occupation et facteurs sont des estimations réglables) |
 
-Aucun fichier d'identifiants n'est lu ; seuls les `*.jsonl` sous `projects_dir` et le dossier du mod.
+| Tokens Codex (par jour et modèle) | `~/.codex/sessions/AAAA/MM/JJ/rollout-*.jsonl` (`codex.sessions_dir`) : `event_msg` / `token_count` donne `info.total_token_usage` cumulé par session (différence entre deux événements = tokens de l'événement, rangés au jour et au modèle courant) ; `turn_context.payload.model` donne le modèle. Même source que le plugin codex-hud (`src/local-logs.ts`) | lu sur ce PC ; format interne de Codex, pas documenté publiquement (**non vérifié**) |
+| % de limite Codex | `token_count.rate_limits` (`primary` / `secondary` : `used_percent`, `window_minutes` 300 = 5 h, 10080 = semaine, `resets_at`), lecture la plus récente | lu sur ce PC ; une fenêtre absente est affichée « non disponible ». Codex 0.142+ lancé par l'app-server n'écrirait plus ces % sur disque d'après codex-hud (**non vérifié**) : le mod ne lance pas Codex et n'appelle pas son RPC |
+| Coût Codex | non calculé (pas de tarif fiable par abonnement) | — |
+
+Aucun fichier d'identifiants n'est lu ; seuls les `*.jsonl` sous `projects_dir`, les `rollout-*.jsonl` sous `codex.sessions_dir` et le dossier du mod (jamais `~/.codex/auth.json`, `config.toml`, `.env` ni les bases sqlite).
 
 ## Réglages
 
@@ -35,6 +40,6 @@ Aucun fichier d'identifiants n'est lu ; seuls les `*.jsonl` sous `projects_dir` 
 - Vecteur de chiffres : `[input, output, cache_read, cache_write_5m, cache_write_1h, requêtes, secondes actives, coût $]` (`V` donne les index, `tokensOf` la somme des tokens).
 - Exemple : `import { usageOf, costOf } from '../usage/lib/transcripts.mjs'` puis `costOf(usageOf(JSON.parse(line)).v, model, prices)`.
 
-Scanner : `node mods/usage/scanner/usage_scan.mjs report` affiche les totaux et la prévision dans le terminal (`scan` met à jour `~/.claude/usage-mod/aggregate.json`).
+Scanner : `node mods/usage/scanner/usage_scan.mjs report` affiche les totaux, Codex et la prévision dans le terminal (`scan` met à jour `~/.claude/usage-mod/aggregate.json` et `codex.json` ; `codex` ne fait que la partie Codex, lecture incrémentale par fichier).
 
 Le parseur incrémental et la table de prix reprennent des idées de [claude-goblin](https://github.com/data-goblin/claude-goblin) (MIT) : clé `message.id` + `requestId`, état par fichier, prix publics.
