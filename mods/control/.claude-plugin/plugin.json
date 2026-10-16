@@ -1,0 +1,7 @@
+{
+  "name": "control",
+  "version": "0.1.0",
+  "description": "Claude Control panes: SETUP (everything that shapes a session, hidden rules flagged), USAGE (1/7/30-day model, effort and delegation mix with rule targets) and PRACTICES (our way of working, followed or not). /control",
+  "author": { "name": "Julian Passebecq" },
+  "types": "./types/index.d.ts"
+}

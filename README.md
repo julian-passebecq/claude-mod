@@ -66,7 +66,11 @@ node --test mods/factory/tests/logic.test.mjs
 # hook and pane tests, with the Claude Code test kit:
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/factory
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/control
+# before every push (public repo): no private paths, tokens, e-mails or transcripts
+python -I tools/confidentiality_scan.py .
 ```
+
+`control`'s reference-window test replays the author's own transcripts and only runs with `CONTROL_REFERENCE=1`.
 
 ## License
 
