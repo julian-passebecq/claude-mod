@@ -127,6 +127,15 @@
     "_doc": "Imports (scanner/problemes_scan.mjs import) : chaque source n'est importée qu'une fois par ligne (signature seed:<id>:<réf>). kind : markdown (tableaux dont une colonne s'appelle What / Problème / Question / Defect…, et puces des sections qui ont bullets: true), incidents (JSON { incidents: [...] }), findings (JSON { findings: [...] }, seulement verdict « did not » ou statut open / ignored). path, ou git: { repo, ref, path } pour lire un fichier d'une branche sans checkout. sections : { match (regex sur le titre au-dessus), category (impose), fallback (si aucune règle seed ne correspond), status, bullets, skip, title_from (colonne prise comme titre quand le tableau n'a pas de colonne What / Problème, par ex. cause) }. Colonnes reconnues par leur début : What / Question / Defect (titre), Effect / Symptom, Cause, Fix, Still / Reste, Status, When / Time, Project, Source / Session, Y/N / Évitable (N = sujet légitime, statut accepté). optional: true : absente, la source est sautée sans erreur. Tes sources vont dans ~/.claude/problemes/problemes.config.json.",
     "sources": []
   },
+  "eta": {
+    "_doc": "/problemes export et le bouton « Exporter vers eta » : le registre, masqué (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails sauf les tiens), dans le dépôt eta sous dest_dir : REGISTRE.md, ou au-delà de max_kb un REGISTRE.md index + un fichier par catégorie. Un fichier avec un secret non masquable est retenu et listé. Même flux git que le mod export-eta (copié dans lib/eta/) : worktree neuf, branche, PR, merge squash, branche supprimée, worktree retiré. repo, own_emails et motifs viennent de ~/.claude/export-eta/config.json ; une clé ici les complète.",
+    "repo": "",
+    "dest_dir": "sources/problemes",
+    "max_kb": 300,
+    "merge": "checks-or-scan",
+    "branch": "export/problemes-{day}-{hm}",
+    "worktree_dir": ".claude/worktrees/problemes-{day}-{hm}"
+  },
   "colors": {
     "ouvert": "error",
     "corrigé": "success",
@@ -142,6 +151,9 @@
     "empty_ledger": "Registre vide : aucun problème trouvé pour l'instant.",
     "collecting": "collecte en cours…",
     "refresh": "↻",
+    "export_eta": "Exporter vers eta",
+    "exporting": "export en cours…",
+    "register_title": "Registre des problèmes",
     "f_status": "Statut",
     "f_week": "Période",
     "f_category": "Catégorie",

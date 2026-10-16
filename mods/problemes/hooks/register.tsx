@@ -17,7 +17,7 @@ const appAtom = atom({ plugin: 'problemes', key: 'app' } as const, 'all')
 const openAtom = atom({ plugin: 'problemes', key: 'open' } as const, [] as string[])
 const noteAtom = atom({ plugin: 'problemes', key: 'noteMsg' } as const, '')
 
-const S: { busy: boolean; error: string; snap: any } = { busy: false, error: '', snap: undefined }
+const S: { busy: boolean; error: string; snap: any; exporting: boolean; exportMsg: string } = { busy: false, error: '', snap: undefined, exporting: false, exportMsg: '' }
 
 const home = async ($: EngineInterface) => {
   let v: string | undefined
@@ -64,6 +64,24 @@ async function collect($: EngineInterface, force = false) {
   $.ui.invalidate('ui.render')
 }
 
+/** « Exporter vers eta » / `/problemes export`: the scanner's `export` (masked register → eta repo by PR), in the background. */
+async function exportEta($: EngineInterface) {
+  if (S.exporting) return
+  S.exporting = true
+  S.exportMsg = ''
+  $.ui.invalidate('ui.render')
+  try {
+    const { root, cfg } = await context($)
+    const r = await $.process.run(scanner(root, cfg, ['export']), { timeoutMs: 600000 })
+    S.exportMsg = ((r.exitCode === 0 ? r.stdout : r.stderr || r.stdout) || '').trim().split('\n').pop()?.replace(/^problemes: /, '').slice(0, 300) || `exit ${r.exitCode}`
+  } catch (err) {
+    S.exportMsg = String((err as Error)?.message ?? err).slice(0, 300)
+  } finally {
+    S.exporting = false
+  }
+  $.ui.invalidate('ui.render')
+}
+
 async function load($: EngineInterface) {
   const { cfg, dataDir, root } = await context($)
   const snap = S.snap ?? (S.snap = await readJson($, `${dataDir}/problems.json`))
@@ -77,7 +95,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'problemes',
       description: 'Problèmes : registre des erreurs et blocages du travail de Claude (questions à Julian, gardes, CI, Workflows), par catégorie et par application',
-      argumentHint: '[refresh | P-NNN] | close',
+      argumentHint: '[refresh | P-NNN | export] | close',
     })
     return next(e)
   })
@@ -89,6 +107,7 @@ export const register: Register = on => {
       return {}
     }
     const { cfg, stale, snap } = await load($)
+    if (args.toLowerCase() === 'export') $.clock.after(0, () => exportEta($))
     const refresh = /\brefresh\b/i.test(args)
     const id = args.match(/\bP-\d+\b/i)?.[0]?.toUpperCase()
     if (id) {
@@ -225,6 +244,7 @@ export const register: Register = on => {
             {chip('f-status-all', L.all, f.status === 'all', () => update($, statusAtom, () => 'all'))}
             {statuses.map(([k, label]) => chip(`f-status-${k}`, label, f.status === k, () => update($, statusAtom, () => k)))}
             <Button key="refresh" plain onPress={() => { $.clock.after(0, () => collect($)) }}>{L.refresh ?? '↻'}</Button>
+            <Button key="export-eta" plain onPress={() => { $.clock.after(0, () => exportEta($)) }}>{S.exporting ? (L.exporting ?? 'export en cours…') : (L.export_eta ?? 'Exporter vers eta')}</Button>
           </Box>
           <Box flexDirection="row" gap={1} flexWrap="wrap">
             <Text dimColor>{`${L.f_week} :`}</Text>
@@ -244,6 +264,7 @@ export const register: Register = on => {
           ) : null}
         </Box>
         {noteMsg ? <Text dimColor>{noteMsg}</Text> : null}
+        {S.exportMsg ? <Text dimColor wrap="wrap">{`${L.export_eta ?? 'Exporter vers eta'} : ${S.exportMsg}`}</Text> : null}
 
         {!all.length ? <Text dimColor>{L.empty_ledger}</Text> : null}
         <Box flexDirection="column">

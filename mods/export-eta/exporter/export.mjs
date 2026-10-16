@@ -12,13 +12,13 @@
 // Git flow (no --out): fetch, `git worktree add` under <eta>/.claude/worktrees/export-<date>, branch
 // export/conversations-<date-time>, commit, push, gh pr create, merge (squash) per merge policy, delete the remote
 // branch, `git worktree remove`. Never pushes to main, never force-pushes.
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { addCounts, check, mask } from '../lib/mask.mjs'
+import { expand, landInEta, maskOpts } from '../lib/etagit.mjs'
 import { batchOf, batchText, deepMerge, fill, frontMatter, globalIndex, partPath, pathOf, projectIndex } from '../lib/layout.mjs'
 import { day, render, split } from '../lib/render.mjs'
 import { listSessions, readTranscript } from './sessions.mjs'
@@ -41,7 +41,6 @@ export function parseArgs(argv) {
   return o
 }
 
-const expand = (p) => String(p || '').replace(/^~(?=[\\/]|$)/, os.homedir()).replace(/%([A-Z_]+)%/gi, (m, k) => process.env[k] ?? m)
 const readJson = (p, d = null) => { try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^﻿/, '')) } catch { return d } }
 const writeJson = (p, v) => { fs.mkdirSync(path.dirname(p), { recursive: true }); const t = p + '.tmp'; fs.writeFileSync(t, JSON.stringify(v, null, 1)); fs.renameSync(t, p) }
 
@@ -78,14 +77,7 @@ function log(cfg, line) {
 
 // ---- render + mask -------------------------------------------------------------------------------------------------
 
-/** Masking options from the config, with the own e-mail(s) kept readable. */
-export function maskOpts(cfg, ownExtra = []) {
-  return {
-    own_emails: [...(cfg.own_emails || []), ...ownExtra].filter(Boolean), allow_email_domains: cfg.allow_email_domains || [],
-    extra_patterns: cfg.extra_patterns || [], file_patterns: cfg.file_patterns || [], hold_patterns: cfg.hold_patterns || [],
-    mask_paths: !!cfg.mask_paths,
-  }
-}
+export { maskOpts }
 
 /**
  * Renders and masks the sessions. existing: paths already in the destination (relative, '/'), so a re-export reuses
@@ -185,77 +177,21 @@ export function pick(sessions, mode, ids, batch, cfg) {
 
 // ---- git ------------------------------------------------------------------------------------------------------------
 
-function sh(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', windowsHide: true, timeout: opts.timeoutMs || 300000, cwd: opts.cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' } })
-  const out = { code: r.status ?? 1, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() || (r.error ? String(r.error.message) : '') }
-  if (opts.must && out.code !== 0) throw new Error(`${cmd} ${args.slice(0, 3).join(' ')}: ${(out.err || out.out).split('\n').pop()}`)
-  return out
-}
-
-const stamp = (ms) => { const d = new Date(ms); const p = (x) => String(x).padStart(2, '0'); return { day: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, hm: `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}` } }
-
-/** The whole git flow; returns { pr, url, merged, branch, error }. */
+/** The whole git flow through lib/etagit.mjs; returns { pr, url, merged, branch, error }. */
 export function gitFlow(cfg, result, nowMs, title) {
-  const repo = expand((cfg.eta || {}).repo || '')
-  if (!repo || !fs.existsSync(path.join(repo, '.git'))) throw new Error(`eta.repo non réglé ou introuvable (${repo || 'vide'}) : mets-le dans ${path.join(cfg.home, 'config.json')}`)
-  const E = cfg.eta || {}
-  const base = E.base || 'main'
-  const st = stamp(nowMs)
-  const branch = fill(E.branch || 'export/conversations-{day}-{hm}', st)
-  const wt = path.join(repo, fill(E.worktree_dir || '.claude/worktrees/export-{day}-{hm}', st))
-  sh('git', ['-C', repo, 'fetch', '-q', 'origin', base], { must: true })
-  sh('git', ['-C', repo, 'worktree', 'add', '-q', '-b', branch, wt, `origin/${base}`], { must: true })
-  const out = { branch, pr: null, url: null, merged: false, error: '' }
-  try {
-    const own = sh('git', ['-C', wt, 'config', 'user.email']).out
-    const existing = listExisting(wt, cfg)
-    const res = result.rebuild(existing, own ? [own] : [])
-    Object.assign(result, res)
-    if (!res.files.length) { out.error = 'rien à exporter (tout est retenu ou vide)'; return out }
-    const touched = writeAll(wt, cfg, res)
-    // Final pass on what will be committed: the same rules, on the files as written.
-    const mo = maskOpts(cfg, own ? [own] : [])
-    for (const f of touched) {
-      const abs = path.join(wt, f)
-      if (!fs.existsSync(abs)) continue
-      const hits = check(fs.readFileSync(abs, 'utf8'), mo)
-      if (hits.length) throw new Error(`passe de confidentialité finale : ${f} (${hits.map((h) => h.kind).join(', ')}) ; rien n'est poussé`)
-    }
-    sh('git', ['-C', wt, 'add', '-A', '--', (cfg.dest_root || 'sources/conversations')], { must: true })
-    if (!sh('git', ['-C', wt, 'diff', '--cached', '--name-only']).out) { out.error = 'aucun changement (déjà exporté à l’identique)'; return out }
-    const msg = `${title}\n\nExport by the export-eta mod (claude-mod): ${res.exported.length} conversation(s), ${Object.values(res.masked).reduce((a, b) => a + b, 0)} value(s) masked, ${res.held.length} held back.`
-    sh('git', ['-C', wt, 'commit', '-q', '-m', msg], { must: true })
-    sh('git', ['-C', wt, 'push', '-q', '-u', 'origin', branch], { must: true })
-    const body = prBody(res, cfg)
-    const bodyFile = path.join(cfg.home, 'pr-body.md')
-    fs.writeFileSync(bodyFile, body)
-    const pr = sh('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body-file', bodyFile], { cwd: wt, must: true })
-    out.url = (pr.out.match(/https:\/\/\S+\/pull\/\d+/) || [])[0] || null
-    out.pr = out.url ? Number(out.url.split('/').pop()) : null
-    if (out.pr) {
-      const policy = E.merge || 'checks-or-scan'
-      if (policy !== 'never') {
-        const checks = sh('gh', ['pr', 'checks', String(out.pr)], { cwd: wt })
-        const none = /no checks reported/i.test(checks.err + checks.out) || (!checks.out && checks.code !== 0 && !/fail/i.test(checks.err))
-        let ok = none && policy !== 'checks'
-        if (!none) {
-          const w = sh('gh', ['pr', 'checks', String(out.pr), '--watch', '--fail-fast'], { cwd: wt, timeoutMs: (E.checks_timeout_min || 30) * 60000 })
-          ok = w.code === 0
-          if (!ok) out.error = 'checks pas verts : PR laissée ouverte'
-        }
-        if (ok) {
-          const m = sh('gh', ['pr', 'merge', String(out.pr), '--squash'], { cwd: wt })
-          out.merged = m.code === 0 || /already merged/i.test(m.err)
-          if (!out.merged) out.error = `merge : ${(m.err || m.out).split('\n').pop()}`
-          else sh('git', ['-C', wt, 'push', '-q', 'origin', '--delete', branch])
-        }
-      }
-    }
-    return out
-  } finally {
-    sh('git', ['-C', repo, 'worktree', 'remove', wt])
-    if (out.merged) sh('git', ['-C', repo, 'branch', '-D', branch])
-  }
+  if (!(cfg.eta || {}).repo) throw new Error(`eta.repo non réglé : mets-le dans ${path.join(cfg.home, 'config.json')}`)
+  const top = cfg.dest_root || 'sources/conversations'
+  return landInEta({
+    eta: cfg.eta, home: cfg.home, mask: cfg, addPaths: [top], title, nowMs,
+    produce: (wt, own) => {
+      const res = result.rebuild(listExisting(wt, cfg), own)
+      Object.assign(result, res)
+      if (!res.files.length) return { empty: 'rien à exporter (tout est retenu ou vide)', touched: [] }
+      const touched = writeAll(wt, cfg, res)
+      const n = Object.values(res.masked).reduce((x, y) => x + y, 0)
+      return { touched, body: prBody(res, cfg), commit: `Export by the export-eta mod (claude-mod): ${res.exported.length} conversation(s), ${n} value(s) masked, ${res.held.length} held back.` }
+    },
+  })
 }
 
 export function prBody(res, cfg) {

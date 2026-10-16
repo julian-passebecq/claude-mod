@@ -472,7 +472,8 @@ export const BIN_FILES = [
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
   'veille/watcher/export-batch.mjs',
   'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs',
-  'export-eta/lib/render.mjs', 'export-eta/export-eta.config.json',
+  'export-eta/lib/render.mjs', 'export-eta/lib/etagit.mjs', 'export-eta/export-eta.config.json',
+  'problemes/lib/export.mjs', 'problemes/lib/eta/mask.mjs', 'problemes/lib/eta/etagit.mjs',
 ]
 // The a-faire mod's feed, copied when that mod sits beside veille (pushes « À faire par Julian » items once each).
 export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/afaire.config.json']

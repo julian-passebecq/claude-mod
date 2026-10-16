@@ -26,6 +26,21 @@ test('a ready batch becomes one « Exporter vers eta » alert with its run butto
   assert.match(eventText({ at: 0, kind: 'exported', reason: 'ok · 4 exportée(s)' }), /export eta : ok · 4/)
 })
 
+test('the installed copy (BIN_FILES) carries every file the exporter and the problemes scanner import', () => {
+  const mods = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const seen = new Set()
+  const walk = (rel) => {
+    if (seen.has(rel)) return
+    seen.add(rel)
+    const src = readFileSync(join(mods, rel), 'utf8')
+    for (const m of src.matchAll(/from '(\.\.?\/[^']+)'/g)) walk(join(dirname(rel), m[1]).replace(/\\/g, '/'))
+  }
+  walk('export-eta/exporter/export.mjs')
+  walk('problemes/scanner/problemes_scan.mjs')
+  const missing = [...seen].filter((f) => !BIN_FILES.includes(f))
+  assert.deepEqual(missing, [])
+})
+
 test('exportBatch asks `pending`, exports by itself only with auto, and is silent without the mod', async () => {
   const mods = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
   const calls = []

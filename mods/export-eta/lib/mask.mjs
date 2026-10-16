@@ -18,7 +18,7 @@ export const RULES = [
   ['cookie', /\b((?:set-)?cookie\s*:\s*)([^\r\n]+)/gi, (m, k) => `${k}${M('cookie')}`],
   ['cookie', /\b((?:session|sess|auth|csrf|xsrf)[_-]?(?:id|token|cookie)?\s*=\s*)([A-Za-z0-9%._~+/-]{16,}=*)/gi, (m, k) => `${k}${M('cookie')}`],
   ['password', /\b((?:password|passwd|pwd|passphrase|mot de passe|mdp)\b["']?\s*[:=]\s*)("[^"\r\n]{1,200}"|'[^'\r\n]{1,200}'|[^\s"',;]{3,200})/gi, (m, k, v) => (/^«masqué/.test(v) || isPlaceholder(v.replace(/^["']|["']$/g, '')) ? m : `${k}${M('password')}`)],
-  ['secret', /\b((?:[A-Za-z0-9]+[_-])*(?:secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|token|credentials?)\b["']?\s*[:=]\s*)("[^"\r\n]{8,300}"|'[^'\r\n]{8,300}'|[^\s"',;]{8,300})/gi,
+  ['secret', /\b((?:[A-Za-z0-9]+[_-])*(?:secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|token|credentials?|sharedaccesskey|accountkey|cookie)\b["']?\s*[:=]\s*)("[^"\r\n]{8,300}"|'[^'\r\n]{8,300}'|[^\s"',;]{8,300})/gi,
     (m, k, v) => (/^«masqué/.test(v) || !looksSecret(v.replace(/^["']|["']$/g, '')) ? m : `${k}${M('secret')}`)],
   ['github-token', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})/g, () => M('github-token')],
   ['gitlab-token', /\bgl(?:pat|dt|rt|ptt|cbt|oas|ft|imt|agent|soat)-[A-Za-z0-9_-]{16,}/g, () => M('gitlab-token')],

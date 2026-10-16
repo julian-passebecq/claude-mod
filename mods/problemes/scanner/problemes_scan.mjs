@@ -7,6 +7,7 @@
 //   node problemes_scan.mjs add <category> <title…>    a problem by hand (status ouvert)
 //   node problemes_scan.mjs fold                       rewrite the snapshot problems.json from the ledger
 //   node problemes_scan.mjs status                     counts, paths, last collection
+//   node problemes_scan.mjs export [--out <dir>] [--dry-run] [--json]   the register, masked, into the eta repo by PR
 // Everything lives in data_dir (default ~/.claude/problemes): register.jsonl (append-only ledger), problems.json
 // (snapshot the pane reads), cursor.json (byte offsets), problemes.config.json (your overrides and seed sources).
 // Nothing outside data_dir is written, except the health record ~/.claude/mods-health/problemes.json.
@@ -21,6 +22,8 @@ import {
   seedFromIncidents, seedFromMarkdown, seedLines, slash, STATUSES, totals,
 } from '../lib/core.mjs'
 import { writeHealth } from './health.mjs'
+import { registerFiles, staleOf } from '../lib/export.mjs'
+import { landInEta, maskOpts } from '../lib/eta/etagit.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MOD = path.resolve(HERE, '..')
@@ -297,6 +300,92 @@ export function addManual(cfg, category, title, now = Date.now()) {
   return id
 }
 
+// ---- export to eta ------------------------------------------------------------------------------------------------------
+
+/**
+ * Settings of the eta export: this mod's `eta` block, completed by export-eta's own user config (same eta repo, same
+ * own e-mails and extra secret patterns) so the path is set once, in ~/.claude/export-eta/config.json.
+ */
+export function etaSettings(cfg) {
+  const env = cfg.env || ENV()
+  const shared = readJson(expand(env.EXPORT_ETA_HOME || '~/.claude/export-eta', env) + '/config.json', {}) || {}
+  // export-eta's branch and worktree names are for conversations: this mod keeps its own; an empty value here is unset.
+  const { branch, worktree_dir, ...sharedEta } = shared.eta || {}
+  const mine = Object.fromEntries(Object.entries(cfg.eta || {}).filter(([k, v]) => !k.startsWith('_') && isSet(v)))
+  const E = deepMerge(deepMerge({ base: 'main', merge: 'checks-or-scan', branch: 'export/problemes-{day}-{hm}', worktree_dir: '.claude/worktrees/problemes-{day}-{hm}' }, sharedEta), mine)
+  if (!isSet(E.repo)) E.repo = ''
+  const maskCfg = {
+    own_emails: [...(shared.own_emails || []), ...(cfg.eta?.own_emails || [])], allow_email_domains: [...(shared.allow_email_domains || ['example.com', 'example.org', 'anthropic.com', 'users.noreply.github.com']), ...(cfg.eta?.allow_email_domains || [])],
+    extra_patterns: [...(shared.extra_patterns || []), ...(cfg.eta?.extra_patterns || [])], hold_patterns: [...(shared.hold_patterns || []), ...(cfg.eta?.hold_patterns || [])],
+    file_patterns: [...(shared.patterns_files || []), ...(cfg.eta?.patterns_files || [])].flatMap(f => { const j = readJson(expand(f, env), null); return Array.isArray(j) ? j : j?.patterns || [] }),
+  }
+  return { E, maskCfg }
+}
+
+function existingIn(root, dir) {
+  const abs = path.join(root, dir)
+  let names = []
+  try { names = fs.readdirSync(abs).filter(n => n.endsWith('.md')) } catch { return [] }
+  return names.map(n => ({ path: `${dir}/${n}`, content: fs.readFileSync(path.join(abs, n), 'utf8') }))
+}
+
+function writeRegister(root, dir, res) {
+  const touched = []
+  for (const f of res.files) {
+    fs.mkdirSync(path.dirname(path.join(root, f.path)), { recursive: true })
+    fs.writeFileSync(path.join(root, f.path), f.content)
+    touched.push(f.path)
+  }
+  for (const p of staleOf(existingIn(root, dir), res.files)) { try { fs.unlinkSync(path.join(root, p)); touched.push(p) } catch { /* gone */ } }
+  return touched
+}
+
+/** /problemes export: the register (masked) into the eta repo through a PR, or into --out <dir>. Returns the history entry. */
+export function exportRegister(cfg, { out = '', dryRun = false, now = Date.now() } = {}) {
+  const problems = fold(readLedger(cfg), cfg.timeline_max ?? 60)
+  const { E, maskCfg } = etaSettings(cfg)
+  const dir = (E.dest_dir || 'sources/problemes').replace(/\/+$/, '')
+  const build = own => registerFiles(problems, { ...cfg, eta: E }, now, own, extra => maskOpts(maskCfg, extra))
+  let res = null
+  let git = { pr: null, url: null, merged: false, error: '' }
+  if (dryRun) res = build([])
+  else if (out) { res = build([]); writeRegister(path.resolve(out), dir, res) }
+  else {
+    if (!E.repo) throw new Error(`eta.repo non réglé : mets-le dans ~/.claude/export-eta/config.json (ou eta.repo dans ${path.join(cfg.data_dir, 'problemes.config.json')})`)
+    git = landInEta({
+      eta: E, home: cfg.data_dir, mask: maskCfg, addPaths: [dir], nowMs: now,
+      title: `Export registre des problèmes (${problems.length})`,
+      produce: (wt, own) => {
+        res = build(own)
+        if (!res.files.length) return { empty: 'rien à exporter (registre vide ou retenu)', touched: [] }
+        const touched = writeRegister(wt, dir, res)
+        const masked = Object.entries(res.masked).map(([k, v]) => `${k} ${v}`).join(', ') || '0'
+        return {
+          touched, commit: `Export by the problemes mod (claude-mod): ${problems.length} problem(s), ${res.files.length} file(s), masked ${masked}, ${res.held.length} held back.`,
+          body: [
+            `Registre des problèmes exporté par le mod problemes (claude-mod) : ${problems.length} problème(s), ${res.files.length} fichier(s)${res.split ? ' (un par catégorie)' : ''}.`, '',
+            ...res.files.map(f => `- \`${f.path}\``), '',
+            `Valeurs masquées : ${masked}.`,
+            res.held.length ? `Retenus (secret non masquable) : ${res.held.map(h => `${h.path} (${h.hits.join(', ')})`).join(' ; ')}.` : 'Retenus : aucun.', '',
+            'Merge policy: no CI on this repo applies to Markdown sources; merged after the confidentiality pass (mask + final check on every written file) came back clean.', '',
+            '🤖 Generated with [Claude Code](https://claude.com/claude-code)',
+          ].join('\n'),
+        }
+      },
+    })
+  }
+  const entry = {
+    at: now, problems: problems.length, files: (res?.files || []).map(f => f.path), held: (res?.held || []).map(h => ({ path: h.path, hits: h.hits })),
+    masked: res?.masked || {}, pr: git.pr, url: git.url, merged: git.merged, error: git.error, dry: dryRun, out: out ? 'dossier local' : '',
+  }
+  if (!dryRun) {
+    const p = path.join(cfg.data_dir, 'export.json')
+    const prev = readJson(p, { history: [] }) || { history: [] }
+    writeAtomic(p, { history: [entry, ...(prev.history || [])].slice(0, 30) })
+  }
+  return entry
+}
+
 // ---- main -------------------------------------------------------------------------------------------------------------
 
 export async function main(argv) {
@@ -346,13 +435,20 @@ export async function main(argv) {
         console.log(JSON.stringify(s.totals))
         return 0
       }
+      case 'export': {
+        const oi = rest.indexOf('--out')
+        const e = exportRegister(cfg, { out: oi >= 0 ? rest[oi + 1] : '', dryRun: rest.includes('--dry-run') })
+        if (rest.includes('--json')) console.log(JSON.stringify(e))
+        else console.log(`problemes: export ${e.error && !e.merged ? 'échec' : 'ok'} · ${e.files.length} fichier(s)${e.url ? ' · ' + e.url : ''}${e.merged ? ' (mergée)' : ''}${e.held.length ? ` · ${e.held.length} retenu(s)` : ''} · masqués ${Object.values(e.masked).reduce((a, b) => a + b, 0)}${e.error ? ' · ' + e.error : ''}`)
+        return e.error && !e.merged ? 1 : 0
+      }
       case 'status': {
         const snap = readJson(paths(cfg).snapshot, null)
         console.log(JSON.stringify({ dir: cfg.data_dir, problems: snap?.problems?.length ?? 0, totals: snap?.totals ?? null, collected: snap?.collected ? new Date(snap.collected).toISOString() : null, stats: snap?.stats ?? null }, null, 1))
         return 0
       }
       default:
-        console.log('usage: node problemes_scan.mjs collect [--force] | import | note <P-NNN> <text> | set <P-NNN> <field> <value> [--fix <text>] | add <category> <title> | fold | status')
+        console.log('usage: node problemes_scan.mjs collect [--force] | import | note <P-NNN> <text> | set <P-NNN> <field> <value> [--fix <text>] | add <category> <title> | fold | status | export [--out <dir>] [--dry-run] [--json]')
         return cmd ? 1 : 0
     }
   } catch (e) {
