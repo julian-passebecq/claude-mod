@@ -106,6 +106,18 @@
       "data": "git en lecture seule dans chaque dépôt sous repos.roots (worktree list, status, branch --merged, for-each-ref, merge-base, diff --quiet, patch-id ; GIT_OPTIONAL_LOCKS=0, jamais de fetch), tailles des dossiers (pwsh sous Windows, cache 12 h), ~/.claude/mods et CLAUDE_CODE_PLUGIN_DIRS de settings.json, ~/.claude/effort-board/_deploy_backups, ~/.claude/projects (taille, cwd), TEMP/claude, ~/.claude/dev-mods, APPDATA/Claude/scratch-workspaces, fichiers de session de l'app (titre, isArchived, lastActivityAt, prs) ; résultat dans ~/.claude/menage-mod",
       "note": "ne supprime rien et ne lance aucune commande : il les montre (bouton Copier). Aucun texte envoyé au modèle. « mergée » = atteignable depuis origin/main au dernier fetch, ou contenu identique / même patch-id dans main (squash), ou PR mergée selon les fichiers de session. Non vérifié : archiver une session hors de l'app (pas de commande documentée) ; format des fichiers de session de l'app (non documenté).",
       "tests": ["node --test mods/menage/tests/logic.test.mjs", "claude plugin test mods/menage"]
+    },
+    {
+      "dir": "cockpit",
+      "name": "cockpit (Cockpit)",
+      "state": "building",
+      "data": "le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour la Jauge et l'Usage ; le scanner de band quand la bande Jauge est ouverte et que band est à côté ; les fichiers de veille (~/.claude/veille) quand la bande Veille est ouverte. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché.",
+      "note": "Un seul panneau, quatre niveaux : Méga (tous les projets), Projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt), Conversation (Workflows et agents), Agent (modèle, effort, tokens, coût, journal). Le détail sous l'arbre réutilise les écrans de factory (Mission, Focus + Pipeline, Arbre). Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.",
+      "tests": [
+        "node --test mods/cockpit/tests/nav.test.mjs",
+        "claude plugin test mods/cockpit",
+        "claude plugin validate mods/cockpit"
+      ]
     }
   ],
   "archived": [

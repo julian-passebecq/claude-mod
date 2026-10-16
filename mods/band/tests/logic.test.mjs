@@ -245,13 +245,13 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
 
 test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   const L = CFG.launcher
-  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Ménage=menage'])
+  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Ménage=menage', 'Cockpit=cockpit'])
   const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
   assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
   assert.equal(isLoaded(L.items[4], cmds), true)
   let open = []
   let bs = launcherButtons(L, cmds, open, CFG.labels)
-  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false])
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false, false])
   assert.equal(bs[5].hint, 'non chargé : ajouter mods/guide à CLAUDE_CODE_PLUGIN_DIRS')
   assert.deepEqual(launcherPress(bs[5]), { toast: bs[5].hint })
   const a = launcherPress(bs[1], L.close_args)
@@ -336,4 +336,25 @@ test('last hand-offs and compactions of this conversation: newest first, n kept,
   )
   assert.equal(recentHandoffs(comps, [], { mtime: NOW - 600000 }, NOW - 300000, 3, CFG.labels, 54).length, 2)
   assert.equal(recentHandoffs([], [], undefined, undefined, 3, CFG.labels, 54).length, 0)
+})
+
+test('gauge: bar with the hand-off and auto-compact marks, colour by level, one short line; text bar for the terminal', async () => {
+  const { gaugeModel, gaugeSvg, gaugeText, barSvg } = await import('../hooks/gauge.ts')
+  const g = gaugeModel({ tokens: 103000, window: 1000000, compactAt: 920000, handoffAt: 250000, etaMin: 16.2, rates: ['cette conv 53 tok/s'], week: 13 })
+  assert.equal(g.title, 'ctx 10 % (103 k)')
+  assert.equal(g.level, 'ok')
+  assert.deepEqual(g.marks.map((m) => [m.kind, Math.round(m.pct), m.label]), [['handoff', 25, 'relais 250 k'], ['compact', 92, 'compact 92 %']])
+  assert.equal(g.line, 'compactage dans ~16 min · cette conv 53 tok/s · semaine 13 %')
+  const svg = gaugeSvg(g, {}, 300)
+  assert.match(svg, /^<svg [^>]*width="300"/)
+  assert.match(svg, /rx="3" fill="#3fb950"/) // green fill
+  assert.equal((svg.match(/<line /g) || []).length, 2)
+  assert.equal(gaugeModel({ tokens: 260000, window: 1000000, handoffAt: 250000 }).level, 'bad')
+  assert.equal(gaugeModel({ tokens: 760000, window: 1000000, compactAt: 920000 }).level, 'warn')
+  const t = gaugeText(g, 20)
+  assert.equal([...t].length, 20)
+  assert.equal(t[0], '█')
+  assert.equal(t[5], '┃') // 25 % of 20
+  assert.equal(gaugeModel({ window: 200000 }).hasReading, false)
+  assert.match(barSvg(21, '#2f81f7', 200), /width="42.0"/)
 })

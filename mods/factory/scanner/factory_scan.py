@@ -41,6 +41,12 @@ def arg(name, default=None):
 HOME = os.path.expanduser('~')
 PROJECTS = arg('--projects', os.path.join(HOME, '.claude', 'projects'))
 APP = arg('--app', os.path.join(os.environ.get('APPDATA', ''), 'Claude', 'claude-code-sessions'))
+if not os.path.isdir(APP) and '--app' not in sys.argv:
+    # The Microsoft Store (MSIX) build of the desktop app keeps its data under the package's LocalCache, which a
+    # process outside the package does not see at %APPDATA%: titles, models and spawnedFrom links would all be lost.
+    for _p in sorted(glob.glob(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Packages', 'Claude_*', 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions'))):
+        APP = _p
+        break
 BOARD = arg('--board', os.path.join(HOME, '.claude', 'effort-board'))
 CACHE = arg('--cache', os.path.join(BOARD, 'factory_cache.json'))
 HOURS = float(arg('--hours', '36'))
@@ -55,6 +61,7 @@ PR_MAX_AGE = float(arg('--pr-max-age-days', '14')) * 86400
 PR_MAX_CHECKS = int(arg('--pr-max-checks', '25'))
 GL_HOST = arg('--gl-host', '')
 RECENT = int(arg('--recent', '0'))
+SUB_EVENTS = int(arg('--sub-events', '15'))
 
 _day_cache = {}
 
@@ -626,6 +633,8 @@ def main():
                 'prompt': (parent or {}).get('prompt') or sa['prompt'], 'ts': sa['first_ts'], 'last_ts': sa['last_ts'],
                 'models': sa['models'], 'days': sa['days'], 'tools': sa['tools'], 'readonly': sa['readonly'],
                 'last_tool': sa['last_tool'], 'ctx': sa['ctx'], 'loops': sa['loops'],
+                # the agent's own log, detail only (cockpit's « agent » level); dashboard rows keep the slim keys below
+                'events': sa['events'][-SUB_EVENTS:] if is_detail else [],
             })
         cwd = app.get('cwd') or a['cwd']
         row = slim(a, is_detail)

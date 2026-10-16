@@ -1,0 +1,23 @@
+{
+  "name": "cockpit",
+  "version": "0.1.0",
+  "description": "Cockpit, un seul panneau latéral qui zoome, en lecture seule : Méga (tous les projets du PC) › Projet (lead et sous-conversations, en arbre) › Conversation (Workflows et agents) › Agent (modèle, effort, tokens, journal). Fil d'Ariane, arbre cliquable dessiné, détail de la sélection (écrans de factory), bandes Jauge, Usage, Veille et Fichiers. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "pane", "agents", "tree", "factory"],
+  "userConfig": {
+    "start": {
+      "type": "string",
+      "title": "Open at start",
+      "description": "on: the pane opens by itself when a session starts (on this conversation's project). off: only /cockpit opens it.",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "config": {
+      "type": "string",
+      "title": "Settings file",
+      "description": "Path to your own JSON deep-merged over cockpit.config.json (sections, order, default level, labels, colors; ~ allowed). Empty: ~/.claude/effort-board/cockpit.config.json when present.",
+      "default": ""
+    }
+  }
+}
