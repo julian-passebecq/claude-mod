@@ -27,6 +27,7 @@ export type Config = {
   band: { items: string[]; scopes: string[] }
   status_line: { items: string[]; scopes: string[] }
   launcher?: Launcher
+  handoff?: HandoffCfg
   context: {
     window_fallback: number
     autocompact_pct_fallback: number
@@ -439,3 +440,106 @@ export const launcherPress = (b: LauncherButton, closeArgs = 'close'): LauncherA
 /** The open list after a press on `mod`. */
 export const toggleOpen = (open: readonly string[], mod: string, isOpen: boolean) =>
   isOpen ? (open.includes(mod) ? [...open] : [...open, mod]) : open.filter(m => m !== mod)
+
+// ---------- hand-off helper (« Passation conseillée ») ----------
+
+export type HandoffCfg = {
+  enabled?: boolean
+  /** the orange line under the band; false: only the pane's Passation block */
+  band?: boolean
+  /** context tokens of this conversation from which the line shows (the RESUME rule: 250 K) */
+  threshold_tokens: number
+  /** also show it when the forecast puts auto-compact within this many minutes */
+  eta_min: number
+  /** the slash command « Préparer RESUME » runs, without the slash, and its arguments */
+  command: string
+  args?: string
+  /** RESUME files looked for, relative to the session's folder, then to its repo root; the first found wins */
+  files: string[]
+  history_n: number
+  preview_chars: number
+}
+
+export type HandoffAdvice = { show: boolean; reasons: ('tokens' | 'eta')[] }
+
+/** The line shows when the context reached threshold_tokens or the auto-compact forecast is within eta_min. */
+export const handoffAdvice = (ctx: Ctx | undefined, h: HandoffCfg | undefined): HandoffAdvice => {
+  if (!ctx || !h || h.enabled === false) return { show: false, reasons: [] }
+  const reasons: HandoffAdvice['reasons'] = []
+  if (ctx.tokens !== undefined && ctx.tokens >= h.threshold_tokens) reasons.push('tokens')
+  if (ctx.etaMin !== undefined && h.eta_min > 0 && ctx.etaMin <= h.eta_min) reasons.push('eta')
+  return { show: reasons.length > 0, reasons }
+}
+
+const fill = (s: string, vars: Record<string, string>) => s.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m)
+
+export const handoffReason = (a: HandoffAdvice, ctx: Ctx | undefined, h: HandoffCfg, labels: Record<string, string>) =>
+  a.reasons
+    .map(r =>
+      r === 'tokens'
+        ? fill(L(labels, 'handoff_reason_tokens'), { tokens: fmtTok(ctx?.tokens ?? 0), threshold: fmtTok(h.threshold_tokens) })
+        : fill(L(labels, 'handoff_reason_eta'), { min: String(Math.max(1, Math.round(ctx?.etaMin ?? 0))) }),
+    )
+    .join(' · ')
+
+/** "mis à jour il y a 3 h", or the absent label when there is no file. */
+export const ageText = (mtime: number | undefined, now: number, labels: Record<string, string>) => {
+  if (mtime === undefined) return L(labels, 'handoff_absent')
+  const min = Math.max(0, (now - mtime) / 60000)
+  const ago = min < 1 ? "à l'instant" : min < 60 ? `il y a ${Math.round(min)} min` : min < 48 * 60 ? `il y a ${Math.round(min / 60)} h` : `il y a ${Math.round(min / 1440)} j`
+  return `${L(labels, 'handoff_updated')} ${ago}`
+}
+
+/** Where to look for RESUME: each file under the session's folder, then under its repo root (worktree markers cut). */
+export const resumeCandidates = (cwd: string | undefined, files: string[], markers: string[]) => {
+  if (!cwd) return []
+  const here = norm(cwd)
+  const repo = repoKey(cwd, markers)
+  const dirs = repo && repo !== '?' && repo !== here ? [here, repo] : [here]
+  return dirs.flatMap(d => files.map(f => `${d}/${f.replace(/\\/g, '/').replace(/^\/+/, '')}`))
+}
+
+export type HandoffButton = { key: 'handoff-prepare' | 'handoff-open'; label: string; enabled: boolean; hint?: string }
+
+/** The two buttons. « Préparer » is greyed when the command is not in this session; « Ouvrir » always answers. */
+export const handoffButtons = (h: HandoffCfg, commands: readonly CommandSeen[], resume: { path?: string; mtime?: number } | undefined, labels: Record<string, string>): HandoffButton[] => {
+  const has = commands.some(c => c.name === h.command)
+  return [
+    {
+      key: 'handoff-prepare',
+      label: L(labels, 'handoff_prepare'),
+      enabled: has,
+      ...(has ? {} : { hint: fill(L(labels, 'handoff_missing'), { command: h.command }) }),
+    },
+    {
+      key: 'handoff-open',
+      label: L(labels, 'handoff_open'),
+      enabled: true,
+      ...(resume?.path && resume.mtime !== undefined ? {} : { hint: L(labels, 'handoff_absent') }),
+    },
+  ]
+}
+
+export type HandoffEvent = { t: number; kind: 'compact' | 'handoff' | 'resume'; text: string }
+
+/** The last `n` hand-offs (/handoff runs, RESUME writes during this conversation) and compactions, newest first. */
+export const recentHandoffs = (
+  compactions: Compaction[],
+  ran: number[],
+  resume: { mtime?: number } | undefined,
+  since: number | undefined,
+  n: number,
+  labels: Record<string, string>,
+  idleMin: number,
+): HandoffEvent[] => {
+  const out: HandoffEvent[] = [
+    ...compactions.filter(c => !c.a).map(c => ({
+      t: c.t,
+      kind: 'compact' as const,
+      text: `${L(labels, 'handoff_compact')} ${compactLabel(c, labels, idleMin)}${c.pre ? ` ${fmtTok(c.pre)}→${fmtTok(c.post ?? 0)}` : ''}`,
+    })),
+    ...ran.map(t => ({ t, kind: 'handoff' as const, text: L(labels, 'handoff_ran') })),
+  ]
+  if (resume?.mtime !== undefined && (since === undefined || resume.mtime >= since)) out.push({ t: resume.mtime, kind: 'resume', text: L(labels, 'handoff_written') })
+  return out.sort((a, b) => b.t - a.t).slice(0, Math.max(0, n))
+}
