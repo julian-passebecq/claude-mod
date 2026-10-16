@@ -3,11 +3,12 @@
 // it reads new transcript bytes and the desktop app's session files, dedupes hits into problems by signature and
 // appends to ~/.claude/problemes/register.jsonl; the pane reads the folded snapshot problems.json. The only write
 // from the pane is « Ajouter une note », which runs the scanner's `note` command (local ledger only). The command
-// shows a pane and returns no text, so nothing reaches the model; nothing here blocks, rewrites or delays anything.
+// shows a pane and returns no text (its drawing is hooks/view.mjs, pure, also drawn by the registres mod's tab), so nothing reaches the model; nothing here blocks, rewrites or delays anything.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { applyFilters, appsOf, deepMerge, fill, fmtAge, fmtDate, linksOf, summaryOf, totals, tree } from '../lib/core.mjs'
+import { deepMerge, fill } from '../lib/core.mjs'
+import { drawProblemes } from './view.mjs'
 
 const PANE = 'problemes'
 const statusAtom = atom({ plugin: 'problemes', key: 'status' } as const, 'all')
@@ -121,39 +122,16 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Input, Link } = $.ui.resolve(e) as any
     const { cfg, snap, now, root } = await load($)
     const L = cfg.labels ?? {}
-    const C = cfg.colors ?? {}
-    const status = S.busy ? L.collecting : ''
-    if (!snap) {
-      return (
-        <Box flexDirection="column" gap={1}>
-          <Text>{fill(L.first, { days: cfg.collect?.backfill_days ?? 14 })}</Text>
-          {S.error ? <Text color="error">{`collecte : ${S.error}`}</Text> : null}
-          {status ? <Text dimColor>{status}</Text> : null}
-        </Box>
-      )
-    }
     const f = {
       status: (await read($, statusAtom)) as string,
       week: (await read($, weekAtom)) as string,
       category: (await read($, categoryAtom)) as string,
       app: (await read($, appAtom)) as string,
     }
-    const open = new Set(((await read($, openAtom)) as string[]) ?? [])
+    const open = ((await read($, openAtom)) as string[]) ?? []
     const noteMsg = (await read($, noteAtom)) as string
-    const all: any[] = snap.problems ?? []
-    const t = totals(all, now)
-    const shown = applyFilters(all, f, now)
-    const nodes = tree(shown, cfg.categories ?? [], L)
-    const max = cfg.max_problems_per_node ?? 40
-    const flip = (id: string) => update($, openAtom, (o: string[]) => (o?.includes(id) ? o.filter(x => x !== id) : [...(o ?? []), id]))
-    const chip = (key: string, label: string, active: boolean, press: () => unknown) => (
-      <Button key={key} {...(active ? {} : { plain: true as const })} onPress={press}>{label}</Button>
-    )
-    const statusColor = (s: string) => C[s]
-    const stats = snap.stats
 
     const note = async (id: string, text: string) => {
       const v = String(text ?? '').trim()
@@ -168,113 +146,16 @@ export const register: Register = on => {
       }
     }
 
-    const problemRow = (p: any, depth: number, scope: string) => {
-      const pid = `p:${p.id}`
-      const isOpen = open.has(pid)
-      const line = fill(L.problem, { id: p.id, title: p.title, count: p.count, status: p.status })
-      const rows: any[] = [
-        <Box key={`${scope}-${p.id}`} flexDirection="row" gap={1} paddingLeft={depth}>
-          <Text {...(statusColor(p.status) ? { color: statusColor(p.status) } : {})}>●</Text>
-          <Button key={`${scope}-${p.id}`} plain onPress={() => flip(pid)}>{`${isOpen ? '▾' : '▸'} ${line}`}</Button>
-        </Box>,
-      ]
-      if (!isOpen) return rows
-      const field = (label: string, v: string) => (
-        <Text wrap="wrap"><Text bold>{`${label} : `}</Text>{v || L.unknown}</Text>
-      )
-      const links = [...new Set((p.evidence ?? []).flatMap((ev: any) => linksOf(ev.text)).concat(linksOf(p.fix), linksOf(p.symptom)))].slice(0, 5) as string[]
-      rows.push(
-        <Box key={`${scope}-${p.id}-d`} flexDirection="column" paddingLeft={depth + 2}>
-          {field(L.symptom, p.symptom)}
-          {field(L.cause, p.cause)}
-          {field(L.fix, p.fix)}
-          <Text dimColor wrap="wrap">{`${L.seen} : ${fill(L.seen_line, { first: fmtDate(p.first_seen), last: fmtDate(p.last_seen), count: p.count, source: p.source })}${p.apps?.length ? ` · ${p.apps.join(', ')}` : ''}`}</Text>
-          {(p.evidence ?? []).length ? <Text bold>{L.evidence}</Text> : null}
-          {(p.evidence ?? []).slice(-5).reverse().map((ev: any, i: number) => (
-            <Text key={`${scope}-${p.id}-ev${i}`} dimColor wrap="wrap">{`· ${fmtDate(ev.at)}${ev.session ? ` · session ${String(ev.session).slice(0, 8)}` : ''}${ev.title ? ` · ${ev.title}` : ''}${ev.file && !ev.session ? ` · ${String(ev.file).split('/').pop()}` : ''}${ev.text ? ` · ${ev.text}` : ''}`}</Text>
-          ))}
-          {links.map((u, i) => <Link key={`${scope}-${p.id}-l${i}`} href={u} label={u} />)}
-          {(p.timeline ?? []).length ? <Text bold>{L.timeline}</Text> : null}
-          {(p.timeline ?? []).length ? <Text dimColor wrap="wrap">{(p.timeline ?? []).slice(-12).map((x: any) => `${fmtDate(x.at)} ×${x.n}`).join(' · ')}</Text> : null}
-          {(p.notes ?? []).length ? <Text bold>{L.notes}</Text> : null}
-          {(p.notes ?? []).map((n: any, i: number) => <Text key={`${scope}-${p.id}-n${i}`} wrap="wrap">{`· ${fmtDate(n.at)} · ${n.text}`}</Text>)}
-          <Input key={`note-${p.id}`} label={`${L.note_label} : `} placeholder={L.note_placeholder} submitLabel={L.note_submit} onSubmit={(v: string) => void note(p.id, v)} />
-        </Box>,
-      )
-      return rows
-    }
-
-    const nodeRows = (n: any, depth: number): any[] => {
-      const id = `c:${n.id}`
-      const isOpen = open.has(id)
-      const rows: any[] = [
-        <Box key={`n-${n.id}`} flexDirection="column" paddingLeft={depth}>
-          <Box flexDirection="row" gap={1}>
-            <Text {...(n.open ? { color: C['ouvert'] } : { dimColor: true })}>{n.open ? '●' : '○'}</Text>
-            <Button key={`cat-${n.id}`} plain onPress={() => flip(id)}>{`${isOpen ? '▾' : '▸'} ${fill(L.node, { label: n.label, open: n.open, total: n.total })}`}</Button>
-          </Box>
-          {!isOpen ? <Text dimColor wrap="truncate">{`  ${summaryOf(n, 2, L.empty)}`}</Text> : null}
-          {isOpen && n.cross ? <Text dimColor>{`  ${L.cross}`}</Text> : null}
-        </Box>,
-      ]
-      if (!isOpen) return rows
-      for (const ch of n.children ?? []) rows.push(...nodeRows(ch, depth + 2))
-      for (const p of (n.problems ?? []).slice(0, max)) rows.push(...problemRow(p, depth + 2, n.id))
-      if ((n.problems ?? []).length > max) rows.push(<Text key={`more-${n.id}`} dimColor>{`${' '.repeat(depth + 2)}${fill(L.more, { n: n.problems.length - max })}`}</Text>)
-      return rows
-    }
-
-    const statuses = Object.entries(L.status_names ?? {}) as [string, string][]
-    const weeks = Object.entries(L.week_names ?? {}) as [string, string][]
-    const tops = (cfg.categories ?? []).filter((c: any) => !c.dynamic)
-    const apps = appsOf(all).slice(0, L.apps_max ?? 12)
-
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Box flexDirection="column">
-          <Text bold>{fill(L.top, t)}</Text>
-          <Text dimColor wrap="wrap">{fill(L.subtitle, { age: fmtAge(snap.collected, now), occ: t.week_seen }) + (status ? ` · ${status}` : '')}</Text>
-          {S.error ? <Text color="error">{`collecte : ${S.error}`}</Text> : null}
-          {stats ? <Text dimColor wrap="wrap">{fill(L.collect_stats, stats)}</Text> : null}
-        </Box>
-
-        <Box flexDirection="column">
-          <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Text dimColor>{`${L.f_status} :`}</Text>
-            {chip('f-status-all', L.all, f.status === 'all', () => update($, statusAtom, () => 'all'))}
-            {statuses.map(([k, label]) => chip(`f-status-${k}`, label, f.status === k, () => update($, statusAtom, () => k)))}
-            <Button key="refresh" plain onPress={() => { $.clock.after(0, () => collect($)) }}>{L.refresh ?? '↻'}</Button>
-            <Button key="export-eta" plain onPress={() => { $.clock.after(0, () => exportEta($)) }}>{S.exporting ? (L.exporting ?? 'export en cours…') : (L.export_eta ?? 'Exporter vers eta')}</Button>
-          </Box>
-          <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Text dimColor>{`${L.f_week} :`}</Text>
-            {weeks.map(([k, label]) => chip(`f-week-${k}`, label, f.week === k, () => update($, weekAtom, () => k)))}
-          </Box>
-          <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Text dimColor>{`${L.f_category} :`}</Text>
-            {chip('f-cat-all', L.all, f.category === 'all', () => update($, categoryAtom, () => 'all'))}
-            {tops.map((c: any) => chip(`f-cat-${c.id}`, c.label, f.category === c.id, () => update($, categoryAtom, () => c.id)))}
-          </Box>
-          {apps.length ? (
-            <Box flexDirection="row" gap={1} flexWrap="wrap">
-              <Text dimColor>{`${L.f_app} :`}</Text>
-              {chip('f-app-all', L.all, f.app === 'all', () => update($, appAtom, () => 'all'))}
-              {apps.map(([a, n]) => chip(`f-app-${a}`, `${a} (${n})`, f.app === a, () => update($, appAtom, () => a)))}
-            </Box>
-          ) : null}
-        </Box>
-        {noteMsg ? <Text dimColor>{noteMsg}</Text> : null}
-        {S.exportMsg ? <Text dimColor wrap="wrap">{`${L.export_eta ?? 'Exporter vers eta'} : ${S.exportMsg}`}</Text> : null}
-
-        {!all.length ? <Text dimColor>{L.empty_ledger}</Text> : null}
-        <Box flexDirection="column">
-          {nodes.flatMap(n => nodeRows(n, 0))}
-        </Box>
-
-        <Box flexDirection="column">
-          {(L.notes_doc ?? []).map((x: string, i: number) => <Text key={`doc-${i}`} dimColor wrap="wrap">{`· ${x}`}</Text>)}
-        </Box>
-      </Box>
-    )
+    return drawProblemes($.ui.resolve(e), { cfg, snap, now, f, open, noteMsg, busy: S.busy, error: S.error, exporting: S.exporting, exportMsg: S.exportMsg }, {
+      flip: (id: string) => update($, openAtom, (o: string[]) => (o?.includes(id) ? o.filter(x => x !== id) : [...(o ?? []), id])),
+      setFilter: (name: string, v: string) =>
+        name === 'status' ? update($, statusAtom, () => v)
+          : name === 'week' ? update($, weekAtom, () => v)
+            : name === 'category' ? update($, categoryAtom, () => v)
+              : update($, appAtom, () => v),
+      refresh: () => { $.clock.after(0, () => collect($)) },
+      exportEta: () => { $.clock.after(0, () => exportEta($)) },
+      note,
+    }) as any
   })
 }
