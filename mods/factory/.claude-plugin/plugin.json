@@ -1,0 +1,6 @@
+{
+  "name": "factory",
+  "version": "0.3.0",
+  "description": "Factory views: per-conversation agent tree with bill, guards, log and warnings (/factory), and a dashboard of all live conversations with routing shares (/factory-all)",
+  "author": { "name": "Julian Passebecq" }
+}

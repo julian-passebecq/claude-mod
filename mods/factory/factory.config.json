@@ -1,0 +1,82 @@
+{
+  "_doc": "factory mod settings. Override any key in ~/.claude/effort-board/factory.config.json (deep merge). Dollars are an ESTIMATE from tokens x these rates.",
+  "cost_label": "estimate",
+  "rates_source": "USD per million tokens. in/out from docs/models/models.json (claude.com/pricing, checked 9 Oct); haiku-5-5 assumed = haiku-4-5. Cache: read 0.1x input, 5-min write 1.25x, 1-hour write 2x.",
+  "rates": {
+    "claude-fable-5-1": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5, "cache_write_1h": 20 },
+    "claude-opus-5-5": { "in": 4, "out": 20, "cache_read": 0.4, "cache_write_5m": 5, "cache_write_1h": 8 },
+    "claude-sonnet-5-5": { "in": 2, "out": 10, "cache_read": 0.2, "cache_write_5m": 2.5, "cache_write_1h": 4 },
+    "claude-haiku-5-5": { "in": 1, "out": 5, "cache_read": 0.1, "cache_write_5m": 1.25, "cache_write_1h": 2 },
+    "fable": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5, "cache_write_1h": 20 },
+    "opus": { "in": 5, "out": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10 },
+    "sonnet": { "in": 2, "out": 10, "cache_read": 0.2, "cache_write_5m": 2.5, "cache_write_1h": 4 },
+    "haiku": { "in": 1, "out": 5, "cache_read": 0.1, "cache_write_5m": 1.25, "cache_write_1h": 2 },
+    "default": { "in": 5, "out": 25, "cache_read": 0.5, "cache_write_5m": 6.25, "cache_write_1h": 10 }
+  },
+  "context_window": 400000,
+  "thresholds": {
+    "ctx_warn_pct": 50,
+    "ctx_bad_pct": 62.5,
+    "handoff_tokens": 250000,
+    "readonly_opus_min_calls": 5,
+    "readonly_opus_share": 0.8,
+    "recent_hours": 36,
+    "live_s": 180
+  },
+  "readonly_agent_types": ["Explore", "explore-fast", "auditor"],
+  "readonly_exempt_types": ["architect"],
+  "routing_targets": {
+    "_doc": "V4.8 routing (Haiku read-only, Sonnet edits/tests, Opus plans/review/merge) as call shares, today, main + subagents. Proposed numbers; the PM sets them here.",
+    "metric": "calls",
+    "opus": { "max": 0.5 },
+    "sonnet": { "min": 0.25 },
+    "haiku": { "min": 0.15 }
+  },
+  "architect": {
+    "types": ["architect"],
+    "reasons": [
+      { "label": "error repeats", "match": "twice|failed again|still fail|stuck|repeat" },
+      { "label": "before done", "match": "before (it is )?(declared )?done|final review|before merge|declare.{0,20}done|review of [0-9v]|release" },
+      { "label": "before plan", "match": "plan|version|design|milestone|architecture" }
+    ],
+    "fallback": "other"
+  },
+  "guard_match": "denied|refused|not allowed|permission|blocked by|guard|hook (error|blocked)|rejected",
+  "event_count": 15,
+  "turn_count": 10,
+  "refresh_s": 20,
+  "ci_ttl_s": 600,
+  "include_cli": false,
+  "python": "python",
+  "svg": { "px_per_column": 8, "max_boxes": 10, "colors": {} },
+  "colors": {
+    "opus": "#d97706",
+    "sonnet": "#2563eb",
+    "haiku": "#16a34a",
+    "fable": "#9333ea",
+    "other": "#6b7280",
+    "running": "#2563eb",
+    "done": "#16a34a",
+    "failed": "#dc2626",
+    "stopped": "#6b7280",
+    "ok": "#16a34a",
+    "warn": "#d97706",
+    "bad": "#dc2626",
+    "architect": "#9333ea",
+    "dim": "#6b7280"
+  },
+  "legends": {
+    "running": "running",
+    "done": "done",
+    "failed": "failed",
+    "stopped": "stopped (no completion seen)",
+    "waiting_yes": "yes",
+    "waiting_no": "no",
+    "main": "main thread",
+    "bill": "Bill (estimate)",
+    "guards": "Approvals and guards",
+    "log": "Session log",
+    "warnings": "Warnings",
+    "tree": "Agent tree"
+  }
+}

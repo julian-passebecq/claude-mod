@@ -1,0 +1,392 @@
+{
+  "_doc": "One config for the control mod: paths, price table, metric targets (from the V4.8/V4.9 rules), hidden-rule catalogue, practices. Edit here; set paths.projects_root to the folder that holds your repos (the <...> paths are placeholders, a missing path is skipped). Thresholds are first guesses from usage-analysis.md (9 Oct); tune them after a week.",
+  "paths": {
+    "claude_home": "~/.claude",
+    "projects_root": "<PROJECTS_ROOT>",
+    "out_dir": "~/.claude/effort-board/control",
+    "audit_report": "<CLAUDE_CONTROL_REPO>/docs/audits/2026-10-09-night/REPORT.md",
+    "practices_md": "<CLAUDE_CONTROL_REPO>/docs/PRACTICES.md",
+    "history_md": "<CLAUDE_CONTROL_REPO>/docs/HISTORY.md"
+  },
+  "scan": {
+    "history_days": 30,
+    "windows": [
+      {
+        "id": "1d",
+        "label": "Last 24 h",
+        "hours": 24
+      },
+      {
+        "id": "7d",
+        "label": "Last 7 days",
+        "hours": 168
+      },
+      {
+        "id": "30d",
+        "label": "Last 30 days",
+        "hours": 720
+      },
+      {
+        "id": "ref",
+        "label": "2-9 Oct (audit run)",
+        "from": "2026-10-02T00",
+        "to": "2026-10-09T14"
+      }
+    ],
+    "exclude_cwd": [],
+    "exclude_sdk_bench": [],
+    "read_only_tools": [
+      "Read",
+      "Grep",
+      "Glob",
+      "WebSearch",
+      "WebFetch"
+    ],
+    "ctx_big": 300000,
+    "ctx_handoff": 250000,
+    "stale_minutes": 60,
+    "active_days": 14
+  },
+  "prices": {
+    "_doc": "USD per million tokens. Input/output from docs/models/models.json (claude.com/pricing, 2 Oct). Cache read = 0.1 x input, cache write = 1.25 x input (5-min cache). Haiku 5.5 has no price in models.json: Haiku 4.5's rate is used (estimate).",
+    "cache_read_factor": 0.1,
+    "cache_write_factor": 1.25,
+    "models": {
+      "opus": {
+        "in": 4,
+        "out": 20,
+        "source": "claude-opus-5-5, claude.com/pricing"
+      },
+      "sonnet": {
+        "in": 2,
+        "out": 10,
+        "source": "claude-sonnet-5-5, claude.com/pricing"
+      },
+      "haiku": {
+        "in": 1,
+        "out": 5,
+        "source": "haiku-4-5 rate (no haiku-5-5 price recorded)"
+      },
+      "fable": {
+        "in": 10,
+        "out": 50,
+        "source": "claude-fable-5-1, claude.com/pricing"
+      },
+      "other": {
+        "in": 0,
+        "out": 0,
+        "source": "unpriced"
+      }
+    }
+  },
+  "metrics": [
+    {
+      "id": "sub_no_model",
+      "label": "Agent/Workflow subagent calls without a model",
+      "unit": "%",
+      "better": "low",
+      "green": 10,
+      "amber": 30,
+      "rule": "V5 §3: every Agent and Workflow agent() call names its model"
+    },
+    {
+      "id": "sub_opus_share",
+      "label": "Subagent turns on Opus",
+      "unit": "%",
+      "better": "low",
+      "green": 50,
+      "amber": 75,
+      "rule": "V5 §3: Opus leads and codes; Sonnet tests/docs/audits; Haiku search and triage"
+    },
+    {
+      "id": "haiku_readonly_share",
+      "label": "Read-only calls (Read/Grep/Glob/Web) run on Haiku",
+      "unit": "%",
+      "better": "high",
+      "green": 30,
+      "amber": 10,
+      "rule": "V5 §3: search, lookup, CI/log triage go to explore-fast (Haiku low)"
+    },
+    {
+      "id": "opus_readonly_share",
+      "label": "Read-only calls run on Opus",
+      "unit": "%",
+      "better": "low",
+      "green": 40,
+      "amber": 70,
+      "rule": "V5 §3: search and triage are not Opus work"
+    },
+    {
+      "id": "opus_main_medium",
+      "label": "Opus main-thread turns at medium",
+      "unit": "%",
+      "better": "high",
+      "green": 95,
+      "amber": 85,
+      "rule": "V5 §3: lead session and coders Opus 5.5 medium"
+    },
+    {
+      "id": "high_not_architect",
+      "label": "Opus subagent turns at high/xhigh outside the architect",
+      "unit": "%",
+      "better": "low",
+      "green": 2,
+      "amber": 5,
+      "rule": "V5 §3: high only for the architect (multi-day plan, fix failed twice, big package done)"
+    },
+    {
+      "id": "sonnet_main_high",
+      "label": "Sonnet main-thread turns above medium",
+      "unit": "%",
+      "better": "low",
+      "green": 5,
+      "amber": 20,
+      "rule": "V5 §3: Sonnet 5.5 low-medium"
+    },
+    {
+      "id": "ctx_big_share",
+      "label": "Main-thread turns at 300K+ context",
+      "unit": "%",
+      "better": "low",
+      "green": 2,
+      "amber": 10,
+      "rule": "V5 §4: one package per conversation; RESUME.md at 250K (cache reads = 50 % of spend, PRACTICES B2)"
+    },
+    {
+      "id": "handoff_ratio",
+      "label": "Hand-offs among hand-offs + auto-compactions",
+      "unit": "%",
+      "better": "info",
+      "rule": "V5 §4: RESUME.md at 250K, then the auto-compact loses nothing (auto-compactions accepted)"
+    },
+    {
+      "id": "monitor_cron_per_day",
+      "label": "Monitor + CronCreate + /loop calls per day",
+      "unit": "/day",
+      "better": "low",
+      "green": 1,
+      "amber": 5,
+      "rule": "V5 §4: no CronCreate, /loop or Monitor wake-ups (each fire re-sends the whole context)"
+    },
+    {
+      "id": "workflow_model_share",
+      "label": "Workflow agent() calls with a model",
+      "unit": "%",
+      "better": "high",
+      "green": 80,
+      "amber": 40,
+      "rule": "V5 §3: every Workflow agent() call names its model"
+    },
+    {
+      "id": "workflow_per_day",
+      "label": "Workflow runs per day",
+      "unit": "/day",
+      "better": "high",
+      "green": 2,
+      "amber": 0.5,
+      "rule": "V5 §2: any work with two or more independent parts runs as one Workflow"
+    },
+    {
+      "id": "plan_mode",
+      "label": "Plan mode uses",
+      "unit": "count",
+      "better": "info",
+      "rule": "V5 §2: interactive plan mode only when Julian is at the keyboard"
+    },
+    {
+      "id": "goal_uses",
+      "label": "/goal commands per day",
+      "unit": "/day",
+      "better": "high",
+      "rule": "V5 §2: top-level launch prompts start with /goal <done condition>",
+      "green": 1,
+      "amber": 0.2
+    },
+    {
+      "id": "plan_agent_calls",
+      "label": "Plan subagent calls",
+      "unit": "count",
+      "better": "info",
+      "rule": "V5 §2: a Plan subagent (opus, medium) writes the plan into RESUME.md or the PR"
+    },
+    {
+      "id": "explore_builtin_per_day",
+      "label": "Built-in Explore calls per day (inherit the session model)",
+      "unit": "/day",
+      "better": "low",
+      "green": 0.2,
+      "amber": 2,
+      "rule": "V5 §3: search goes to explore-fast (Haiku), not the built-in Explore"
+    },
+    {
+      "id": "architect_calls",
+      "label": "Architect subagent calls",
+      "unit": "count",
+      "better": "info",
+      "rule": "V5 §3: architect at three triggers only"
+    },
+    {
+      "id": "opus_cost_share",
+      "label": "Estimated $ on Opus",
+      "unit": "%",
+      "better": "info",
+      "rule": "Opus is the core (lead, coders); the rest should be cheap"
+    }
+  ],
+  "hidden_env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "Every subagent call that names no model runs on this model (V5 §3: Sonnet), whatever the agent type.",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "Caps the context window: auto-compaction fires near this size instead of the model's full window.",
+    "CLAUDE_CODE_PLUGIN_DIRS": "Loads these mod folders into every session (mods can refuse or rewrite tool calls).",
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "Turns on function-hook mods (early access).",
+    "ANTHROPIC_MODEL": "Overrides the default model of every session.",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "Caps each answer's length.",
+    "MAX_THINKING_TOKENS": "Caps thinking tokens per turn.",
+    "DISABLE_AUTOUPDATER": "Freezes the Claude Code version."
+  },
+  "stale_clauses": [
+    {
+      "pattern": "(an )?AI never merges?",
+      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+    },
+    {
+      "pattern": "needs? an explicit ask",
+      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+    },
+    {
+      "pattern": "no automatic merge",
+      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+    },
+    {
+      "pattern": "never merge",
+      "why": "V5 §6: stale for dev repos, the PR opener merges on green"
+    },
+    {
+      "pattern": "\\bwork\\b (repo|project)",
+      "why": "Project category is set only in the global Projects table"
+    },
+    {
+      "pattern": "GPT ?[56](\\.\\d)? Pro (is|stays) (the )?tech lead",
+      "why": "DataPass has no external tech lead since V4"
+    }
+  ],
+  "known_items": {
+    "ask_filter.py": "PreToolUse hook on AskUserQuestion: blocks questions about merges, PRs, CI, branches, reviews, versions, tests, workflows (exit 2); product/scope questions pass.",
+    "watch.py": "Free watcher script: OFF since 4 Oct (all ClaudeControl* tasks disabled); nothing writes watch_report, brief.md, quota.jsonl.",
+    "cc-control": "Guards (send cap, previews, other sessions, chip cap, build slot), status band, /cc-status /cc-tree /cc-graph.",
+    "hook": "V5 §6: no hook, mod or script blocks or rewrites a tool call; active hooks must be none"
+  },
+  "practices": [
+    {
+      "id": "decide",
+      "title": "If an agent can solve it, it solves it; Julian decides only what is open and his",
+      "find": "If an agent can solve it",
+      "metrics": []
+    },
+    {
+      "id": "macro_to_julian",
+      "title": "Macro questions go to Julian (product, where a product lives, money, access) as one batched AskUserQuestion",
+      "find": "Julian decides only what is open and his",
+      "metrics": []
+    },
+    {
+      "id": "plan",
+      "title": "Plan step: a Plan subagent writes the plan (architect only at its triggers)",
+      "find": "\\*\\*Plan\\*\\*: a `Plan` subagent",
+      "metrics": [
+        "plan_agent_calls",
+        "architect_calls",
+        "plan_mode"
+      ]
+    },
+    {
+      "id": "goal",
+      "title": "Launch prompts start with /goal <done condition>",
+      "find": "\\*\\*Goal\\*\\*",
+      "metrics": [
+        "goal_uses"
+      ]
+    },
+    {
+      "id": "workflow",
+      "title": "Two or more independent parts run as one Workflow",
+      "find": "\\*\\*Workflow\\*\\* \\(standing opt-in",
+      "metrics": [
+        "workflow_per_day",
+        "workflow_model_share"
+      ]
+    },
+    {
+      "id": "merge_on_green",
+      "title": "The session that opened the PR merges it on green; stale \"AI never merges\" docs ignored",
+      "find": "The session that opened the PR merges it",
+      "metrics": [],
+      "setup_flag": "stale_clause"
+    },
+    {
+      "id": "model_named",
+      "title": "Every Agent and Workflow agent() call names its model; search via explore-fast",
+      "find": "Every Agent and Workflow `agent\\(\\)` call names",
+      "metrics": [
+        "sub_no_model",
+        "workflow_model_share",
+        "explore_builtin_per_day"
+      ]
+    },
+    {
+      "id": "routing",
+      "title": "Routing: Opus leads and codes, Sonnet tests/docs/audits, Haiku searches",
+      "find": "Search, lookup, CI/log triage",
+      "metrics": [
+        "sub_opus_share",
+        "haiku_readonly_share",
+        "opus_readonly_share"
+      ]
+    },
+    {
+      "id": "effort",
+      "title": "Medium everywhere; high only for the architect",
+      "find": "Architect: before a multi-day plan",
+      "metrics": [
+        "opus_main_medium",
+        "high_not_architect",
+        "sonnet_main_high"
+      ]
+    },
+    {
+      "id": "one_lane",
+      "title": "One lane, one session, one repo (check list_sessions for a twin)",
+      "find": "One lane, one session, one repo",
+      "metrics": []
+    },
+    {
+      "id": "context",
+      "title": "One package per conversation; handoff/RESUME.md at 250K",
+      "find": "At 250 K, update",
+      "metrics": [
+        "ctx_big_share",
+        "handoff_ratio"
+      ]
+    },
+    {
+      "id": "night",
+      "title": "Night = one workflow; no CronCreate, /loop or Monitor wake-ups",
+      "find": "No CronCreate, `/loop` or Monitor",
+      "metrics": [
+        "monitor_cron_per_day"
+      ]
+    },
+    {
+      "id": "no_hidden",
+      "title": "No hidden blockers: no active hooks, mods only show and warn",
+      "find": "No hidden blockers",
+      "metrics": [],
+      "setup_flag": "blocker"
+    },
+    {
+      "id": "claims",
+      "title": "Claims are checked before saying merged, fixed, watched",
+      "find": "Claims are checked",
+      "metrics": []
+    }
+  ]
+}
