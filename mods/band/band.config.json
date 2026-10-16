@@ -65,7 +65,8 @@
       { "label": "Ménage", "mod": "menage", "command": "menage" },
       { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" },
       { "label": "À faire", "mod": "a-faire", "command": "afaire" },
-      { "label": "Problèmes", "mod": "problemes", "command": "problemes" }
+      { "label": "Problèmes", "mod": "problemes", "command": "problemes" },
+      { "label": "Export eta", "mod": "export-eta", "command": "export-eta" }
     ]
   },
   "handoff": {

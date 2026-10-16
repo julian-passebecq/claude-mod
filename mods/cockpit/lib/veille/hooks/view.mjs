@@ -68,7 +68,7 @@ export function eventText(e) {
     mail_skipped: `e-mail non envoyé : ${e.reason || ''}`, mail_failed: `e-mail en erreur : ${e.error || ''}`,
     woken: `réveil de ${e.target || e.cli} : ${e.reason || ''}`, wake_skipped: `pas de réveil (${e.reason || ''}) : ${e.key}`,
     push: `push Claude demandé : ${e.reason || ''}`, push_skipped: `push non envoyé : ${e.reason || ''}`,
-    tour_failed: `tour échoué : ${e.error || ''}`, missed: `veille arrêtée de ${hm(e.from)} à ${hm(e.to)}`,
+    tour_failed: `tour échoué : ${e.error || ''}`, exported: `export eta : ${e.reason || ''}`, export_failed: `export eta échoué : ${e.error || ''}`, missed: `veille arrêtée de ${hm(e.from)} à ${hm(e.to)}`,
   }[e.kind] || `${e.kind}${e.reason ? ' : ' + e.reason : ''}`
   return `${t} ${what}`
 }

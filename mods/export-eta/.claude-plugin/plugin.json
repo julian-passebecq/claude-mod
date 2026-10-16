@@ -1,0 +1,8 @@
+{
+  "name": "export-eta",
+  "version": "0.1.0",
+  "description": "Export eta : exporte des conversations Claude Code en Markdown vers le dépôt eta, sans tokens. En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet), Lot terminé (la Veille compte les conversations terminées depuis le dernier export et propose un bouton « Exporter vers eta »). Passe de confidentialité avant écriture (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails), fichiers non masquables retenus et listés ; worktree neuf du dépôt eta, branche, PR, merge squash. /export, /export-eta",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "pane", "export", "conversations", "markdown", "confidentiality"]
+}

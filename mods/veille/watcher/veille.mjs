@@ -24,6 +24,7 @@ import { compose, digest, sendMail, smtpProblem } from '../lib/mail.mjs'
 import { age } from '../../factory/hooks/waiting.mjs'
 import { julianAlerts } from '../lib/fil.mjs'
 import { writeFil } from './fil.mjs'
+import { exportBatch } from './export-batch.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MOD = path.resolve(HERE, '..')
@@ -240,6 +241,12 @@ async function tour(cfg, why) {
     }
     let mergeSeen = state.merge_seen || {}
     if (may(cfg, 'merge', mode)) mergeSeen = await tryMerges(cfg, scan, state, env, now, events, extra)
+    // export-eta: a batch of finished conversations -> one alert with an « Exporter vers eta » button (or auto export).
+    try {
+      const x = await exportBatch(run, MODS, env, now, tp.node || process.execPath)
+      if (x.alert) extra.push(x.alert)
+      if (x.event) events.push(logEvent(cfg, x.event))
+    } catch (e) { events.push(logEvent(cfg, { kind: 'export_failed', error: String(e.message || e) })) }
 
     // Rows woken twice without effect turn into a needs-Julian alert.
     const W = cfg.wake || {}
@@ -463,6 +470,9 @@ export const BIN_FILES = [
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
+  'veille/watcher/export-batch.mjs',
+  'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs',
+  'export-eta/lib/render.mjs', 'export-eta/export-eta.config.json',
 ]
 // The a-faire mod's feed, copied when that mod sits beside veille (pushes « À faire par Julian » items once each).
 export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/afaire.config.json']

@@ -86,6 +86,20 @@ async function act($, label, args, timeoutMs) {
   try { await runWatcher($, args, timeoutMs) } finally { D.busy = ''; await load($); $.ui.invalidate('ui.render') }
 }
 
+// An alert may carry `run`: a script of a sibling mod (path relative to the mods folder, e.g. export-eta's exporter)
+// and its arguments; its button runs it with node. Only a plain `<mod>/<path>.mjs` is accepted (no `..`).
+async function runSibling($, argv) {
+  if (D.busy || !Array.isArray(argv) || !/^[a-z0-9-]+\/[a-z0-9/_-]+\.mjs$/.test(String(argv[0] || '')) || String(argv[0]).includes('..')) return
+  D.busy = 'run'
+  $.ui.invalidate('ui.render')
+  try {
+    const r = await $.process.run([(D.cfg && D.cfg.node) || 'node', `${root($)}/../${argv[0]}`, ...argv.slice(1).map(String)], { timeoutMs: 600000 })
+    D.msg = ((r.exitCode === 0 ? r.stdout : r.stderr || r.stdout) || '').trim().split('\n').pop().slice(0, 200)
+  } catch (err) {
+    D.msg = String(err && err.message ? err.message : err).slice(0, 200)
+  } finally { D.busy = ''; await load($); $.ui.invalidate('ui.render') }
+}
+
 function draw(el, cfg, vm, h) {
   const colors = cfg.colors || {}
   const L = cfg.labels || {}
@@ -118,6 +132,7 @@ function draw(el, cfg, vm, h) {
       a.title ? T(a.title, { dim: true }) : null,
       T(`depuis ${ago(h.now - (a.since || a.first_seen || h.now))}`, { dim: true }),
       link(a.session_link, 'conversation'), link(a.link && a.link !== a.session_link ? a.link : null, a.pr || 'lien'),
+      a.run && !a.acked ? btn(a.run_label || 'Lancer', () => h.run(a.run), true) : null,
       a.acked ? T(L.acked || 'vu', { dim: true }) : btn(L.ack || 'Ack', () => h.ack(a.key)),
     ]),
   ], { marginBottom: 1 })) : [T(L.none || 'Rien à signaler.', { dim: true })]
@@ -194,6 +209,11 @@ export function register(on, raw) {
       el.Button({ children: [FL.tab_alerts || 'Alertes'], variant: D.tab === 'alertes' ? 'primary' : 'secondary', onPress: () => { D.tab = 'alertes'; $.ui.invalidate('ui.render') } }),
       el.Button({ children: [FL.tab_fil || 'Fil'], variant: D.tab === 'fil' ? 'primary' : 'secondary', onPress: () => { D.tab = 'fil'; void (D.filLoaded ? Promise.resolve() : loadFil($)).then(() => $.ui.invalidate('ui.render')) } }),
       vm.julian ? el.Text({ children: [String(FL.julian_counter || 'attend Julian : {n}').replace('{n}', vm.julian)], bold: true, ...(colors.julian ? { color: colors.julian } : {}) }) : null,
+      // export-eta's batch notice, on both tabs (Alertes and Fil): « 4 conversations terminées — Exporter vers eta ».
+      ...vm.alerts.filter((a) => a.kind === 'export' && a.run && !a.acked).slice(0, 1).flatMap((a) => [
+        el.Text({ children: [a.what], ...(colors.warn ? { color: colors.warn } : {}) }),
+        el.Button({ key: 'veille-export', children: [D.busy === 'run' ? '…' : a.run_label || 'Lancer'], variant: 'primary', onPress: () => void runSibling($, a.run) }),
+      ]),
     ].filter(Boolean) })
     if (D.tab === 'fil') {
       if (!D.filLoaded) await loadFil($).catch(() => undefined)
@@ -222,6 +242,7 @@ export function register(on, raw) {
       ack: (k) => void act($, 'ack', ['ack', k]),
       tour: () => void act($, 'tour', ['tour'], 300000),
       refresh: () => { void load($).then(() => $.ui.invalidate('ui.render')) },
+      run: (argv) => void runSibling($, argv),
     })
     return el.Box({ flexDirection: 'column', children: [tabs, alertsView] })
   })
