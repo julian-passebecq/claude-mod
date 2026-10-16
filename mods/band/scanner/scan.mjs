@@ -12,6 +12,8 @@ import { buildView, deepMerge, expandHome, repoKey } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, ownUsage, parseLines, prune } from '../hooks/parse.ts'
 import { writeHealth } from './health.mjs'
 import { readVeille } from '../lib/core/veille.mjs'
+import { readQuotas } from '../lib/core/usage.mjs'
+import { sampleMachine } from './machine.mjs'
 
 const CHUNK = 8 * 1024 * 1024
 
@@ -51,6 +53,35 @@ export function waitingOf(cfg, env = process.env) {
     available: !vOff && r.available,
     aToiAvailable: !aOff && r.aToiAvailable,
   }
+}
+
+/**
+ * The Jauge's line 2 extras: Codex's (and, as a fallback, Claude's) quota windows from the usage mod's data folder
+ * (lib/core/usage.mjs readQuotas, jauge.usage_dir; "" turns it off), and the machine's CPU / GPU % (jauge.machine).
+ */
+export function extrasOf(cfg, now = Date.now(), deps = {}) {
+  const j = cfg?.jauge ?? {}
+  const out = {}
+  if (j.usage_dir !== '' && j.usage_dir !== false) {
+    try {
+      const q = (deps.readQuotas || readQuotas)(j.usage_dir || undefined, now)
+      const pick = (w) => {
+        const o = {}
+        if (Number.isFinite(w?.five?.pct)) o.five = w.five.pct
+        if (Number.isFinite(w?.week?.pct)) o.week = w.week.pct
+        return o
+      }
+      const cx = pick(q.codex)
+      const cl = pick(q.claude)
+      if (Object.keys(cx).length) out.codex = cx
+      if (Object.keys(cl).length) out.claude = cl
+    } catch { /* no usage data */ }
+  }
+  try {
+    const m = (deps.sampleMachine || sampleMachine)(j.machine, now)
+    if (m && Object.keys(m).length) out.machine = m
+  } catch { /* no machine figures */ }
+  return out
 }
 
 const readStdin = () => {
@@ -234,7 +265,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     try {
       waiting = waitingOf(req.cfg)
     } catch {}
-    process.stdout.write(JSON.stringify(waiting ? { ...view, waiting } : view))
+    let extras = {}
+    try {
+      extras = extrasOf(req.cfg, req.now)
+    } catch {}
+    process.stdout.write(JSON.stringify({ ...view, ...extras, ...(waiting ? { waiting } : {}) }))
     writeHealth('band')
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: String(err?.stack ?? err).slice(0, 800) }))

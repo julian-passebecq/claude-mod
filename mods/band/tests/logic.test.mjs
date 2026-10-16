@@ -22,6 +22,9 @@ import {
   handoffButtons,
   handoffReason,
   isLoaded,
+  allLauncherItems,
+  othersOpen,
+  pcActivity,
   launcherButtons,
   launcherItems,
   launcherPress,
@@ -35,7 +38,9 @@ import {
   toggleOpen,
 } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, parseLines } from '../hooks/parse.ts'
-import { scan, sharedLib, waitingOf } from '../scanner/scan.mjs'
+import { extrasOf, scan, sharedLib, waitingOf } from '../scanner/scan.mjs'
+import { cpuPct, cpuTimes, parseNvidia, parseTypeperf, readGpu, sampleMachine } from '../scanner/machine.mjs'
+import { cells, fitButtons, fitLine, jaugeCfg } from '../hooks/jauge.ts'
 
 const CFG = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -246,17 +251,19 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
   }
 })
 
-test('launcher: preset hubs (default) draws the 6 hubs; a hub not loaded says how to load it', () => {
+test('launcher: preset hubs (default) draws the 5 hubs, Jauge in more_items (▾); a hub not loaded says how to load it', () => {
   const L = CFG.launcher
   assert.equal(L.preset, 'hubs')
+  assert.equal(L.single, true)
   assert.deepEqual(launcherItems(L).map(i => `${i.label}=${i.mod}:/${i.command}`), [
-    'Jauge=band:/jauge', 'Cockpit=cockpit:/cockpit', 'Veille=veille:/veille', 'À toi=a-faire:/afaire', 'Registres=registres:/registres', 'Référence=reference:/reference',
+    'Cockpit=cockpit:/cockpit', 'Veille=veille:/veille', 'À toi=a-faire:/afaire', 'Registres=registres:/registres', 'Référence=reference:/reference',
   ])
+  assert.deepEqual(allLauncherItems(L).map(i => i.label), ['Cockpit', 'Veille', 'À toi', 'Registres', 'Référence', 'Jauge'])
   const cmds = [{ name: 'jauge', plugin: 'band' }, { name: 'cockpit', plugin: 'cockpit' }, { name: 'veille', plugin: 'veille' }, { name: 'afaire', plugin: 'a-faire' }]
   const bs = launcherButtons(L, cmds, [], CFG.labels)
-  assert.deepEqual(bs.map(b => b.loaded), [true, true, true, true, false, false])
-  assert.equal(bs[4].hint, 'non chargé : ajouter mods/registres à CLAUDE_CODE_PLUGIN_DIRS')
-  assert.equal(bs[5].hint, 'non chargé : ajouter mods/reference à CLAUDE_CODE_PLUGIN_DIRS')
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, true, false, false])
+  assert.equal(bs[3].hint, 'non chargé : ajouter mods/registres à CLAUDE_CODE_PLUGIN_DIRS')
+  assert.equal(bs[4].hint, 'non chargé : ajouter mods/reference à CLAUDE_CODE_PLUGIN_DIRS')
   // an own `items` list still wins under the default preset; preset all falls back to items when all_items is absent
   assert.deepEqual(launcherItems({ items: [{ label: 'X', mod: 'x', command: 'x' }] }).map(i => i.label), ['X'])
   assert.deepEqual(launcherItems({ preset: 'all', items: [{ label: 'X', mod: 'x', command: 'x' }] }).map(i => i.label), ['X'])
@@ -478,6 +485,132 @@ test('scanner counters come from lib/core/veille.mjs: invented veille and a-fair
     assert.deepEqual(waitingOf({ sections: { veille_home: join(dir, 'none'), todo_home: join(dir, 'none') } }, {}), { aToi: 0, julian: 0, available: false, aToiAvailable: false })
     // VEILLE_HOME / AFAIRE_HOME win over the settings
     assert.equal(waitingOf({ sections: { veille_home: join(dir, 'none'), todo_home: join(dir, 'none') } }, { VEILLE_HOME: vh, AFAIRE_HOME: ah }).aToi, 4)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------- the two-line Jauge (gauge.style two_lines) ----------
+
+const FULL = {
+  waiting: 2,
+  todo: 4,
+  ctxPct: 41,
+  relayAt: 250000,
+  five: 24,
+  week: 14,
+  codexWeek: 30,
+  agents: 3,
+  convs: 5,
+  tps: { tps_all: 434, tps_project: 120, tps_conv: 50 },
+  cpu: 12,
+  gpu: 3,
+}
+
+test('Jauge: the shipped default is two_lines, with every field of Julian\'s layout', () => {
+  assert.equal(CFG.gauge.style, 'two_lines')
+  const jc = jaugeCfg(CFG.jauge)
+  const l1 = fitLine(jc.line1, FULL, jc, 200)
+  const l2 = fitLine(jc.line2, FULL, jc, 200)
+  assert.equal(l1.text, "● 2 t'attendent · 4 à toi │ contexte 41 % (relais 250 k)")
+  assert.equal(l2.text, '5 h 24 % · sem 14 % · Codex 30 % │ 3 agents · 5 conv actives │ 434 tok/s tout · 120 ce projet · 50 cette conv │ CPU 12 % · GPU 3 %')
+  assert.equal(l1.line[0][0].tone, 'bad') // red only when something waits
+  const none = fitLine(jc.line1, { ...FULL, waiting: 0 }, jc, 200)
+  assert.equal(none.line[0][0].tone, 'dim')
+  assert.ok(!none.line.flat().some(f => f.tone === 'bad'))
+})
+
+test('Jauge: nothing is wider than the band at 60 and 75 columns (short labels, then drop_order)', () => {
+  const jc = jaugeCfg(CFG.jauge)
+  for (const cols of [60, 75]) {
+    for (const ids of [jc.line1, jc.line2]) {
+      const f = fitLine(ids, { ...FULL, waiting: 12, todo: 34, tps: { tps_all: 12345, tps_project: 4321, tps_conv: 999 } }, jc, cols)
+      assert.ok(cells(f.text) <= cols, `${cols}: ${f.text} (${cells(f.text)})`)
+    }
+  }
+  const at75 = fitLine(jc.line2, FULL, jc, 75)
+  assert.equal(at75.short, true)
+  assert.ok(at75.text.startsWith('5h 24% · sem 14%'), at75.text)
+  const at60 = fitLine(jc.line2, FULL, jc, 60)
+  assert.ok(at60.dropped.includes('gpu'), at60.dropped.join(','))
+  assert.match(at60.text, /50 ici/) // this conversation's rate stays
+  assert.equal(fitLine(jc.line1, FULL, jc, 60).text, "● 2 t'attendent · 4 à toi │ contexte 41 % (relais 250 k)")
+  // the buttons: full labels at 75, short ones at 60, both fit
+  const bs = CFG.launcher.items.map(i => ({ label: i.label, short: i.short }))
+  const b75 = fitButtons(bs, jc, 75, 1)
+  assert.equal(b75.short, false)
+  assert.ok(b75.width <= 75)
+  const b60 = fitButtons(bs, jc, 60, 1)
+  assert.ok(b60.width <= 60, String(b60.width))
+  assert.deepEqual(b60.labels, ['Cockpit', 'Veille', 'À toi', 'Reg.', 'Réf.'])
+})
+
+test('Jauge: a missing figure leaves its field out; the counters and the context always show', () => {
+  const jc = jaugeCfg(CFG.jauge)
+  const bare = { relayAt: 250000, tps: {} }
+  assert.equal(fitLine(jc.line1, bare, jc, 200).text, "● 0 t'attendent · 0 à toi │ contexte ? (relais 250 k)")
+  assert.equal(fitLine(jc.line2, bare, jc, 200).text, '')
+  assert.equal(fitLine(jc.line2, { ...bare, week: 9, cpu: 40 }, jc, 200).text, 'sem 9 % │ CPU 40 %')
+  // own labels and fields
+  const own = jaugeCfg({ ...CFG.jauge, line2: ['codex_five', 'codex_week'], labels: { codex_week: 'GPT sem {n} %' } })
+  assert.equal(fitLine(own.line2, { ...bare, codexFive: 8, codexWeek: 31 }, own, 200).text, 'Codex 5 h 8 % · GPT sem 31 %')
+})
+
+test('pcActivity: agents running and conversations active on the whole PC', () => {
+  const evs = [ev(10, 'a', 1), ev(20, 'a', 1, { a: 'x' }), ev(30, 'b', 1, { a: 'y' }), ev(200, 'b', 1, { a: 'z' }), ev(400, 'c', 1), ev(-5, 'd', 1)]
+  assert.deepEqual(pcActivity(evs, NOW, 120, 300), { agents: 2, convs: 2 })
+  assert.deepEqual(pcActivity(evs, NOW, 600, 600), { agents: 3, convs: 3 })
+  const v = buildView(evs, {}, CFG, { now: NOW })
+  assert.deepEqual(v.pc, { agents: 2, convs: 2 })
+})
+
+test('launcher single: opening one hub closes the others known open, not those of the same command', () => {
+  const items = allLauncherItems(CFG.launcher)
+  assert.deepEqual(othersOpen(items, ['cockpit', 'veille', 'band'], 'a-faire').map(launcherKey), ['cockpit', 'veille', 'band'])
+  assert.deepEqual(othersOpen(items, ['cockpit'], 'cockpit'), [])
+  assert.deepEqual(othersOpen(items, [], 'cockpit'), [])
+})
+
+test('machine: CPU % between two readings, nvidia-smi and typeperf parsing, GPU spaced out in the state file', () => {
+  const a = cpuTimes([{ times: { user: 100, nice: 0, sys: 100, idle: 800, irq: 0 } }, { times: { user: 0, nice: 0, sys: 0, idle: 1000, irq: 0 } }])
+  assert.deepEqual(a, [1800, 2000])
+  assert.equal(cpuPct([1800, 2000], [2700, 3000]), 10)
+  assert.equal(cpuPct(undefined, a), undefined)
+  assert.equal(cpuPct(a, a), undefined)
+  assert.equal(parseNvidia('7\n42\n'), 42)
+  assert.equal(parseNvidia('n/a'), undefined)
+  assert.equal(parseTypeperf('"(PDH-CSV 4.0)","\\\\PC\\GPU Engine(pid_1_engtype_3D)\\Utilization Percentage","\\\\PC\\GPU Engine(pid_2_engtype_3D)\\Utilization Percentage"\n"10/16/2026 12:00:00.000","3.5","1.2"\n'), 5)
+  assert.equal(readGpu({ gpu_source: 'off' }), undefined)
+  assert.equal(readGpu({ gpu_source: 'auto', gpu_timeout_ms: 1 }, 'linux', () => '55\n'), 55)
+  assert.equal(readGpu({ gpu_source: 'typeperf', gpu_timeout_ms: 1 }, 'linux', () => '55\n'), undefined)
+  const dir = mkdtempSync(join(tmpdir(), 'band-machine-'))
+  try {
+    let gpuReads = 0
+    const cfg = { state_file: join(dir, 'm.json'), gpu_every_s: 60 }
+    let t = [1000, 2000]
+    const deps = { cpus: () => [{ times: { user: t[1] - t[0], nice: 0, sys: 0, idle: t[0], irq: 0 } }], readGpu: () => (gpuReads++, 33) }
+    assert.deepEqual(sampleMachine(cfg, NOW, deps), { gpu: 33 })
+    t = [1500, 3000]
+    assert.deepEqual(sampleMachine(cfg, NOW + 15000, deps), { cpu: 50, gpu: 33 })
+    assert.equal(gpuReads, 1) // within gpu_every_s: the kept reading
+    sampleMachine(cfg, NOW + 61000, deps)
+    assert.equal(gpuReads, 2)
+    assert.deepEqual(sampleMachine({ ...cfg, enabled: false }, NOW, deps), {})
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scanner extras: Codex and Claude quota windows from the usage folder, machine figures; usage_dir "" turns quotas off', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'band-usage-'))
+  try {
+    writeFileSync(join(dir, 'codex.json'), JSON.stringify({ available: true, limits: { ts: NOW, primary: { pct: 12, windowMin: 300, reset: NOW + 3600000 }, secondary: { pct: 31, windowMin: 10080, reset: NOW + 86400000 } } }))
+    writeFileSync(join(dir, 'samples.jsonl'), JSON.stringify({ ts: NOW - 60000, five_hour: { pct: 20, reset: NOW + 3600000 }, seven_day: { pct: 9, reset: NOW + 86400000 } }) + '\n')
+    const deps = { sampleMachine: () => ({ cpu: 7 }) }
+    const x = extrasOf({ jauge: { usage_dir: dir } }, NOW, deps)
+    assert.deepEqual(x, { codex: { five: 12, week: 31 }, claude: { five: 20, week: 9 }, machine: { cpu: 7 } })
+    assert.deepEqual(extrasOf({ jauge: { usage_dir: '' } }, NOW, deps), { machine: { cpu: 7 } })
+    assert.deepEqual(extrasOf({ jauge: { usage_dir: join(dir, 'none') } }, NOW, { sampleMachine: () => ({}) }), {})
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -1,7 +1,7 @@
 {
   "name": "band",
-  "version": "0.3.0",
-  "description": "Jauge : bandeau au-dessus du prompt, en lecture seule. Une seule ligne toujours visible : barre fine du contexte (repères relais 250 K et auto-compact, seul le plus proche nommé, vert → orange → rouge) puis « ctx 8 % · compact ~16 min · 434 tok/s · 1 compactage(s) · 5 h 24 % · sem 14 % », « À toi : N » et « attend Julian : N » une seule fois chacun (lib/core/veille.mjs), et un ▸ qui déplie « Cette conversation ». Ligne orange « Passation conseillée » (Préparer RESUME, Ouvrir RESUME, rien ne se lance seul) et barre Mods à 6 entrées : Jauge, Cockpit, Veille, À toi, Registres, Référence (preset all : les 15 anciens boutons). /jauge",
+  "version": "0.4.0",
+  "description": "Jauge : bandeau au-dessus du prompt, en lecture seule, sur deux lignes qui ne débordent jamais (ajustées à la largeur : libellés courts puis champs retirés dans l'ordre de jauge.drop_order). Ligne 1 en gras : « ● N t'attendent · N à toi │ contexte N % (relais 250 k) », rouge seulement si au moins un t'attend. Ligne 2 en gris : « 5 h N % · sem N % · Codex N % │ N agents · N conv actives │ N tok/s tout · N ce projet · N cette conv │ CPU N % · GPU N % ». Puis les boutons Cockpit · Veille · À toi · Registres · Référence · ▾ (un seul hub ouvert à la fois, réglage launcher.single) ; ▾ déplie Jauge (le détail) et « Cette conversation ». Ligne orange « Passation conseillée » au seuil RESUME. Champs, ordre et libellés dans band.config.json (jauge) ; gauge.style compact garde l'ancienne ligne. /jauge",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

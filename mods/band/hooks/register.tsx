@@ -30,8 +30,10 @@ import {
   handoffButtons,
   handoffReason,
   hhmm,
+  allLauncherItems,
   launcherButtons,
   launcherItems,
+  othersOpen,
   launcherPress,
   launcherKey,
   launcherTyped,
@@ -43,6 +45,8 @@ import {
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
 import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
+import { fitButtons, fitLine, jaugeCfg } from './jauge'
+import type { Field, JaugeCfg, JaugeFacts } from './jauge'
 import type { Gauge } from './gauge'
 import {
   sectionsCfg,
@@ -81,6 +85,35 @@ const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number |
     },
     (c as any).gauge?.labels ?? {},
   )
+}
+
+// The two-line Jauge's figures: counters from the scanner (lib/core/veille.mjs), context from the engine, Claude's
+// 5 h / week from the engine's rate limits (else the usage mod's samples), Codex's from its codex.json, PC activity,
+// tok/s of the scopes in jauge.tps_scopes, CPU / GPU from the scanner.
+const jaugeFacts = (c: Config, jc: JaugeCfg, ctx: Ctx | undefined, v: View | null, en: EngineFigures | null): JaugeFacts => {
+  const lim = (k: string) => en?.limits?.find(l => l.kind === k && Number.isFinite(l.percentUsed))?.percentUsed
+  const tps: Record<string, number | undefined> = {}
+  for (const [id, scope] of Object.entries(jc.tps_scopes)) {
+    const row = v?.scopes.find(r => r.id === scope)
+    const r = row ? (row.rates.find(x => x.w === c.band_window_s) ?? row.rates[0]) : undefined
+    tps[id] = r?.tps
+  }
+  const pct = ctx?.tokens !== undefined && ctx.window ? (ctx.tokens * 100) / ctx.window : undefined
+  return {
+    waiting: v?.waiting?.julian,
+    todo: v?.waiting?.aToi,
+    ctxPct: pct,
+    relayAt: c.context.handoff_tokens,
+    five: lim('five_hour') ?? v?.claude?.five,
+    week: lim('seven_day') ?? en?.week ?? v?.claude?.week,
+    codexWeek: v?.codex?.week,
+    codexFive: v?.codex?.five,
+    agents: v?.pc?.agents,
+    convs: v?.pc?.convs,
+    tps,
+    cpu: v?.machine?.cpu,
+    gpu: v?.machine?.gpu,
+  }
 }
 
 const PANE = { id: 'jauge' }
@@ -256,6 +289,41 @@ const buttonsOf = async ($: EngineInterface, c: Config) => {
   return launcherButtons(c.launcher, l.commands, l.open, c.labels)
 }
 
+// The unfolded buttons (more_items: Jauge), same rules as the hubs.
+const moreButtonsOf = async ($: EngineInterface, c: Config) => {
+  const l = await read($, launcherAtom)
+  const more = c.launcher?.more_items
+  return Array.isArray(more) && more.length ? launcherButtons({ ...c.launcher, preset: 'hubs', items: more }, l.commands, l.open, c.labels) : []
+}
+
+// launcher.single: one hub open at a time. Opening `key` closes every other hub known open (not those of the same
+// command, which the opening run replaces anyway): /<command> <close_args>, or band's own Jauge pane directly.
+// fromHook: called inside a command.run hook, where the engine refuses $.command.run (it would wait on the turn the
+// hook holds), so the closing runs go to a timer ($.clock.after 0).
+const closeOthers = async ($: EngineInterface, c: Config, key: string, command: string, fromHook = false) => {
+  if (!c.launcher?.single) return
+  const l = await read($, launcherAtom)
+  const others = othersOpen(allLauncherItems(c.launcher), l.open, key).filter(o => o.command !== command)
+  if (!others.length) return
+  const shut = others.map(launcherKey)
+  await update($, launcherAtom, x => ({ ...x, open: x.open.filter(k => !shut.includes(k)) }))
+  const closeArgs = c.launcher?.close_args || 'close'
+  const runs: { command: string; args: string }[] = []
+  for (const o of others) {
+    if (o.mod === 'band' && o.command === 'jauge') {
+      await $.ui.close({ id: PANE.id })
+      continue
+    }
+    if (!runs.some(r => r.command === o.command)) runs.push({ command: o.command, args: closeArgs })
+  }
+  const go = () => {
+    for (const r of runs) $.command.run(r).catch((err: unknown) => $.ui.toast(`/${r.command} ${r.args} : ${String(err).slice(0, 160)}`))
+  }
+  if (!runs.length) return
+  if (fromHook) $.clock.after(0, go)
+  else go()
+}
+
 // A press: open the mod (/<command>) or close it (/<command> close). $.command.run queues the command until the
 // session is idle, so it is not awaited here; while Claude works a toast says it is queued.
 const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) => {
@@ -265,6 +333,7 @@ const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) 
     $.ui.toast(a.toast)
     return
   }
+  if (a.open) await closeOthers($, c, launcherKey(b), b.command)
   await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), a.open) }))
   // Jauge is band's own pane: $.command.run skips the caller's own hooks, so open or close it here.
   if (b.mod === 'band' && b.command === 'jauge') {
@@ -423,8 +492,9 @@ export const register: Register = (on, raw) => {
     try {
       const c = await loadConfig($)
       if (c.handoff && c.handoff.enabled !== false && e.command === c.handoff.command) await noteRan($)
-      const t = launcherTyped(launcherItems(c.launcher), e.command, e.args ?? '', c.launcher?.close_args || 'close')
+      const t = launcherTyped(allLauncherItems(c.launcher), e.command, e.args ?? '', c.launcher?.close_args || 'close')
       if (t) {
+        for (const k of t.open) await closeOthers($, c, k, e.command, true)
         await update($, launcherAtom, l => ({ ...l, open: [...l.open.filter(k => !t.close.includes(k)), ...t.open.filter(k => !l.open.includes(k))] }))
       }
     } catch {}
@@ -483,7 +553,121 @@ export const register: Register = (on, raw) => {
     const Svg = e.surface === 'terminal' ? undefined : (els as any).Svg
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
     const isWorking = e.props.isWorking
-    const style = (c as any).gauge?.style ?? 'compact'
+    const style = (c as any).gauge?.style ?? 'two_lines'
+    if (style === 'two_lines') {
+      const jc = jaugeCfg((c as any).jauge)
+      const ui = (await read($, uiAtom)) as BandUi
+      const cols = Math.max(20, Number((e.props as any).bodyColumns) || jc.columns_fallback)
+      const facts = jaugeFacts(c, jc, ctx, v ?? null, en)
+      const l1 = fitLine(jc.line1, facts, jc, cols)
+      const l2 = fitLine(jc.line2, facts, jc, cols)
+      const toneOf = (f: Field) => (f.tone === 'bad' ? { color: c.colors.bad ?? 'error' } : f.tone === 'dim' ? { dimColor: true } : {})
+      const segs: { key: string; text: string; field?: Field }[] = []
+      l1.line.forEach((g, gi) => {
+        if (gi) segs.push({ key: `j1-sep${gi}`, text: l1.sep })
+        g.forEach((f, fi) => {
+          if (fi) segs.push({ key: `j1-dot${gi}-${fi}`, text: l1.dot })
+          segs.push({ key: `j1-${f.id}`, text: f.text, field: f })
+        })
+      })
+      const line1 = (
+        <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap">
+          {segs.map(x => (
+            <Text key={x.key} bold {...(x.field ? toneOf(x.field) : { dimColor: true })} wrap="truncate-end">
+              {x.text}
+            </Text>
+          ))}
+        </Box>
+      )
+      const line2 = l2.text ? (
+        <Box key="jauge-l2" flexDirection="row" flexWrap="nowrap">
+          <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text>
+        </Box>
+      ) : null
+      const fitted = fitButtons(buttons.map(b => ({ label: b.label, ...(b.short ? { short: b.short } : {}), open: b.open })), jc, cols, 1)
+      const toggleLabel = ui.expanded ? (jc.labels.less ?? '▴') : (jc.labels.more ?? '▾')
+      const row = (
+        <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>
+          {buttons.map((b, i) => (
+            <Button
+              key={`mod-${launcherKey(b)}`}
+              {...(b.loaded ? {} : { dimColor: true })}
+              {...(b.open ? { variant: 'primary' as const } : {})}
+              onPress={() => press($, b, isWorking)}
+            >
+              {fitted.labels[i]}
+            </Button>
+          ))}
+          <Button key="band-toggle" onPress={() => toggleUi($, 'band')}>
+            {toggleLabel}
+          </Button>
+        </Box>
+      )
+      let relayJ = null
+      if (advice.show && c.handoff) {
+        const hs = await read($, handoffAtom)
+        const lc = await read($, launcherAtom)
+        const hb = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)
+        relayJ = (
+          <Box key="band-relay" flexDirection="row" flexWrap="nowrap" gap={1}>
+            <Text color={c.colors.warn} wrap="truncate-end">{`${c.labels.handoff_advice ?? 'Passation conseillée'} : ${handoffReason(advice, ctx, c.handoff, c.labels)}`}</Text>
+            {hb.map(b => (
+              <Button key={b.key} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, b, isWorking)}>
+                {b.label}
+              </Button>
+            ))}
+          </Box>
+        )
+      }
+      let more = null
+      if (ui.expanded) {
+        const sc = secCfg(c)
+        const L = sc.labels
+        const mb = await moreButtonsOf($, c)
+        const cf = { model: en?.model, effort: en?.effort, agents: v?.conv?.agents, pr: v?.conv?.pr, tokens: ctx?.tokens, handoffAt: c.context.handoff_tokens }
+        const hasConv = sectionList(sc).includes('conv')
+        const convOpen = hasConv && isOpen(ui, 'conv')
+        more = (
+          <Box key="jauge-more" flexDirection="column">
+            <Box key="jauge-more-row" flexDirection="row" flexWrap="nowrap" gap={1}>
+              {mb.map(b => (
+                <Button
+                  key={`mod-${launcherKey(b)}`}
+                  {...(b.loaded ? {} : { dimColor: true })}
+                  {...(b.open ? { variant: 'primary' as const } : {})}
+                  onPress={() => press($, b, isWorking)}
+                >
+                  {b.open ? `${b.label} ✕` : b.label}
+                </Button>
+              ))}
+              {hasConv ? (
+                <Button key="sec-conv" onPress={() => toggleUi($, 'conv')}>
+                  {`${convOpen ? '▾' : '▸'} ${L.conv}`}
+                </Button>
+              ) : null}
+              {hasConv && !convOpen ? <Text dimColor wrap="truncate-end">{convSummary(cf, L)}</Text> : null}
+            </Box>
+            {convOpen ? (
+              <Box flexDirection="column" marginLeft={2}>
+                {convLines(cf, L).map((t, i) => (
+                  <Text key={`cl${i}`} dimColor={i > 0} wrap="truncate-end">{t}</Text>
+                ))}
+              </Box>
+            ) : null}
+          </Box>
+        )
+      }
+      return (
+        <Box flexDirection="column">
+          {line1}
+          {line2}
+          {relayJ}
+          {row}
+          {more}
+          {theirs ?? null}
+        </Box>
+      )
+    }
     if (style === 'compact') {
       const sc = secCfg(c)
       const L = sc.labels
@@ -565,11 +749,12 @@ export const register: Register = (on, raw) => {
           </Box>
         )
       }
+      const allButtons = [...buttons, ...(await moreButtonsOf($, c))]
       const modsRow =
-        sectionList(sc).includes('mods') && buttons.length ? (
+        sectionList(sc).includes('mods') && allButtons.length ? (
           <Box key="band-mods" flexDirection="row" flexWrap="wrap" gap={1}>
             <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
-            {buttons.map(b => (
+            {allButtons.map(b => (
               <Button
                 key={`mod-${launcherKey(b)}`}
                 {...(b.loaded ? {} : { dimColor: true })}
@@ -831,7 +1016,7 @@ export const register: Register = (on, raw) => {
       </Box>
     ) : null
 
-    const buttons = await buttonsOf($, c)
+    const buttons = [...(await buttonsOf($, c)), ...(await moreButtonsOf($, c))]
     const mods = buttons.length ? (
       <Box flexDirection="column">
         <Text bold>{c.labels.launcher ?? 'Mods'}</Text>
