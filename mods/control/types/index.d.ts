@@ -144,9 +144,50 @@ export type PracticesData = {
   history_md: string
 }
 
+/** One leaf of the CONFIG tree (scanner/config_scan.py). Its full text is in content shard `shard` under `id`. */
+export type ConfigItem = {
+  id: string
+  name: string
+  path: string
+  exists: boolean | null
+  size: number | null
+  mtime: number | null
+  changed: string | null
+  /** md = Markdown, json = masked JSON, text = plain, none = no content (fields only) */
+  kind: 'md' | 'json' | 'text' | 'none'
+  chars: number
+  meta: [string, string][]
+  summary: string
+  flags: Flag[]
+  badge: string
+  shard: number | null
+}
+export type ConfigSub = { id: string; title: string; items: ConfigItem[] }
+export type ConfigCategory = { id: string; title: string; count: number; badge: string; subs: ConfigSub[] }
+export type ConfigChange = { id: string; name: string; path: string; changed: string; mtime: number; where: string }
+export type ConfigData = {
+  generated: string
+  project: string
+  categories: ConfigCategory[]
+  changes: ConfigChange[]
+  changes_days: number
+  shards: string[]
+  counts: Record<string, number>
+}
+
 declare module 'claude-code' {
   interface PluginState {
     control: {
+      /** CONFIG: open categories, sub-categories and the Changes list ('cat:rules', 'sub:rules.global', 'changes') */
+      cfgOpen: string[]
+      /** CONFIG: the item whose detail and content are shown ('' = none) */
+      cfgItem: string
+      /** CONFIG: search box text */
+      cfgQuery: string
+      /** CONFIG: the open item is shown raw instead of rendered Markdown */
+      cfgRaw: boolean
+      /** CONFIG: page of the open item's content */
+      cfgPage: number
       /** bumped after a scan so every pane re-reads its file */
       tick: number
       /** a scan is running (started by /control or a Rescan button) */

@@ -5,10 +5,11 @@ export const PANES = {
   usage: { id: 'control-usage', title: 'USAGE' },
   practices: { id: 'control-practices', title: 'PRACTICES' },
   history: { id: 'control-history', title: 'HISTORY' },
+  config: { id: 'control-config', title: 'CONFIG' },
 } as const
 export type PaneKey = keyof typeof PANES
 
-/** `/control`, `/control usage`, `/control scan`: which panes to open (all four by default) and whether to rescan first. */
+/** `/control`, `/control usage`, `/control scan`: which panes to open (all five by default) and whether to rescan first. */
 export const parseArgs = (args: string): { panes: PaneKey[]; scan: boolean } => {
   const words = args.toLowerCase().split(/\s+/).filter(Boolean)
   const panes = words.filter((w): w is PaneKey => w in PANES)
