@@ -1,5 +1,5 @@
 // factory v2 - the side panel of all agents, read-only:
-//   /factory [mission|focus|arbre|pipeline|quotas|systeme|journal] [title or id]
+//   /factory [mission|focus|arbre|workflow|pipeline|quotas|systeme|journal] [title or id]   /factory workflow [all]
 // Tabs on top, each screen stacked top to bottom and as wide as the pane (draw.mjs, native elements, no canvas).
 // Data: scanner/factory_scan.py (incremental tail reads of the transcripts, cache in the effort-board); quotas from the
 // usage mod (scanner/extras.mjs imports its logic) and $.session.usage(); Système from the machine mod's sampler. Each
@@ -7,13 +7,15 @@
 import { deepMerge, pickSession, scanArgs } from './logic.mjs'
 import { waitingConfig, waitingRows, waitingArgs, toAnnounce, notifyText, holdsLease, fill } from './waiting.mjs'
 import { screensConfig, tabsOf, parseArgs } from './screens.mjs'
-import { drawPane } from './draw.mjs'
+import { drawFactoryPane, allTabs } from './workflow_draw.mjs'
+import { workflowConfig, parseWorkflowArgs, workflowArgs } from './workflow.mjs'
 
 let CFG = null
 const D = {
   scan: null, target: null, self: null, busy: false, error: '', at: 0, open: false, tab: null, filter: 'all', jfilter: 'all', jproject: '',
   picking: false, live: [], quotas: null, quotasAt: 0, machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '', runnerAt: 0 },
   columns: 0,
+  wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {},
 }
 
 async function homeDir($) {
@@ -38,8 +40,9 @@ async function readJson($, path) {
 // factory.config.json beside the mod, deep-merged with ~/.claude/effort-board/factory.config.json when present.
 async function loadConfig($) {
   const base = (await readJson($, $.plugin.root.replace(/\\/g, '/') + '/factory.config.json')) || {}
+  const wf = await readJson($, $.plugin.root.replace(/\\/g, '/') + '/workflow.config.json')
   const over = await readJson($, (await board($)) + '/factory.config.json')
-  CFG = deepMerge(base, over || {})
+  CFG = deepMerge(deepMerge(base, wf ? { workflow: wf } : {}), over || {})
   if (!D.tab) D.tab = screensConfig(CFG).start
   return CFG
 }
@@ -69,6 +72,32 @@ async function rescan($) {
   $.ui.invalidate('ui.render')
   if (D.scan && !D.error) await announce($).catch(() => undefined)
 }
+
+// The Workflow screen's own scanner (scanner/workflow_scan.py): runs only while that tab is showing.
+async function rescanWorkflow($) {
+  if (D.wfBusy) return
+  D.wfBusy = true
+  $.ui.invalidate('ui.render')
+  try {
+    const cfg = CFG || (await loadConfig($))
+    const scope = D.wfScope || workflowConfig(cfg).scope
+    const argv = [cfg.python || 'python', ...workflowArgs(cfg, {
+      script: root($) + '/scanner/workflow_scan.py', cache: (await board($)) + '/factory_workflow_cache.json', scope, session: D.self || '',
+    })]
+    const r = await $.process.run(argv, { timeoutMs: 180000 })
+    if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `workflow_scan exit ${r.exitCode}`)
+    D.wf = JSON.parse(r.stdout)
+    D.wfError = ''
+    D.wfAt = await $.clock.now()
+  } catch (err) {
+    D.wfError = String(err && err.message ? err.message : err).slice(0, 300)
+  } finally {
+    D.wfBusy = false
+  }
+  $.ui.invalidate('ui.render')
+}
+
+const refreshTab = ($) => (D.tab === 'workflow' ? rescanWorkflow($) : rescan($))
 
 // ---- extras: only for the tab on screen ----------------------------------------------------------------------------
 
@@ -167,7 +196,7 @@ async function go($, tab, target) {
   if (tab) D.tab = tab
   if (target !== undefined) { D.target = target === D.self ? null : target; D.picking = false }
   $.ui.invalidate('ui.render')
-  await rescan($)
+  await refreshTab($)
   await onTabShown($)
 }
 
@@ -179,13 +208,15 @@ async function openPane($) {
 function actions($) {
   const redraw = () => $.ui.invalidate('ui.render')
   return {
-    tab: (id) => { D.tab = id; redraw(); void onTabShown($) },
+    tab: (id) => { D.tab = id; redraw(); if (id === 'workflow') void rescanWorkflow($); else { if (!D.scan) void rescan($); void onTabShown($) } },
     go: (cli) => { void go($, 'arbre', cli) },
-    refresh: () => { void rescan($); if (D.tab === 'quotas') void loadQuotas($, true); if (D.tab === 'systeme') void sampleMachine($) },
+    refresh: () => { void refreshTab($); if (D.tab === 'quotas') void loadQuotas($, true); if (D.tab === 'systeme') void sampleMachine($) },
     filter: (k) => { D.filter = k; redraw() },
     jfilter: (k) => { D.jfilter = k; redraw() },
     jproject: (p) => { D.jproject = p; redraw() },
     pick: () => { D.picking = !D.picking; redraw() },
+    wfScope: (k) => { D.wfScope = k; redraw(); void rescanWorkflow($) },
+    wfToggle: (key, open) => { D.wfOpen = { ...D.wfOpen, [key]: open }; redraw() },
   }
 }
 
@@ -194,15 +225,16 @@ export function register(on) {
     try { D.self = await $.session.id() } catch { D.self = null }
     await loadConfig($).catch(() => { CFG = {} })
     const sc = screensConfig(CFG || {})
-    $.clock.every(Math.max(5, (CFG && CFG.refresh_s) || 20) * 1000, () => { if (D.open) void rescan($) })
+    $.clock.every(Math.max(5, (CFG && CFG.refresh_s) || 20) * 1000, () => { if (D.open && D.tab !== 'workflow') void rescan($) })
+    $.clock.every(Math.max(5, workflowConfig(CFG || {}).refresh_s) * 1000, () => { if (D.open && D.tab === 'workflow') void rescanWorkflow($) })
     $.clock.every(Math.max(3, sc.system_refresh_s) * 1000, () => { if (D.open && D.tab === 'systeme') void sampleMachine($) })
     $.clock.every(Math.max(30, sc.quotas_refresh_s) * 1000, () => { if (D.open && D.tab === 'quotas') void loadQuotas($, true) })
     $.clock.every(Math.max(30, waitingConfig(CFG || {}).background_s) * 1000, () => { void background($).catch(() => undefined) })
     try {
       await $.command.register({
         name: 'factory', immediate: true,
-        description: 'Factory : Mission, Focus, Arbre, Pipeline, Quotas, Système, Journal de tous les agents (/factory [onglet] [titre ou id])',
-        argumentHint: '[mission|focus|arbre|pipeline|quotas|systeme|journal] [titre ou id] | close',
+        description: 'Factory : Mission, Focus, Arbre, Workflow, Pipeline, Quotas, Système, Journal de tous les agents (/factory [onglet] [titre ou id], /factory workflow [all])',
+        argumentHint: '[mission|focus|arbre|workflow|pipeline|quotas|systeme|journal] [titre ou id] | workflow all | close',
       })
     } catch { /* a name clash must not break the rest */ }
     return next(e)
@@ -214,6 +246,8 @@ export function register(on) {
     const q = String(e.args || '').trim()
     if (q.toLowerCase() === 'close') { D.open = false; await $.ui.close({ id: 'factory' }); return {} }
     await openPane($)
+    const wa = parseWorkflowArgs(q)
+    if (wa.workflow) { if (wa.scope) D.wfScope = wa.scope; await go($, 'workflow'); return {} }
     const { tab, rest } = parseArgs(q, CFG)
     if (!rest) { await go($, tab || D.tab || screensConfig(CFG).start); return {} }
     if (!D.scan) await rescan($)
@@ -230,7 +264,7 @@ export function register(on) {
     if (!CFG) CFG = {}
     const cols = Number(e.props && e.props.bodyColumns) || 0
     D.columns = cols
-    if (!tabsOf(CFG).some((t) => t.id === D.tab)) D.tab = (tabsOf(CFG)[0] || { id: 'mission' }).id
-    return drawPane(el, { ...D, cfg: CFG, columns: cols, act: actions($) })
+    if (!allTabs(CFG).some((t) => t.id === D.tab)) D.tab = (tabsOf(CFG)[0] || { id: 'mission' }).id
+    return drawFactoryPane(el, { ...D, cfg: CFG, columns: cols, act: actions($) })
   })
 }
