@@ -8,8 +8,22 @@
   "status_line": true,
   "prompt_note": false,
   "hosts": {
-    "github.com": { "kind": "github", "cli": "gh", "token_env": ["GH_TOKEN", "GITHUB_TOKEN"] },
-    "gitlab.com": { "kind": "gitlab", "cli": "glab", "token_env": ["GITLAB_TOKEN"], "api": "https://gitlab.com/api/v4" }
+    "github.com": {
+      "kind": "github",
+      "cli": "gh",
+      "token_env": [
+        "GH_TOKEN",
+        "GITHUB_TOKEN"
+      ]
+    },
+    "gitlab.com": {
+      "kind": "gitlab",
+      "cli": "glab",
+      "token_env": [
+        "GITLAB_TOKEN"
+      ],
+      "api": "https://gitlab.com/api/v4"
+    }
   },
   "labels": {
     "title": "CI routing",
@@ -17,9 +31,23 @@
     "routes": "Routes",
     "here": "This conversation",
     "no_route": "no route: the repo's own CI applies",
-    "usable": { "yes": "usable", "no": "not usable", "unknown": "unknown" },
-    "status": { "active": "active", "coming-soon": "coming soon", "disabled": "disabled" },
-    "colors": { "yes": "success", "no": "error", "unknown": "subtle", "coming-soon": "subtle", "disabled": "subtle" }
+    "usable": {
+      "yes": "usable",
+      "no": "not usable",
+      "unknown": "unknown"
+    },
+    "status": {
+      "active": "active",
+      "coming-soon": "coming soon",
+      "disabled": "disabled"
+    },
+    "colors": {
+      "yes": "success",
+      "no": "error",
+      "unknown": "subtle",
+      "coming-soon": "subtle",
+      "disabled": "subtle"
+    }
   },
   "backends": [
     {
@@ -75,5 +103,85 @@
       "status": "coming-soon",
       "notes": "Self-hosted GitHub Actions runner on an Oracle VM; not set up yet."
     }
-  ]
+  ],
+  "pipelines": {
+    "_readme": "Diagramme view (/ci diagramme): which repos to draw and how runs are attributed. roots: folders whose git clones (max_depth deep) are drawn, plus every repo with a route. repos: extra local paths, or {\"github\": \"owner/name\"} / {\"gitlab\": \"group/name\", \"host\": \"gitlab.com\"} without a clone. A GitLab remote of a clone (a CI mirror) is drawn with it. Read-only: gh run list/view, glab api (GET), git log, local transcripts. Labels and colors are yours to change.",
+    "roots": [
+      "<PROJECTS_ROOT>"
+    ],
+    "max_depth": 2,
+    "repos": [],
+    "runs_per_repo": 15,
+    "jobs_runs": 3,
+    "concurrency": 8,
+    "projects_dir": "~/.claude/projects",
+    "pipelines_cache": "~/.claude/ci-pipelines-cache.json",
+    "conversations_cache": "~/.claude/ci-conversations-cache.json",
+    "github_backend": "github-hosted",
+    "gitlab_hosts": [
+      "gitlab.com"
+    ],
+    "attribution": {
+      "claude_branches": [
+        "claude/",
+        "worktree-agent-"
+      ],
+      "codex_branches": [
+        "codex/"
+      ],
+      "claude_trailer": "co-authored-by:\\s*claude",
+      "codex_trailer": "co-authored-by:[^\\n]*codex",
+      "codex_authors": [
+        "codex",
+        "chatgpt-codex-connector"
+      ]
+    },
+    "labels": {
+      "tab_routing": "Routage",
+      "tab_diagram": "Diagramme",
+      "all": "Tout",
+      "claude": "Claude Code",
+      "codex": "Codex",
+      "unknown": "inconnu",
+      "by_host": "par hôte",
+      "by_app": "par app",
+      "by_conv": "par conversation",
+      "no_conv": "sans conversation connue",
+      "today": "aujourd'hui",
+      "week": "7 jours",
+      "pass_rate": "réussite",
+      "minutes": "min",
+      "queue": "file du runner local",
+      "last_runs": "derniers runs",
+      "no_runs": "aucun run lu",
+      "not_fetched": "non lu (gh/glab absent, pas d'accès ou pas de CI)",
+      "status": {
+        "success": "vert",
+        "failed": "rouge",
+        "running": "en cours",
+        "queued": "en attente",
+        "cancelled": "annulé",
+        "skipped": "sauté"
+      }
+    },
+    "colors": {
+      "success": "success",
+      "failed": "error",
+      "running": "warning",
+      "queued": "warning",
+      "cancelled": "subtle",
+      "skipped": "subtle"
+    },
+    "svg_colors": {
+      "success": "#2da44e",
+      "failed": "#cf222e",
+      "running": "#bf8700",
+      "queued": "#bf8700",
+      "cancelled": "#8c959f",
+      "skipped": "#8c959f",
+      "line": "#8c959f",
+      "text": "#8c959f",
+      "box": "#2f81f7"
+    }
+  }
 }
