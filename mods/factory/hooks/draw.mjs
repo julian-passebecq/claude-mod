@@ -403,7 +403,13 @@ function drawSystem(h, V, cfg, L, lay) {
   if (s.families.length) out.push(h.section('Processus par famille', s.families.map((f) => h.T(`${f.name} · ${f.count} · ${f.cpu} % CPU`, { key: 'f-' + f.name })), { key: 'fam' }))
   out.push(h.section(L.runner, [
     s.runnerProc ? h.T(`processus ${s.runnerProc.present ? 'présent' : 'absent'} · ${s.runnerProc.children} jobs enfants`, { color: s.runnerProc.present ? 'ok' : 'warn' }) : null,
-    ...s.runners.map((r, i) => h.T(`${r.label} : ${r.usable} · jobs ${JSON.stringify(r.jobs ?? '?')} · runners ${JSON.stringify(r.runners ?? '?')}${r.concurrent ? ' · max ' + r.concurrent : ''}`, { key: 'r' + i, color: r.usable === 'yes' || r.usable === true ? 'ok' : 'dim' })),
+    ...s.runners.map((r, i) => {
+      const j = r.jobs && typeof r.jobs === 'object' ? r.jobs : {}
+      const n = r.runners && typeof r.runners === 'object' ? r.runners : {}
+      const q = (v) => (v === null || v === undefined ? '?' : v)
+      return h.T(`${r.label} : ${r.usable === 'yes' || r.usable === true ? 'utilisable' : 'non utilisable'} · jobs ${q(j.running)} en cours, ${q(j.pending)} en attente · runners ${q(n.online)}/${q(n.total)} en ligne${r.concurrent ? ' · max ' + r.concurrent : ''}`,
+        { color: r.usable === 'yes' || r.usable === true ? 'ok' : 'dim' })
+    }),
     s.runnerError ? h.T(s.runnerError, { dim: true }) : null,
     !s.runnerProc && !s.runners.length && !s.runnerError ? h.T(L.unavailable, { dim: true }) : null,
   ], { key: 'runner' }))
