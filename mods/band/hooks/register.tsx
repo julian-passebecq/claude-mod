@@ -364,7 +364,9 @@ export const register: Register = (on, raw) => {
     const parts = bandParts(v ?? undefined, ctx, en?.week, c.band, c)
     const buttons = await buttonsOf($, c)
     const advice = c.handoff?.band === false ? { show: false, reasons: [] } : handoffAdvice(ctx, c.handoff)
-    if (!parts.length && !buttons.length && !advice.show) return next(e)
+    // What the mods after this one draw (veille's line, machine's entry) stays, below the gauge and the Mods bar.
+    const theirs = await next(e)
+    if (!parts.length && !buttons.length && !advice.show) return theirs
     const { Box, Text, Button } = $.ui.resolve(e)
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
     const isWorking = e.props.isWorking
@@ -412,6 +414,7 @@ export const register: Register = (on, raw) => {
             ))}
           </Box>
         ) : null}
+        {theirs ?? null}
       </Box>
     )
   }).catch(($, e, next) => next(e))

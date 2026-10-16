@@ -5,3 +5,4 @@ node_modules/
 *.jsonl
 *cache*.json
 mods/ci/ci.config.json
+mods/veille/smtp.json
