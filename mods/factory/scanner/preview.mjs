@@ -8,14 +8,20 @@ import { fileURLToPath } from 'node:url'
 import { writeFileSync } from 'node:fs'
 import { treeSvg, dashSvg } from '../hooks/svg.mjs'
 import { deepMerge, dashboard, conversation, pickSession, scanArgs, fmtTokens, fmtUsd, hhmm, short } from '../hooks/logic.mjs'
+import { waitingRows, waitingArgs, waitingConfig, age } from '../hooks/waiting.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const board = process.env.FACTORY_BOARD || join(homedir(), '.claude', 'effort-board')
 const over = join(board, 'factory.config.json')
 const cfg = deepMerge(JSON.parse(readFileSync(join(here, '..', 'factory.config.json'), 'utf8')), existsSync(over) ? JSON.parse(readFileSync(over, 'utf8')) : {})
-const scan = (detail) => JSON.parse(execFileSync(cfg.python || 'python', scanArgs(cfg, { script: join(here, 'factory_scan.py'), cache: join(board, 'factory_cache.json'), detail }), { encoding: 'utf8', maxBuffer: 1 << 28 }))
+const scan = (detail) => JSON.parse(execFileSync(cfg.python || 'python', scanArgs(cfg, { script: join(here, 'factory_scan.py'), cache: join(board, 'factory_cache.json'), detail, extra: waitingArgs(cfg) }), { encoding: 'utf8', maxBuffer: 1 << 28 }))
 let s = scan()
 const now = Date.now()
+const W = waitingRows(s, cfg, now)
+const WL = waitingConfig(cfg).labels
+console.log(`== ${WL.title} (${W.rows.length})${W.errors.length ? ' · ' + W.errors.join(' · ') : ''}`)
+for (const r of W.rows) console.log(`  [${WL.kinds[r.kind] || r.kind}] ${r.what.slice(0, 90)} · ${WL.since} ${hhmm(r.since).slice(0, 5)} (${age(now - r.since)})${r.session ? ' · ' + r.session.title.slice(0, 40) : ''}`)
+for (const c of W.children) console.log(`  ${WL.children}: ${c.title.slice(0, 40)} -> ${c.children.map((k) => `${k.title.slice(0, 24)} (${k.label})`).join(', ')}`)
 const g = dashboard(s, cfg, now)
 console.log(`== ${g.rows.length} conversations, today ${g.today}: ${fmtUsd(g.totalCost)} (${cfg.cost_label}), ${g.totalCalls} calls`)
 console.log('share: ' + g.share.map((x) => `${x.family} ${Math.round(x.share * 100)}% (target ${x.target}${x.ok ? '' : ' MISSED'})`).join(' | '))

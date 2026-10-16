@@ -78,5 +78,68 @@
     "log": "Session log",
     "warnings": "Warnings",
     "tree": "Agent tree"
+  },
+  "waiting": {
+    "_doc": "Strip 'Ça t'attend' at the top of /factory. Minutes unless named _s/_h/_days. idle_pr_states among failed, canceled, skipped, conflict, none, manual. session_link: {id} = the app session id (link format non vérifié). notify: one native notification per new row, ever ($.ui.notify, else a toast).",
+    "enabled": true,
+    "green_min": 30,
+    "idle_min": 20,
+    "ask_min": 5,
+    "julian_max_age_h": 72,
+    "idle_pr_states": ["failed", "canceled", "skipped", "conflict"],
+    "max_rows": 12,
+    "show_children": true,
+    "show_archived_children": false,
+    "session_link": "claude://claude.ai/epitaxy/{id}",
+    "notify": true,
+    "notify_kinds": ["green", "ask", "needs", "awaiting", "idle"],
+    "notify_existing_on_first_run": false,
+    "notify_max_per_scan": 3,
+    "notify_keep_days": 14,
+    "background_s": 120,
+    "pr_ttl_s": 300,
+    "pr_max_age_days": 14,
+    "pr_max_checks": 25,
+    "gitlab_host": "",
+    "labels": {
+      "title": "Ça t'attend",
+      "none": "Rien ne t’attend.",
+      "children": "Sous-conversations",
+      "since": "depuis",
+      "more": "+ {n} autres",
+      "open_session": "Ouvrir",
+      "kinds": {
+        "green": "PR verte",
+        "ask": "Question",
+        "needs": "Attend Julian",
+        "awaiting": "Attend Julian",
+        "idle": "Lane à l’arrêt"
+      },
+      "green": "{pr} verte depuis {age}, pas mergée",
+      "ask": "Question en attente : {question}",
+      "needs": "Attend Julian : {text}",
+      "awaiting": "Interrompue, attend une personne",
+      "idle": "Aucun tour depuis {age} alors que {pr} est {state}",
+      "states": {
+        "failed": "rouge",
+        "canceled": "annulée",
+        "skipped": "sans pipeline (skipped)",
+        "conflict": "en conflit",
+        "none": "sans CI",
+        "manual": "en attente d’un job manuel"
+      },
+      "child": {
+        "working": "travaille",
+        "julian": "attend Julian",
+        "blocked": "bloquée",
+        "done": "terminée",
+        "review": "à relire",
+        "idle": "inactive",
+        "archived": "archivée"
+      },
+      "notify_title": "Ça t'attend",
+      "notify_more": "{n} autres lignes dans /factory",
+      "reviews_error": "PR/MR non lues : {errors}"
+    }
   }
 }

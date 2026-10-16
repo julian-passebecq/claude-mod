@@ -7,6 +7,7 @@ import {
   deepMerge, dashboard, conversation, pickSession, scanArgs, fmtTokens, fmtUsd, hhmm, short, family,
 } from './logic.mjs'
 import { treeSvg, dashSvg, treeAlt, dashAlt } from './svg.mjs'
+import { waitingConfig, waitingRows, waitingArgs, toAnnounce, notifyText, holdsLease, fill, age } from './waiting.mjs'
 
 let CFG = null
 const D = { zoom: 1, scan: null, target: null, self: null, busy: false, error: '', at: 0, open: false, view: 'all', filter: 'all' }
@@ -46,6 +47,7 @@ async function rescan($) {
     const root = $.plugin.root.replace(/\\/g, '/')
     const argv = [cfg.python || 'python', ...scanArgs(cfg, {
       script: root + '/scanner/factory_scan.py', cache: (await board($)) + '/factory_cache.json', detail: D.target || D.self,
+      extra: waitingArgs(cfg),
     })]
     const r = await $.process.run(argv, { timeoutMs: 180000 })
     if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `scanner exit ${r.exitCode}`)
@@ -58,6 +60,44 @@ async function rescan($) {
     D.busy = false
   }
   $.ui.invalidate('ui.render')
+  if (D.scan && !D.error) await announce($).catch(() => undefined)
+}
+
+// ---- "Ça t'attend": notifications, one per row ever (keys kept in $.store, shared by every session) ---------------
+
+async function announce($) {
+  const w = waitingConfig(CFG)
+  if (!w.enabled) return
+  const { rows } = waitingRows(D.scan, CFG, D.at)
+  let seen = null
+  try { seen = (await $.store.get('waiting_seen')) ?? null } catch { seen = null }
+  const r = toAnnounce(rows, seen, CFG, D.at)
+  try { await $.store.set('waiting_seen', r.seen) } catch { return } // without a record, do not risk repeating
+  for (const row of r.announce) await notify($, notifyText(row), w)
+  if (r.more) await notify($, fill(w.labels.notify_more, { n: r.more }), w)
+}
+
+// $.ui.notify (a native notification through the person's channel) is in the build's types, not on the doc pages:
+// when it is missing or not sent, a toast says the same thing.
+async function notify($, text, w) {
+  try {
+    const res = await $.ui.notify(text, { title: w.labels.notify_title })
+    if (res && res.isSent) return
+  } catch { /* fall back to a toast */ }
+  $.ui.toast(`${w.labels.notify_title}: ${text}`, { timeoutMs: 8000 })
+}
+
+// With the pane closed, one session on the PC (the lease holder) still scans every background_s for notifications.
+async function background($) {
+  const w = waitingConfig(CFG || {})
+  if (!w.enabled || !w.notify || D.open || D.busy) return
+  const now = await $.clock.now()
+  const self = D.self || 'unknown'
+  let lease = null
+  try { lease = await $.store.get('waiting_lease') } catch { return }
+  if (!holdsLease(lease, self, now, w.background_s * 1000)) return
+  try { await $.store.set('waiting_lease', { sid: self, at: now }) } catch { return }
+  await rescan($)
 }
 
 // ---- drawing helpers ---------------------------------------------------------------------------------------------
@@ -114,11 +154,54 @@ function nothing(el, text) {
   return T(el, text, { dim: true })
 }
 
+function linkTo(el, href, label) {
+  if (!href) return null
+  return el.Link ? el.Link({ href, children: [label] }) : T(el, href, { dim: true })
+}
+
+// The strip at the top of every view: rows (what, since when, which session/PR, a link) and the leads' sub-conversations.
+function waitingStrip($, el, wide) {
+  const w = waitingConfig(CFG)
+  if (!w.enabled || !D.scan) return el.Box({ children: [] })
+  const L = w.labels
+  const g = waitingRows(D.scan, CFG, D.at)
+  const shown = g.rows.slice(0, w.max_rows)
+  const kids = [T(el, `${L.title} (${g.rows.length})`, { bold: true, color: colorOf(g.rows.length ? 'warn' : 'ok') })]
+  if (!g.rows.length) kids.push(nothing(el, L.none))
+  for (const r of shown) {
+    kids.push(el.Box({
+      key: 'wait-' + r.key, flexDirection: wide ? 'row' : 'column', gap: 1, children: [
+        T(el, (L.kinds || {})[r.kind] || r.kind, { color: colorOf(r.level), bold: true }),
+        T(el, r.what, { wrap: wide ? 'truncate' : 'wrap' }),
+        T(el, `${L.since} ${hhmm(r.since).slice(0, 5)} (${age(D.at - r.since)})`, { dim: true }),
+        r.session ? el.Button({ children: [`${L.open_session} ${r.session.title.slice(0, 40)}`], onPress: () => { void go($, 'conv', r.session.cli) } }) : null,
+        linkTo(el, r.link, r.kind === 'green' || r.kind === 'idle' ? r.pr || 'PR' : 'session'),
+      ].filter(Boolean),
+    }))
+  }
+  if (g.rows.length > shown.length) kids.push(nothing(el, fill(L.more, { n: g.rows.length - shown.length })))
+  if (g.errors.length) kids.push(T(el, fill(L.reviews_error, { errors: g.errors.join(' · ') }), { color: colorOf('warn'), wrap: 'wrap' }))
+  if (g.children.length) {
+    kids.push(T(el, L.children, { bold: true }))
+    for (const c of g.children) {
+      kids.push(el.Box({
+        key: 'lead-' + c.sid, flexDirection: 'row', flexWrap: 'wrap', gap: 1, children: [
+          c.cli ? el.Button({ children: [c.title.slice(0, 40)], onPress: () => { void go($, 'conv', c.cli) } }) : T(el, c.title.slice(0, 40), { bold: true }),
+          T(el, '→', { dim: true }),
+          ...c.children.map((k) => T(el, `${k.title.slice(0, 28)} (${k.label})`, { color: colorOf(k.state === 'julian' || k.state === 'blocked' ? 'warn' : k.state === 'working' ? 'running' : 'dim') })),
+        ],
+      }))
+    }
+  }
+  return el.Box({ flexDirection: 'column', borderStyle: 'round', borderColor: colorOf(g.rows.length ? 'warn' : 'dim'), paddingX: 1, marginBottom: 1, children: kids })
+}
+
 // ---- views -------------------------------------------------------------------------------------------------------
 
 function drawConversation($, el, wide) {
   const head = []
   if (D.error) head.push(T(el, `scanner: ${D.error}`, { color: colorOf('bad'), wrap: 'wrap' }))
+  head.push(waitingStrip($, el, wide))
   const d = D.scan && D.scan.detail
   if (!d) return el.Box({ flexDirection: 'column', children: [...head, nothing(el, D.busy || !D.scan ? 'Scanning transcripts…' : 'Conversation not found in the last scan.')] })
   const c = conversation(d, CFG, D.at)
@@ -174,6 +257,7 @@ function drawConversation($, el, wide) {
 function drawDashboard($, el, wide) {
   const kids = []
   if (D.error) kids.push(T(el, `scanner: ${D.error}`, { color: colorOf('bad'), wrap: 'wrap' }))
+  kids.push(waitingStrip($, el, wide))
   if (!D.scan) return el.Box({ flexDirection: 'column', children: [...kids, nothing(el, 'Scanning transcripts…')] })
   const g = dashboard(D.scan, CFG, D.at)
   kids.push(row(el, [T(el, `${g.rows.length} conversations · today ${g.today}`, { bold: true }),
@@ -283,6 +367,7 @@ function drawSvg($, el, props) {
     ...zoomButtons($, el),
   ] })]
   if (D.error) kids.push(T(el, `scanner: ${D.error}`, { color: colorOf('bad'), wrap: 'wrap' }))
+  kids.push(waitingStrip($, el, true))
   if (conv) {
     const d = D.scan.detail
     if (d) {
@@ -317,6 +402,7 @@ export function register(on) {
     try { D.self = await $.session.id() } catch { D.self = null }
     await loadConfig($).catch(() => { CFG = {} })
     $.clock.every(Math.max(5, (CFG && CFG.refresh_s) || 20) * 1000, () => { if (D.open) void rescan($) })
+    $.clock.every(Math.max(30, waitingConfig(CFG || {}).background_s) * 1000, () => { void background($).catch(() => undefined) })
     try {
       await $.command.register({ name: 'factory', description: 'Factory: dashboard of all conversations; click one for its agent tree (/factory <title or id> opens one directly)', immediate: true })
     } catch { /* a name clash must not break the rest */ }

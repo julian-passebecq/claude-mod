@@ -275,5 +275,6 @@ export function scanArgs(cfg, opts) {
     '--ci-ttl', String(cfg.ci_ttl_s ?? 600), '--live-s', String((cfg.thresholds || {}).live_s ?? 180)]
   if (opts.detail) a.push('--detail', opts.detail)
   if (cfg.include_cli) a.push('--cli')
+  if (opts.extra) a.push(...opts.extra)
   return a
 }
