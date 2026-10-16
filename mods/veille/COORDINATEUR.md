@@ -26,10 +26,14 @@ Seulement ce que le mode permet (`modes.<mode>.may` dans la config) et ce que Ju
   avec `main` ; sinon rebaser et attendre la CI ;
 - relancer un Workflow arrêté (`resumeFromRunId`) ;
 - envoyer un message court à la lane bloquée pour qu'elle reparte.
+- archiver en un lot les conversations de `~/.claude/veille/archive.json` (`candidates`, un `archive_session` par
+  `sid`) quand le message de réveil dit « N conversations à archiver » ou quand Julian le demande. La liste exclut déjà
+  les épinglées, celles qui attendent Julian, la plus récente de chaque projet, les rôles (« VEILLE 1 ») et tout ce qui a
+  bougé depuis `idle_h` heures ; relis-la juste avant (elle est récrite à chaque passage) et n'ajoute rien.
 
 ## Ce que tu ne fais jamais
 
-- tuer, supprimer, archiver ou détacher une session ;
+- tuer, supprimer ou détacher une session ; archiver une session hors de la liste `archive.json` ;
 - force-push, ou toucher `main` directement ;
 - changer le modèle, l'effort ou le mode de permission d'une autre session.
 

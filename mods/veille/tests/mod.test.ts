@@ -23,10 +23,16 @@ const FIL = JSON.stringify({ v: 1, generated: NOW - 2 * MIN, total: 2, julian: 1
     children: [conv({ sid: 'local_kid', title: 'Alpha lane', state: 'attend', signal: 'question', ask: 'Tell me whether the #29 merge stays', last_at: NOW - 5 * MIN, msg_at: NOW - 5 * MIN,
       preview: 'PR #29 is green.', parent: 'local_lead' })] })] }] })
 
+// What the watcher writes to ~/.claude/veille/archive.json: two finished conversations the VEILLE conversation may archive.
+const ARCHIVE = JSON.stringify({ v: 1, generated: NOW - 4 * MIN, idle_h: 6, open: 9, count: 2, kept: {}, candidates: [
+  { sid: 'local_old1', cli: 'c-old1', title: 'Old lane one', project: 'alpha', last_at: NOW - 9 * 60 * MIN, idle_h: 9, reason: 'PR #21 mergée, terminée, inactive 9 h', pr: null },
+  { sid: 'local_old2', cli: 'c-old2', title: 'Old lane two', project: 'beta', last_at: NOW - 30 * 60 * MIN, idle_h: 30, reason: 'pas de PR, terminée, inactive 30 h', pr: null },
+] })
+
 function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * MIN }) {
   mock.clock(on, { now: NOW })
   const files: Record<string, string> = {
-    'veille/config.json': USER, 'veille/state.json': STATE, 'veille/fil.json': FIL, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
+    'veille/config.json': USER, 'veille/state.json': STATE, 'veille/fil.json': FIL, 'veille/archive.json': ARCHIVE, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
   }
   const hit = (p: string) => Object.keys(files).find((k) => p.replace(/\\/g, '/').endsWith('.claude/' + k))
   on('env.get', ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
@@ -98,3 +104,29 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Fil shows « À archiver (2) », unfolds to the reasons and copies the ids (${surface})`, async ($, on) => {
+    base(on)
+    let copied = ''
+    on('ui.copy', ($, e) => { copied = String(e.text); return { value: { isCopied: true } } })
+    await $.command.run({ command: 'veille', args: 'fil' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /À archiver .2./)).toBe(true)
+    expect(await has(ui, /PR #21 mergée/)).toBe(false)
+    await ui.press({ key: 'fil-archive' })
+    expect(await has(ui, /Old lane one · alpha · PR #21 mergée, terminée, inactive 9 h/)).toBe(true)
+    expect(await has(ui, /archive_session/)).toBe(true)
+    await ui.press({ key: 'fil-archive-copy' })
+    expect(copied).toBe('local_old1\nlocal_old2')
+    expect(await has(ui, /2 id.s. copié/)).toBe(true)
+  })
+}
+
+test('/veille archiver prints the list from archive.json', async ($, on) => {
+  base(on)
+  const r = await $.command.run({ command: 'veille', args: 'archiver' })
+  const t = JSON.stringify(r)
+  expect(t).toContain('À archiver : 2 sur 9')
+  expect(t).toContain('Old lane two · beta · pas de PR, terminée, inactive 30 h · local_old2')
+})

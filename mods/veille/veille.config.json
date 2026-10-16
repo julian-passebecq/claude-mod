@@ -104,6 +104,22 @@
       "empty_message": "(pas de message texte)"
     }
   },
+  "archive": {
+    "_doc": "« À archiver » (Fil tab, /veille archiver): at every fire the watcher writes ~/.claude/veille/archive.json with the finished conversations the VEILLE conversation may archive in one batch (archive_session). The script never archives. A candidate: open (not archived), no activity for idle_h hours (session file, transcript, sub-agent and workflow files), no pending tool call, every PR of the session merged or closed (or none). Never a candidate: pinned (isStarred) or autoArchiveExempt, waiting on Julian (the Fil's signals, needs_action, interrupted), a status in keep_status, the newest open conversation of its project (keep_newest_per_project), a title matching role_pattern (regex; default: upper-case name then a number, « VEILLE 1 »).",
+    "idle_h": 6,
+    "role_pattern": "^[A-ZÀ-Ý][A-ZÀ-Ý0-9 &_'.-]*?\\s\\d+(?:\\s|$|[(:·-])",
+    "keep_status": ["blocked"],
+    "keep_newest_per_project": true,
+    "max_list": 200,
+    "labels": {
+      "title": "À archiver ({n})",
+      "copy_ids": "Copier la liste des ids",
+      "copied": "{n} id(s) copié(s)",
+      "note": "La conversation VEILLE les archive en un lot (archive_session) ; le script n’archive jamais.",
+      "none": "Rien à archiver.",
+      "missing": "archive.json absent : la tâche ClaudeVeille l’écrit au prochain passage."
+    }
+  },
   "problemes": { "_doc": "Each tour also runs the problemes mod's collector (mods/problemes/scanner/problemes_scan.mjs collect, zero tokens) when its files are in the installed copy. enabled: false turns it off.", "enabled": true, "timeout_s": 180 },
   "pane": { "events": 25, "refresh_s": 60 },
   "labels": {

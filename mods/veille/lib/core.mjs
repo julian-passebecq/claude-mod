@@ -220,7 +220,8 @@ export function wakeDecision(alert, scan, cfg, state, nowMs) {
 }
 
 // ≤ 10 lines: what, who, since, what the mode allows, the hard limits, how to ack.
-export function brief(alert, cfg, nowMs, ackCmd) {
+// extra.archive: finished conversations listed in archive.json, for the VEILLE conversation to archive in one batch.
+export function brief(alert, cfg, nowMs, ackCmd, extra = {}) {
   const mode = modeOf(cfg)
   const can = mode.may.filter((a) => a !== 'alert').map((a) => ((cfg.labels || {}).may_names || {})[a] || a).join(', ')
   const lines = [
@@ -232,6 +233,7 @@ export function brief(alert, cfg, nowMs, ackCmd) {
     `Le mode permet : ${can || 'rien'}. Règles déjà accordées seulement (merge si tout est success et à jour).`,
     'Interdit : tuer ou supprimer une session, force-push, changer modèle/effort/permissions d’une autre session.',
     'Si Julian doit décider : PushNotification puis arrête-toi.',
+    extra.archive ? `${extra.archive} conversations à archiver, liste dans ${extra.file || 'archive.json'} : archive-les en un lot (archive_session).` : null,
     `Quand c’est réglé : ${ackCmd} ${alert.key}`,
   ].filter(Boolean)
   return lines.slice(0, 10).join('\n')
