@@ -2,7 +2,20 @@
 // Input: the scanner JSON (sessions + reviews from --waiting). Output: the rows the strip draws and the notifications to raise.
 // Ported from the old coordinator mod (green PR left open, question pending), plus the 3 Oct incidents A2-A4:
 // a lane idle while its PR is red, conflicting or its pipeline skipped. Read-only: nothing here sends or blocks anything.
-import { titleOf, repoOf } from './logic.mjs'
+// Canonical copy: lib/core/waiting.mjs (repo root). factory/hooks/waiting.mjs and every mods/*/lib/core/waiting.mjs are
+// byte copies made by scripts/sync-libs.mjs: never edit a copy by hand. No imports, so every copy works on its own.
+
+// Same as factory's logic.mjs repoOf / titleOf (kept here so this file has no sibling to carry).
+function repoOf(s) {
+  const p = String(s.origin || s.cwd || '').replace(/\\/g, '/')
+  const i = p.indexOf('/.claude/worktrees/')
+  const base = i >= 0 ? p.slice(0, i) : p
+  return base.split('/').filter(Boolean).pop() || '?'
+}
+
+function titleOf(s) {
+  return s.app_title || s.title || String(s.cli || '').slice(0, 8)
+}
 
 export const WAITING_DEFAULTS = {
   enabled: true,

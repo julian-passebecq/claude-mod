@@ -1,3 +1,5 @@
+// Canonical copy: lib/core/health.mjs (repo root); */scanner/health.mjs and mods/*/lib/core copies are made by
+// scripts/sync-libs.mjs: never edit a copy by hand.
 // Health record for « Santé des mods » (convention in mods/sante/README.md): ~/.claude/mods-health/<mod>.json with
 // lastRun, durationMs (this process), cpuMs, error, lastOk and a rolling 24 h window. Best effort: never throws.
 // MODS_HEALTH_DIR moves the folder (tests); MODS_HEALTH=0 turns it off.

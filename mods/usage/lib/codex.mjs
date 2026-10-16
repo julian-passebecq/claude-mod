@@ -1,3 +1,5 @@
+// Canonical copy: lib/core/codex.mjs (repo root); usage/lib/codex.mjs and mods/*/lib/core copies are made by
+// scripts/sync-libs.mjs: never edit a copy by hand.
 // Codex usage, read from Codex's own local session logs (pure part: no I/O).
 // Codex CLI / app writes one rollout file per session: <sessions_dir>/YYYY/MM/DD/rollout-*.jsonl. Two line types matter:
 //   {"type":"turn_context","payload":{"model":"gpt-…", …}}                    the model of the turns that follow

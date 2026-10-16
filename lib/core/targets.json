@@ -1,0 +1,48 @@
+{
+  "_doc": "Where scripts/sync-libs.mjs copies shared files, byte for byte. core: mod folder -> files of lib/core copied to mods/<mod>/lib/core/<file>. files: [source, copy] pairs relative to the repo root (lib/core files that keep their old path in a mod, and the older mod -> mod copies). Never edit a copy by hand: change the source, run node scripts/sync-libs.mjs, commit both.",
+  "core": {
+    "a-faire": ["util.mjs", "veille.mjs", "mods.mjs"],
+    "band": ["util.mjs", "usage.mjs", "veille.mjs", "runner.mjs", "mods.mjs", "health.mjs"],
+    "ci": ["util.mjs", "estimate.mjs", "gantt.mjs", "runner.mjs"],
+    "cockpit": ["util.mjs", "transcripts.mjs", "codex.mjs", "prices.json", "sessions.mjs", "usage.mjs", "veille.mjs", "waiting.mjs", "runner.mjs", "mods.mjs", "health.mjs", "estimate.mjs", "gantt.mjs"],
+    "control": ["util.mjs"],
+    "export-eta": ["util.mjs", "sessions.mjs"],
+    "factory": ["util.mjs", "sessions.mjs", "estimate.mjs", "gantt.mjs", "runner.mjs", "health.mjs"],
+    "guide": ["util.mjs", "mods.mjs"],
+    "machine": ["util.mjs", "runner.mjs"],
+    "menage": ["util.mjs", "sessions.mjs", "mods.mjs"],
+    "metrics": ["util.mjs", "health.mjs"],
+    "problemes": ["util.mjs", "health.mjs", "veille.mjs"],
+    "sante": ["util.mjs", "mods.mjs", "health.mjs"],
+    "scenarios": ["util.mjs", "usage.mjs"],
+    "tests-reels": ["util.mjs"],
+    "usage": ["util.mjs", "usage.mjs", "health.mjs"],
+    "veille": ["util.mjs", "waiting.mjs", "veille.mjs", "sessions.mjs", "health.mjs"]
+  },
+  "files": [
+    ["lib/core/transcripts.mjs", "mods/usage/lib/transcripts.mjs"],
+    ["lib/core/codex.mjs", "mods/usage/lib/codex.mjs"],
+    ["lib/core/prices.json", "mods/usage/lib/prices.json"],
+    ["lib/core/waiting.mjs", "mods/factory/hooks/waiting.mjs"],
+    ["lib/core/health.mjs", "mods/band/scanner/health.mjs"],
+    ["lib/core/health.mjs", "mods/usage/scanner/health.mjs"],
+    ["lib/core/health.mjs", "mods/metrics/scanner/health.mjs"],
+    ["lib/core/health.mjs", "mods/problemes/scanner/health.mjs"],
+
+    ["mods/factory/hooks/logic.mjs", "mods/cockpit/lib/factory/hooks/logic.mjs"],
+    ["mods/factory/hooks/screens.mjs", "mods/cockpit/lib/factory/hooks/screens.mjs"],
+    ["mods/factory/hooks/draw.mjs", "mods/cockpit/lib/factory/hooks/draw.mjs"],
+    ["lib/core/waiting.mjs", "mods/cockpit/lib/factory/hooks/waiting.mjs"],
+    ["mods/factory/scanner/factory_scan.py", "mods/cockpit/lib/factory/scanner/factory_scan.py"],
+    ["mods/factory/scanner/textrender.mjs", "mods/cockpit/lib/factory/scanner/textrender.mjs"],
+    ["mods/factory/factory.config.json", "mods/cockpit/lib/factory/factory.config.json"],
+    ["mods/band/hooks/gauge.ts", "mods/cockpit/lib/band/hooks/gauge.ts"],
+    ["mods/veille/lib/modes.mjs", "mods/cockpit/lib/veille/lib/modes.mjs"],
+    ["mods/veille/hooks/view.mjs", "mods/cockpit/lib/veille/hooks/view.mjs"],
+    ["mods/usage/lib/classement.mjs", "mods/cockpit/lib/usage/lib/classement.mjs"],
+    ["lib/core/transcripts.mjs", "mods/cockpit/lib/usage/lib/transcripts.mjs"],
+
+    ["mods/export-eta/lib/mask.mjs", "mods/problemes/lib/eta/mask.mjs"],
+    ["mods/export-eta/lib/etagit.mjs", "mods/problemes/lib/eta/etagit.mjs"]
+  ]
+}

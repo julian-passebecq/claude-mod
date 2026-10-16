@@ -14,7 +14,7 @@ import {
 import { treeSvg } from '../hooks/svg.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
 import { parseArgs } from '../hooks/register.mjs'
-import { stale } from '../scripts/sync-libs.mjs'
+import { stale } from '../../../scripts/sync-libs.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FCFG = JSON.parse(readFileSync(join(HERE, '..', 'lib', 'factory', 'factory.config.json'), 'utf8'))
@@ -220,7 +220,7 @@ test('summaries: conversation head, project, all projects, global; a click opens
   for (const s of [convSummary(h, FCFG), projectSummary(ps[0], FCFG), allSummary(ps, FCFG)]) assert.ok(!s.includes('\n') && s.length <= 60, s)
 })
 
-test('lib/ is a byte copy of factory, band, veille and usage (node mods/cockpit/scripts/sync-libs.mjs after changing them)', () => {
+test('lib/ is a byte copy of lib/core, factory, band, veille and usage (node scripts/sync-libs.mjs after changing them)', () => {
   assert.deepEqual(stale(), [])
 })
 

@@ -1,3 +1,5 @@
+// Canonical copy: lib/core/transcripts.mjs (repo root); usage/lib/transcripts.mjs and mods/*/lib/core copies are made by
+// scripts/sync-libs.mjs: never edit a copy by hand.
 // Shared, pure transcript parsing for the usage mod (and any mod that needs tokens: band imports it).
 // No I/O here: lib/scan-node.mjs reads the files, this module turns lines into usage records and per-hour rows.
 // Ideas ported from claude-goblin (MIT, github.com/data-goblin/claude-goblin): dedupe on message.id + requestId,

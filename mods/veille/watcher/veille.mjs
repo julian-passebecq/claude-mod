@@ -22,7 +22,7 @@ import {
   mergeCandidates, ownerOf, ghEligible, glEligible, wakeDecision, brief, prText, scrub, fill, watcherState, MODES, due,
 } from '../lib/core.mjs'
 import { compose, digest, sendMail, smtpProblem } from '../lib/mail.mjs'
-import { age } from '../../factory/hooks/waiting.mjs'
+import { age } from '../lib/core/waiting.mjs'
 import { julianAlerts } from '../lib/fil.mjs'
 import { writeFil } from './fil.mjs'
 import { writeArchive } from './archive.mjs'
@@ -478,7 +478,7 @@ function copyTree(files, dest) {
 
 export const BIN_FILES = [
   'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
-  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
+  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
   'veille/watcher/export-batch.mjs',
