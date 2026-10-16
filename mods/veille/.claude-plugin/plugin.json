@@ -1,16 +1,16 @@
 {
   "name": "veille",
-  "version": "0.2.0",
-  "description": "Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations, sans token (/veille fil). À archiver : les conversations finies, listées pour la conversation VEILLE (/veille archiver). « Attend Julian » (question ouverte, wrap_up, question finale, incohérence entre consignes) : notification Windows et e-mail tout de suite, compteur rouge. /veille [fil|archiver|mode <x>|ack <clé>|coordinateur|tour]",
+  "version": "0.3.0",
+  "description": "Veille : un panneau, quatre onglets. Alertes : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes (gravité, depuis quand, conversation ou PR, lien, Ack), dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations. À archiver : les conversations finies, listées pour la conversation VEILLE. Export eta : le lot de conversations terminées d'export-eta et son bouton « Exporter vers eta ». « Attend Julian » : notification Windows et e-mail tout de suite, un seul compteur (la règle de lib/core/veille.mjs). Erreurs du veilleur dans ~/.claude/mods-health/veille.json. /veille [alertes|fil|archiver|export|mode <x>|ack <clé>|coordinateur|tour|close] ; /export-eta en alias quand le mod export-eta n'est pas chargé.",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
-  "keywords": ["mod", "veille", "watcher", "alerts", "merge", "task scheduler"],
+  "keywords": ["mod", "veille", "watcher", "alerts", "merge", "task scheduler", "export"],
   "userConfig": {
     "band": {
       "type": "string",
       "title": "Band entry above the prompt",
-      "description": "on: one line above the prompt with the veille mode and its last tour (red when two tours were missed). off: only /veille.",
-      "default": "on",
+      "description": "off (default): the Jauge (band mod) shows « attend Julian : N » once. on: veille's own line above the prompt too, with the mode and the last tour (red when two tours were missed).",
+      "default": "off",
       "options": ["on", "off"]
     }
   }

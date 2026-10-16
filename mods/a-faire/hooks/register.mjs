@@ -1,13 +1,15 @@
-// a-faire - the pane « À faire par Julian » (/afaire): every action only Julian can do, by category, with the exact
+// a-faire - the pane « À toi » (/afaire, alias /a-toi): every action only Julian can do, by category, with the exact
 // steps (Copier), since when, the source, and Fait / Plus tard. Read-only view of ~/.claude/a-faire/items.json; the
 // scanner (scanner/afaire_scan.mjs, run with node) reads the sources and writes it, and the buttons run its own
 // done / snooze commands, so there is one code path. Nothing here blocks, rewrites or adds text to a prompt, and
-// nothing calls a model. The band mod reads summary.json for its red « À toi : N ».
-//   /afaire [refresh | close]
+// nothing calls a model. The band mod and lib/core/veille.mjs aToi() read summary.json ({ total, high, updatedAt })
+// for the red « À toi : N ».
+//   /afaire [refresh | close]   (/a-toi: the same, registered only when no other mod serves /a-toi)
 import { deepMerge } from '../lib/items.mjs'
 import { initialOpen, viewModel } from './view.mjs'
 
-const D = { cfg: null, data: null, openCats: null, busy: '', msg: '', at: 0, scanning: false }
+const D = { cfg: null, data: null, openCats: null, busy: '', msg: '', at: 0, scanning: false, alias: false }
+const TITLE = 'À toi'
 
 const root = ($) => $.plugin.root.replace(/\\/g, '/')
 
@@ -114,12 +116,31 @@ function draw(el, cfg, vm, h) {
   return col([head, ...cats, foot], { flexGrow: 1 })
 }
 
+// /afaire [refresh | close], and /a-toi when this mod registered that alias
+async function onCommand($, e) {
+  await load($)
+  const v = String(e.args || '').trim().toLowerCase()
+  if (v === 'close') { await $.ui.close({ id: 'afaire' }); return {} }
+  await $.ui.open({ id: 'afaire', title: (D.cfg.labels || {}).title || TITLE, focus: true, closeOnEscape: true })
+  if (v === 'refresh' || !D.data) void act($, 'refresh', ['scan', '--fresh'])
+  $.ui.invalidate('ui.render')
+  return {}
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     try {
-      await $.command.register({ name: 'afaire', immediate: true, description: 'À faire par Julian : tout ce qui attend une action de toi (configuration, décisions, connexions, secrets, tests manuels, questions)', argumentHint: '[refresh | close]' })
+      await $.command.register({ name: 'afaire', immediate: true, description: 'À toi : tout ce qui attend une action de toi (configuration, décisions, connexions, secrets, tests manuels, questions)', argumentHint: '[refresh | close]' })
     } catch { /* a name clash must not break the rest */ }
+    // /a-toi: an alias of /afaire, only when the session has no /a-toi yet (a hub mod may serve it)
+    $.clock.after(2000, async () => {
+      try {
+        if ((await $.command.list()).some((c) => c.name === 'a-toi')) return
+        await $.command.register({ name: 'a-toi', immediate: true, description: 'À toi (alias de /afaire) : ce qui attend une action de toi', argumentHint: '[refresh | close]' })
+        D.alias = true
+      } catch { /* served elsewhere */ }
+    })
     await load($).catch(() => undefined)
     void refresh($, false)
     const every = Math.max(1, (D.cfg && D.cfg.refresh_min) || 5) * 60000
@@ -127,15 +148,8 @@ export function register(on) {
     return r
   })
 
-  on('command.run', { command: 'afaire' }, async ($, e) => {
-    await load($)
-    const v = String(e.args || '').trim().toLowerCase()
-    if (v === 'close') { await $.ui.close({ id: 'afaire' }); return {} }
-    await $.ui.open({ id: 'afaire', title: (D.cfg.labels || {}).title || 'À faire par Julian', focus: true, closeOnEscape: true })
-    if (v === 'refresh' || !D.data) void act($, 'refresh', ['scan', '--fresh'])
-    $.ui.invalidate('ui.render')
-    return {}
-  })
+  on('command.run', { command: 'afaire' }, onCommand)
+  on('command.run', { command: 'a-toi' }, async ($, e, next) => (D.alias ? onCommand($, e) : next(e))).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== 'afaire') return next(e)

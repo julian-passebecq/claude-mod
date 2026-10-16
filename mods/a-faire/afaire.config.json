@@ -65,7 +65,7 @@
   },
   "colors": { "now": "#f85149", "feature": "#d29922", "comfort": "#8b949e", "bad": "#f85149", "ok": "#3fb950", "dim": "#8b949e" },
   "labels": {
-    "title": "À faire par Julian",
+    "title": "À toi",
     "counter": "À toi",
     "none": "Rien n'attend Julian.",
     "empty_cat": "rien",

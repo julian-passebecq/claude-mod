@@ -29,10 +29,16 @@ const ARCHIVE = JSON.stringify({ v: 1, generated: NOW - 4 * MIN, idle_h: 6, open
   { sid: 'local_old2', cli: 'c-old2', title: 'Old lane two', project: 'beta', last_at: NOW - 30 * 60 * MIN, idle_h: 30, reason: 'pas de PR, terminée, inactive 30 h', pr: null },
 ] })
 
+// What export-eta's exporter writes to ~/.claude/export-eta: a ready batch and one past export.
+const PENDING = JSON.stringify({ generated: NOW - 5 * MIN, ready: true, count: 4, ids: ['c1', 'c2', 'c3', 'c4'], reason: 'count', text: '4 conversations terminées — Exporter vers eta',
+  titles: [{ cli: 'c1', title: 'Lane one', project: 'alpha' }, { cli: 'c2', title: 'Lane two', project: 'beta' }] })
+const EXPORTS = JSON.stringify({ history: [{ at: NOW - 60 * MIN, mode: 'batch', count: 3, pr: 12, url: 'https://github.com/o/eta/pull/12', merged: true, held: [] }] })
+
 function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * MIN }) {
-  mock.clock(on, { now: NOW })
+  const clock = mock.clock(on, { now: NOW })
   const files: Record<string, string> = {
     'veille/config.json': USER, 'veille/state.json': STATE, 'veille/fil.json': FIL, 'veille/archive.json': ARCHIVE, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
+    'export-eta/pending.json': PENDING, 'export-eta/state.json': EXPORTS,
   }
   const hit = (p: string) => Object.keys(files).find((k) => p.replace(/\\/g, '/').endsWith('.claude/' + k))
   on('env.get', ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
@@ -46,10 +52,12 @@ function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * M
       active: { label: 'Active', interval_min: 5, may: ['alert', 'notify', 'mail', 'wake'] },
     }, fire_every_min: 5, labels: { title: 'Veille', mode: 'Mode', severity: { julian: 'attend Julian', warn: 'à faire' }, stopped: 'VEILLE ARRÊTÉE : pas de tour depuis {since}', band: 'Veille' }, colors: { bad: '#dc2626' } }) }
   })
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'veille: mode active', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const runs: string[][] = []
+  on('process.run', ($, e) => { runs.push(e.argv ?? []); return { value: { exitCode: 0, stdout: 'veille: mode active', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
   on('session.id', () => ({ value: 'sess-1' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
+  return { clock, runs }
 }
 
 const has = async (ui, re: RegExp) => (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
@@ -106,15 +114,48 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the Fil shows « À archiver (2) », unfolds to the reasons and copies the ids (${surface})`, async ($, on) => {
+  test(`one pane, four tabs: Alertes, Fil, À archiver (2), Export eta (4) (${surface})`, async ($, on) => {
+    base(on)
+    await $.command.run({ command: 'veille', args: 'alertes' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /^Alertes$/)).toBe(true)
+    expect(await has(ui, /^Fil$/)).toBe(true)
+    expect(await has(ui, /^À archiver/)).toBe(true)
+    expect(await has(ui, /^Export eta/)).toBe(true)
+    expect(await has(ui, /attend Julian : 1/)).toBe(true)
+    await ui.press({ key: 'veille-tab-export' })
+    expect(await has(ui, /^Export eta \(4\)$/)).toBe(true)
+    expect(await has(ui, /4 conversations terminées — Exporter vers eta/)).toBe(true)
+    await ui.press({ key: 'veille-tab-archiver' })
+    expect(await has(ui, /^À archiver \(2\)$/)).toBe(true)
+    expect(await has(ui, /Old lane two · beta/)).toBe(true)
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`/veille export: the batch, its conversations, « Exporter vers eta » runs export-eta's exporter, last exports (${surface})`, async ($, on) => {
+    const w = base(on)
+    await $.command.run({ command: 'veille', args: 'export' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /4 conversations terminées — Exporter vers eta/)).toBe(true)
+    expect(await has(ui, /seuil 3 atteint/)).toBe(true)
+    expect(await has(ui, /alpha · Lane one/)).toBe(true)
+    expect(await has(ui, /Derniers exports/)).toBe(true)
+    expect(await has(ui, /batch · 3 conversation/)).toBe(true)
+    await ui.press({ key: 'veille-export' })
+    const run = w.runs.find((a) => a.some((x) => /export-eta\/exporter\/export\.mjs$/.test(String(x))))
+    expect(run && run.slice(-3).join(' ')).toBe('run --mode batch')
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`/veille archiver opens the À archiver tab with the reasons and copies the ids (${surface})`, async ($, on) => {
     base(on)
     let copied = ''
     on('ui.copy', ($, e) => { copied = String(e.text); return { value: { isCopied: true } } })
-    await $.command.run({ command: 'veille', args: 'fil' })
+    await $.command.run({ command: 'veille', args: 'archiver' })
     const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
     expect(await has(ui, /À archiver .2./)).toBe(true)
-    expect(await has(ui, /PR #21 mergée/)).toBe(false)
-    await ui.press({ key: 'fil-archive' })
     expect(await has(ui, /Old lane one · alpha · PR #21 mergée, terminée, inactive 9 h/)).toBe(true)
     expect(await has(ui, /archive_session/)).toBe(true)
     await ui.press({ key: 'fil-archive-copy' })
@@ -129,4 +170,30 @@ test('/veille archiver prints the list from archive.json', async ($, on) => {
   const t = JSON.stringify(r)
   expect(t).toContain('À archiver : 2 sur 9')
   expect(t).toContain('Old lane two · beta · pas de PR, terminée, inactive 30 h · local_old2')
+})
+
+test('/export-eta is an alias of the Export eta tab only when no mod serves /export-eta', async ($, on) => {
+  const w = base(on)
+  const registered: string[] = []
+  on('command.register', ($, e) => { registered.push(e.name); return { value: { command: e.name } } })
+  on('command.list', () => ({ value: [{ name: 'veille', description: '', source: 'plugin', plugin: 'veille' }] }))
+  on('session.start', ($, e) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await w.clock.advance(5000)
+  expect(registered).toContain('export-eta')
+  await $.command.run({ command: 'export-eta', args: '' })
+  const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface: 'terminal', viewport: { columns: 140, rows: 80 }, props: PANE })
+  expect(await has(ui, /4 conversations terminées — Exporter vers eta/)).toBe(true)
+})
+
+test('no alias when export-eta already serves /export-eta', async ($, on) => {
+  const w = base(on)
+  const registered: string[] = []
+  on('command.register', ($, e) => { registered.push(e.name); return { value: { command: e.name } } })
+  on('command.list', () => ({ value: [{ name: 'export-eta', description: '', source: 'plugin', plugin: 'export-eta' }] }))
+  on('session.start', ($, e) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await w.clock.advance(5000)
+  expect(registered).toContain('veille')
+  expect(registered.includes('export-eta')).toBe(false)
 })

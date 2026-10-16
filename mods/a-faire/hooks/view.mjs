@@ -37,7 +37,7 @@ export function viewModel(cfg, data, openCats, now) {
   })
   const high = open.filter((i) => i.prio === 'now').length
   return {
-    title: `${L.title || 'À faire par Julian'} · ${open.length}`,
+    title: `${L.title || 'À toi'} · ${open.length}`,
     head: open.length ? `${high} ${P.now || 'bloque une conversation'} · ${open.filter((i) => i.prio === 'feature').length} ${P.feature || 'bloque une fonction'} · ${open.filter((i) => i.prio === 'comfort').length} ${P.comfort || 'confort'}` : L.none || "Rien n'attend Julian.",
     total: open.length, high, cats,
     snoozed: ((data && data.snoozed) || []).length,

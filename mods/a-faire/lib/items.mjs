@@ -249,16 +249,8 @@ export function countToFile(reg, matchRe = /ranger/i) {
   return n
 }
 
-// CLAUDE_CODE_PLUGIN_DIRS against the mod folders found under the roots.
-export function modsNotLoaded(found, dirsValue, sep = ';') {
-  const norm = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  const list = String(dirsValue || '').split(/[;]|:(?![\\/])/).map((s) => s.trim()).filter(Boolean)
-  const loaded = new Set(list.map(norm))
-  const loadedNames = new Set(list.map((p) => norm(p).split('/').pop()))
-  const notLoaded = (found || []).filter((m) => !loaded.has(norm(m.path)) && !loadedNames.has(String(m.name).toLowerCase()))
-  const value = [...list, ...notLoaded.map((m) => m.path.replace(/\\/g, '/'))].join(sep)
-  return { notLoaded, value }
-}
+// « mods installés mais pas chargés » is measured by lib/mods-check.mjs (lib/core/mods.mjs, node only); gapItems
+// above only turns its result (facts.mods) into an item.
 
 // ---- state: done and snoozed ---------------------------------------------------------------------------------------
 
@@ -308,15 +300,21 @@ export function groups(items, order = CATS) {
   return order.map((cat) => ({ cat, items: sortItems(items.filter((i) => i.cat === cat)) }))
 }
 
+// ~/.claude/a-faire/summary.json, counts only (no title, no text). The stable shape every reader relies on (README):
+//   total      open items (« À toi : N »)
+//   high       open items that block a conversation (priority now)
+//   updatedAt  when the scanner wrote it (ms)
+// Kept for older readers: open (= total, what lib/core/veille.mjs aToi() and the band read), at (= updatedAt).
+// Extra detail: v, by_cat, by_prio, snoozed, errors (number of unread sources).
 export function summary(open, snoozed, now, errors = []) {
   const by_cat = Object.fromEntries(CATS.map((c) => [c, open.filter((i) => i.cat === c).length]))
   const by_prio = Object.fromEntries(PRIOS.map((p) => [p, open.filter((i) => i.prio === p).length]))
-  return { v: 1, at: now, open: open.length, high: by_prio.now, by_cat, by_prio, snoozed: snoozed.length, errors: errors.length }
+  return { v: 2, total: open.length, high: by_prio.now, updatedAt: now, open: open.length, at: now, by_cat, by_prio, snoozed: snoozed.length, errors: errors.length }
 }
 
 // The band's red counter: « À toi : N », nothing when N is 0 or unknown.
 export function counterText(sum, label = 'À toi') {
-  const n = sum && Number(sum.open)
+  const n = sum && Number(sum.total ?? sum.open)
   return n > 0 ? `${label} : ${n}` : ''
 }
 

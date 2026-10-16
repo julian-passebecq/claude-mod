@@ -22,6 +22,7 @@ import { expand, landInEta, maskOpts } from '../lib/etagit.mjs'
 import { batchOf, batchText, deepMerge, fill, frontMatter, globalIndex, partPath, pathOf, projectIndex } from '../lib/layout.mjs'
 import { day, render, split } from '../lib/render.mjs'
 import { listSessions, readTranscript } from './sessions.mjs'
+import { writeHealth } from '../lib/core/health.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MOD = path.join(HERE, '..')
@@ -270,6 +271,13 @@ export async function runExport(cfg, o, nowMs) {
   return { ok: !git.error || (git.merged && !!git.url), ...entry }
 }
 
+// Errors as the health record ~/.claude/mods-health/export-eta.json (lib/core/health.mjs), which Santé and the
+// Problèmes register read: one line, credentials in URLs and token-like words masked.
+export function healthText(err) {
+  if (!err) return null
+  return String(err).replace(/(https?:\/\/)[^/\s@]+@/g, '$1***@').replace(/\b(gh[pousr]_|glpat-|github_pat_)[A-Za-z0-9_-]+/g, '$1***').replace(/\s+/g, ' ').trim().slice(0, 300)
+}
+
 export async function main(argv) {
   const o = parseArgs(argv)
   const cfg = loadConfig(o)
@@ -304,5 +312,19 @@ export async function main(argv) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((c) => process.exit(c), (e) => { console.error(`export-eta: ${e && e.message ? e.message : e}`); process.exit(1) })
+  const cmd = process.argv[2] || 'status'
+  const watched = ['list', 'pending', 'run'].includes(cmd) && !process.argv.includes('--dry-run')
+  // the last line printed (stdout or stderr) says why a run failed
+  const orig = { log: console.log, error: console.error }
+  let last = ''
+  console.log = (...a) => { last = a.join(' '); orig.log(...a) }
+  console.error = (...a) => { last = a.join(' '); orig.error(...a) }
+  main(process.argv.slice(2)).then((c) => {
+    if (watched) writeHealth('export-eta', c ? healthText(`${cmd}_failed: ${last || 'exit ' + c}`) : null)
+    process.exit(c)
+  }, (e) => {
+    console.error(`export-eta: ${e && e.message ? e.message : e}`)
+    if (watched) writeHealth('export-eta', healthText(`${cmd}_failed: ${e && e.message ? e.message : e}`))
+    process.exit(1)
+  })
 }

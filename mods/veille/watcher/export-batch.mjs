@@ -4,10 +4,11 @@
 // the exporter); with export-eta's `auto: true` the watcher runs the export itself. No model call. Never fatal.
 import fs from 'node:fs'
 import path from 'node:path'
+import { EXPORT_RUN } from '../lib/export-view.mjs'
 
 export const EXPORT_SCRIPT = ['export-eta', 'exporter', 'export.mjs']
-// What the pane's button runs, the script path relative to the mods folder.
-export const EXPORT_RUN = ['export-eta/exporter/export.mjs', 'run', '--mode', 'batch']
+// What the pane's button runs, the script path relative to the mods folder (one definition: lib/export-view.mjs).
+export { EXPORT_RUN }
 
 /** The alert for a ready batch (pure; tested). */
 export function exportAlert(pending, nowMs) {

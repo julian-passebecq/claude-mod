@@ -105,20 +105,28 @@
     }
   },
   "archive": {
-    "_doc": "« À archiver » (Fil tab, /veille archiver): at every fire the watcher writes ~/.claude/veille/archive.json with the finished conversations the VEILLE conversation may archive in one batch (archive_session). The script never archives. A candidate: open (not archived), no activity for idle_h hours (session file, transcript, sub-agent and workflow files), no pending tool call, every PR of the session merged or closed (or none). Never a candidate: pinned (isStarred) or autoArchiveExempt, waiting on Julian (the Fil's signals, needs_action, interrupted), a status in keep_status, the newest open conversation of its project (keep_newest_per_project), a title matching role_pattern (regex; default: upper-case name then a number, « VEILLE 1 »).",
+    "_doc": "« À archiver » (its own tab of the Veille pane, /veille archiver): at every fire the watcher writes ~/.claude/veille/archive.json with the finished conversations the VEILLE conversation may archive in one batch (archive_session). The script never archives. A candidate: open (not archived), no activity for idle_h hours (session file, transcript, sub-agent and workflow files), no pending tool call, every PR of the session merged or closed (or none). Never a candidate: pinned (isStarred) or autoArchiveExempt, waiting on Julian (the Fil's signals, needs_action, interrupted), a status in keep_status, the newest open conversation of its project (keep_newest_per_project), a title matching role_pattern (regex; default: upper-case name then a number, « VEILLE 1 »).",
     "idle_h": 6,
     "role_pattern": "^[A-ZÀ-Ý][A-ZÀ-Ý0-9 &_'.-]*?\\s\\d+(?:\\s|$|[(:·-])",
     "keep_status": ["blocked"],
     "keep_newest_per_project": true,
     "max_list": 200,
     "labels": {
+      "tab": "À archiver",
       "title": "À archiver ({n})",
+      "refresh": "Rafraîchir",
       "copy_ids": "Copier la liste des ids",
       "copied": "{n} id(s) copié(s)",
       "note": "La conversation VEILLE les archive en un lot (archive_session) ; le script n’archive jamais.",
       "none": "Rien à archiver.",
       "missing": "archive.json absent : la tâche ClaudeVeille l’écrit au prochain passage."
     }
+  },
+  "export": {
+    "_doc": "« Export eta » tab (/veille export, and /export-eta when the export-eta mod is not loaded): export-eta's batch of finished conversations, read from ~/.claude/export-eta/pending.json and state.json (EXPORT_ETA_HOME moves it). « Exporter vers eta » runs export-eta's exporter (export-eta/exporter/export.mjs run --mode batch, beside veille), « Rafraîchir » its pending command; nothing else is pushed. batch_min: the threshold shown when pending.json has none (export-eta's own setting decides). history: last exports shown. labels override lib/export-view.mjs EXPORT_LABELS.",
+    "batch_min": 3,
+    "history": 3,
+    "labels": {}
   },
   "problemes": { "_doc": "Each tour also runs the problemes mod's collector (mods/problemes/scanner/problemes_scan.mjs collect, zero tokens) when its files are in the installed copy. enabled: false turns it off.", "enabled": true, "timeout_s": 180 },
   "pane": { "events": 25, "refresh_s": 60 },

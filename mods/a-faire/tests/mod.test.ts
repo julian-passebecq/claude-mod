@@ -17,28 +17,29 @@ const CFG = JSON.stringify({
   order: ['config', 'decisions', 'questions'], open: 'nonempty',
   categories: { config: 'Configuration', decisions: 'Décisions', questions: 'Questions des conversations' },
   priorities: { now: 'bloque une conversation', feature: 'bloque une fonction', comfort: 'confort' },
-  labels: { title: 'À faire par Julian', done: 'Fait', later: 'Plus tard', copy: 'Copier', source: 'Voir la source', snoozed: 'Reporté(s)' },
+  labels: { title: 'À toi', done: 'Fait', later: 'Plus tard', copy: 'Copier', source: 'Voir la source', snoozed: 'Reporté(s)' },
 })
 
 function base(on, runs: string[][] = []) {
-  mock.clock(on, { now: NOW })
+  const clock = mock.clock(on, { now: NOW })
   on('env.get', ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   on('fs.exists', ($, e) => ({ value: /afaire\.config\.json$|a-faire[\\/]items\.json$/.test(String(e.path)) }))
   on('fs.read', ($, e) => ({ value: /items\.json$/.test(String(e.path)) ? ITEMS : CFG }))
   on('process.run', ($, e) => { runs.push(e.argv ?? e.command ?? []); return { value: { exitCode: 0, stdout: 'afaire: pas encore fait : smtp.json absent', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
+  return clock
 }
 
 const has = async (ui, re: RegExp) => (await ui.find({ type: 'Text', text: re })) !== undefined || (await ui.find({ type: 'Button', text: re })) !== undefined
-const PANE = { title: 'À faire par Julian', isFocused: true, bodyColumns: 120, placement: 'inline', scroll: { offset: 0, bodyRows: 60 }, view: {} }
+const PANE = { title: 'À toi', isFocused: true, bodyColumns: 120, placement: 'inline', scroll: { offset: 0, bodyRows: 60 }, view: {} }
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`/afaire draws the counter, the categories, the items with Copier, Fait, Plus tard (${surface})`, async ($, on) => {
     base(on)
     await $.command.run({ command: 'afaire', args: '' })
     const ui = await $.ui.mount({ plugin: 'a-faire', component: 'Pane', requestId: 'afaire', surface, viewport: { columns: 140, rows: 60 }, props: PANE })
-    expect(await has(ui, /À faire par Julian · 2/)).toBe(true)
+    expect(await has(ui, /À toi · 2/)).toBe(true)
     expect(await has(ui, /▾ Configuration \(1\)/)).toBe(true)
     expect(await has(ui, /▸ Décisions \(0\)/)).toBe(true)
     expect(await has(ui, /Remplir smtp.json de la veille/)).toBe(true)
@@ -50,3 +51,29 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, /Reporté\(s\) : 1/)).toBe(true)
   })
 }
+
+test('/a-toi is an alias of /afaire, registered only when the session has none', async ($, on) => {
+  const clock = base(on)
+  const registered: string[] = []
+  on('command.register', ($, e) => { registered.push(e.name); return { value: { command: e.name } } })
+  on('command.list', () => ({ value: [{ name: 'afaire', description: '', source: 'plugin', plugin: 'a-faire' }] }))
+  on('session.start', ($, e) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await clock.advance(5000)
+  expect(registered).toContain('afaire')
+  expect(registered).toContain('a-toi')
+  await $.command.run({ command: 'a-toi', args: '' })
+  const ui = await $.ui.mount({ plugin: 'a-faire', component: 'Pane', requestId: 'afaire', surface: 'terminal', viewport: { columns: 140, rows: 60 }, props: PANE })
+  expect(await has(ui, /À toi · 2/)).toBe(true)
+})
+
+test('no /a-toi alias when another mod already serves it', async ($, on) => {
+  const clock = base(on)
+  const registered: string[] = []
+  on('command.register', ($, e) => { registered.push(e.name); return { value: { command: e.name } } })
+  on('command.list', () => ({ value: [{ name: 'a-toi', description: '', source: 'plugin', plugin: 'hub' }] }))
+  on('session.start', ($, e) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await clock.advance(5000)
+  expect(registered.includes('a-toi')).toBe(false)
+})

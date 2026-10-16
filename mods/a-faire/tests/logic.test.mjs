@@ -10,9 +10,10 @@ import { test } from 'node:test'
 import { collect, loadConfig, scan } from '../lib/collect.mjs'
 import { veilleFeed } from '../lib/feed.mjs'
 import {
-  applyState, codeSpans, counterText, countToFile, feedOf, gapItems, hash, markDone, markSnooze, modsNotLoaded,
+  applyState, codeSpans, counterText, countToFile, feedOf, gapItems, hash, markDone, markSnooze,
   parseDecisions, parseManualChecks, parseQuestions, prItems, summary, veilleItems,
 } from '../lib/items.mjs'
+import { modsNotLoaded } from '../lib/mods-check.mjs'
 import { initialOpen, viewModel } from '../hooks/view.mjs'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -157,7 +158,7 @@ test('view: categories in order, unfolded when they hold items, one-line summari
   assert.equal(vm.cats[1].items[0].sinceText, 'depuis 2 h')
   assert.equal(vm.cats[0].summary, 'rien')
   assert.equal(vm.snoozed, 1)
-  assert.equal(vm.title, 'À faire par Julian · 1')
+  assert.equal(vm.title, 'À toi · 1')
 })
 
 test('scan end to end on fixture files: smtp gap auto-closes when smtp.json appears; summary has counts only', async () => {

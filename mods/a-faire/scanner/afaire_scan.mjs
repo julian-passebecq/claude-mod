@@ -12,6 +12,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, paths, readJson, scan, writeAtomic } from '../lib/collect.mjs'
 import { markDone, markSnooze, pruneState } from '../lib/items.mjs'
+import { writeHealth } from '../lib/core/health.mjs'
 
 export async function main(argv) {
   const cfg = loadConfig()
@@ -22,7 +23,7 @@ export async function main(argv) {
   if (cmd === 'scan') {
     const maxAge = Number(flag('--max-age-s') || 0)
     const sum = readJson(p.summary, null)
-    if (maxAge && sum && now - (sum.at || 0) < maxAge * 1000 && fs.existsSync(p.items)) { console.log(`afaire: à jour (${sum.open})`); return 0 }
+    if (maxAge && sum && now - (sum.updatedAt || sum.at || 0) < maxAge * 1000 && fs.existsSync(p.items)) { console.log(`afaire: à jour (${sum.total ?? sum.open})`); return 0 }
     const r = await scan(cfg, { now, fresh: rest.includes('--fresh') })
     console.log(`afaire: ${r.open.length} à faire, ${r.snoozed.length} reporté(s)${r.errors.length ? `, non lu : ${r.errors.join(', ')}` : ''}`)
     return 0
@@ -54,5 +55,11 @@ export async function main(argv) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((c) => { process.exitCode = c }, (e) => { console.error(`afaire: ${String(e && e.message || e)}`); process.exitCode = 1 })
+  // health record ~/.claude/mods-health/a-faire.json (lib/core/health.mjs) for scans: Santé and Problèmes read it
+  const scanRun = (process.argv[2] || 'scan') === 'scan'
+  main(process.argv.slice(2)).then((c) => { process.exitCode = c; if (scanRun) writeHealth('a-faire', c ? `scan_failed: exit ${c}` : null) }, (e) => {
+    console.error(`afaire: ${String(e && e.message || e)}`)
+    process.exitCode = 1
+    if (scanRun) writeHealth('a-faire', `scan_failed: ${String(e && e.message || e).slice(0, 300)}`)
+  })
 }
