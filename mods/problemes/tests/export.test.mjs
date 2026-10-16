@@ -7,7 +7,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { MARK, registerFiles, staleOf } from '../lib/export.mjs'
-import { drift } from '../scripts/sync-libs.mjs'
+import { stale } from '../../../scripts/sync-libs.mjs'
 import { config, etaSettings, exportRegister } from '../scanner/problemes_scan.mjs'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -17,7 +17,7 @@ const CATS = [{ id: 'ci', label: 'CI' }, { id: 'workflow', label: 'Workflow', ch
 const P = (id, o = {}) => ({ id, title: `Problème ${id}`, category: 'ci', status: 'ouvert', count: 2, first_seen: NOW - 86400000, last_seen: NOW - 3600000, symptom: 's', cause: 'c', fix: '', notes: [], evidence: [], apps: [], source: 'auto', ...o })
 
 test('the lib/eta copies are current copies of export-eta (sync-libs drift check)', () => {
-  assert.deepEqual(drift(), [])
+  assert.deepEqual(stale(), [])
 })
 
 test('one REGISTRE.md with a summary table, problems grouped by category, secrets masked', () => {
