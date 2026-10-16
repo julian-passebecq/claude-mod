@@ -82,6 +82,14 @@ export type View = {
     agents?: { running: number; total: number; workflow?: string }
     pr?: { number: number; url?: string }
   }
+  /** the whole PC: agents running (wrote within sections.running_s), conversations active (within jauge.active_s) */
+  pc?: { agents: number; convs: number }
+  /** Codex's quota windows from the usage mod's data folder (lib/core/usage.mjs readQuotas), % used */
+  codex?: { five?: number; week?: number }
+  /** Claude's quota windows from the same folder, used when the engine gives no rate limits */
+  claude?: { five?: number; week?: number }
+  /** machine load: CPU % between two scans (os.cpus), GPU % (nvidia-smi or the Windows 3D-engine counter) */
+  machine?: { cpu?: number; gpu?: number }
   files: number
   ms: number
   /** where the per-line usage and the prices came from: "lib/core" (shared, the mod's synced copy) or "band" (fallback) */

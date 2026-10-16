@@ -20,6 +20,19 @@ export const agentsOf = (events: Ev[], session: string | undefined, now: number,
   return { running: running.length, total: last.size, ...(wf ? { workflow: wf } : {}) }
 }
 
+/** The whole PC: agents running (subagents and Workflow agents that wrote within runningS) and conversations active
+ * (any of their files wrote within activeS), from the kept events. */
+export const pcActivity = (events: Ev[], now: number, runningS: number, activeS: number) => {
+  const agents = new Set<string>()
+  const convs = new Set<string>()
+  for (const e of events) {
+    if (e.t > now) continue
+    if (e.a && now - e.t <= runningS * 1000) agents.add(`${e.s}/${e.a}`)
+    if (now - e.t <= activeS * 1000) convs.add(e.s)
+  }
+  return { agents: agents.size, convs: convs.size }
+}
+
 
 export type Rates = Record<string, { in: number; out: number; cache_read: number; cache_write_5m: number }>
 
@@ -199,6 +212,7 @@ export const buildView = (
   cfg: Pick<Config, 'windows_s' | 'spark_min' | 'bucket_s' | 'count' | 'rates' | 'top_n' | 'compact_history_hours' | 'worktree_markers'> & {
     context?: { growth_window_s: number }
     sections?: { running_s?: number }
+    jauge?: { active_s?: number }
   },
   opts: { now: number; session?: string; cwd?: string; files?: number; ms?: number; price?: (e: Ev) => number; lib?: string },
 ): View => {
@@ -302,6 +316,7 @@ export const buildView = (
           ...(me.pr ? { pr: me.pr } : {}),
         }
       : undefined,
+    pc: pcActivity(events, now, cfg.sections?.running_s ?? 120, cfg.jauge?.active_s ?? 300),
     files: opts.files ?? 0,
     ms: opts.ms ?? 0,
     lib: opts.lib ?? 'band',
@@ -423,13 +438,30 @@ export const compactLabel = (c: Compaction, labels: Record<string, string>, idle
 // ---------- launcher (the Mods button bar) ----------
 
 /** args: what the press passes to the command (« fil » opens /veille fil); key: the open-state id when two buttons share a mod. */
-export type LauncherItem = { label: string; mod: string; command: string; args?: string; key?: string }
+export type LauncherItem = { label: string; short?: string; mod: string; command: string; args?: string; key?: string }
 /** preset hubs (default): items, the 6 hub entries; all: all_items, the 15 older buttons. */
-export type Launcher = { enabled?: boolean; close_args?: string; preset?: string; items?: LauncherItem[]; all_items?: LauncherItem[] }
+export type Launcher = {
+  enabled?: boolean
+  close_args?: string
+  preset?: string
+  /** one hub open at a time */
+  single?: boolean
+  items?: LauncherItem[]
+  /** shown when the band is unfolded (▾): Jauge, band's own detail pane */
+  more_items?: LauncherItem[]
+  all_items?: LauncherItem[]
+}
 
 /** The items of the chosen preset: all -> all_items (when listed), anything else -> items. */
 export const launcherItems = (l: Launcher | undefined): LauncherItem[] =>
   !l ? [] : l.preset === 'all' && Array.isArray(l.all_items) && l.all_items.length ? l.all_items : (l.items ?? [])
+/** The preset's items and the unfolded ones (more_items), for the open-state tracking. */
+export const allLauncherItems = (l: Launcher | undefined): LauncherItem[] => [...launcherItems(l), ...(l && Array.isArray(l.more_items) ? l.more_items : [])]
+
+/** single: the open buttons to close when `key` opens (every other open one), as items. */
+export const othersOpen = (items: readonly LauncherItem[], open: readonly string[], key: string) =>
+  items.filter((i, n) => i && launcherKey(i) !== key && open.includes(launcherKey(i)) && items.findIndex(j => launcherKey(j) === launcherKey(i)) === n)
+
 /** One slash command as $.command.list() gives it (name, and the plugin that registered it when known). */
 export type CommandSeen = { name: string; plugin?: string }
 export type LauncherButton = LauncherItem & { loaded: boolean; open: boolean; hint?: string }
