@@ -16,6 +16,35 @@ export function filLabels(cfg) {
   }
 }
 
+// Labels of the night block (veille.config.json night.labels), shared by the Alertes tab and the wakes of the Fil.
+export function nightLabels(cfg) {
+  const L = ((cfg && cfg.night) || {}).labels || {}
+  return { title: 'Bilan de la nuit', night_button: 'Nuit', day_button: 'Jour', night_on: 'Nuit active depuis {time}', wakes: 'Réveils de la Veille', ...L,
+    wake_states: { en_cours: 'en cours', ok: 'conforme', ecart: 'écart', erreur: 'erreur', sans_resultat: 'sans résultat', ...(L.wake_states || {}) } }
+}
+
+const WAKE_TONE = { en_cours: 'info', ok: 'ok', ecart: 'bad', erreur: 'bad', sans_resultat: 'warn' }
+
+// One line per wake (newest first) and its result: what the Fil shows of ~/.claude/veille/wakes.json.
+export function wakeLines(wakes, cfg, max = 5) {
+  const NL = nightLabels(cfg)
+  return ((wakes && wakes.wakes) || []).slice(0, max).map((w) => ({
+    head: `${hm(w.at)} · ${w.title || w.target_cli || ''} · ${[String((w.want || {}).model || '').replace(/^claude-/, ''), (w.want || {}).effort, (w.want || {}).permission].filter(Boolean).join(' · ')} · ${NL.wake_states[w.status] || w.status}`,
+    tone: WAKE_TONE[w.status] || 'info',
+    detail: [w.reason, (w.diffs || []).length ? (w.diffs || []).join(' ; ') : '', w.result].filter(Boolean).map((x) => String(x).replace(/\s+/g, ' ').slice(0, 300)),
+  }))
+}
+
+export function drawWakes(el, cfg, wakes, T, col) {
+  const lines = wakeLines(wakes, cfg)
+  if (!lines.length) return null
+  const colors = cfg.colors || {}
+  return col([
+    T(nightLabels(cfg).wakes, { bold: true }),
+    ...lines.map((l) => col([T(l.head, { tone: l.tone }), ...l.detail.map((d) => T(d, { dim: true }))], { marginLeft: 2 })),
+  ], { borderStyle: 'round', ...(colors.dim ? { borderColor: colors.dim } : {}), paddingX: 1, marginBottom: 1 })
+}
+
 const fillT = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => (v[k] !== undefined ? String(v[k]) : m))
 
 // The text a terminal render shows (and the tests read): one line per project and per conversation.
@@ -117,7 +146,8 @@ export function drawFil(el, cfg, fil, ui, h) {
     h.msg ? T(h.msg, { dim: true }) : null,
   ], { marginBottom: 1 })
   const archive = h.toggleArchive ? drawArchive(el, cfg, h.archive, !!ui.archiveOpen, h, T, row, col, btn) : null
-  if (!fil) return col([head, archive, T(L.missing || 'fil.json absent', { tone: 'warn' })])
+  const wakes = drawWakes(el, cfg, h.wakes, T, col)
+  if (!fil) return col([head, wakes, archive, T(L.missing || 'fil.json absent', { tone: 'warn' })])
 
   const view = filterFil(fil, ui.filter || 'tout', ui.project || '', h.now)
   const projOpen = (p) => (ui.openProj && p.name in ui.openProj ? ui.openProj[p.name] : (p.counts.attend || p.counts.en_cours || p.counts.bloquee) > 0)
@@ -158,5 +188,5 @@ export function drawFil(el, cfg, fil, ui, h) {
       open ? col([...flatten(p.convs).map(conv), p.hidden ? T(fillT(L.more || '+ {n} autres', { n: p.hidden }), { dim: true }) : null], { marginLeft: 2, marginTop: 1 }) : null,
     ], { marginBottom: 1 })
   })
-  return col([head, archive, ...(projects.length ? projects : [T(L.none || 'Aucune conversation.', { dim: true })])])
+  return col([head, wakes, archive, ...(projects.length ? projects : [T(L.none || 'Aucune conversation.', { dim: true })])])
 }

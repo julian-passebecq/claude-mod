@@ -34,10 +34,15 @@ const PENDING = JSON.stringify({ generated: NOW - 5 * MIN, ready: true, count: 4
   titles: [{ cli: 'c1', title: 'Lane one', project: 'alpha' }, { cli: 'c2', title: 'Lane two', project: 'beta' }] })
 const EXPORTS = JSON.stringify({ history: [{ at: NOW - 60 * MIN, mode: 'batch', count: 3, pr: 12, url: 'https://github.com/o/eta/pull/12', merged: true, held: [] }] })
 
-function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * MIN }) {
+// What the watcher writes for the safe wake (wakes.json) and /veille jour (night-summary.json). Invented values.
+const WAKES = JSON.stringify({ v: 1, generated: NOW - MIN, wakes: [{ at: NOW - 20 * MIN, key: 'idle:c1', title: 'Coordinator', want: { model: 'claude-opus-5-5', effort: 'medium', permission: 'acceptEdits' },
+  status: 'ok', reason: 'Lane B idle', result: 'Relaunched lane B.', log: 'w.log' }] })
+const NIGHT = JSON.stringify({ v: 1, generated: NOW - 60 * MIN, lines: ['Bilan de la nuit : 23:00 → 07:00 (8 h) · 2 mergées · 1 échecs · 1 attentes de Julian · 0 réveils', 'mergées :', '  01:10 x#7'] })
+
+function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * MIN }, user = USER) {
   const clock = mock.clock(on, { now: NOW })
   const files: Record<string, string> = {
-    'veille/config.json': USER, 'veille/state.json': STATE, 'veille/fil.json': FIL, 'veille/archive.json': ARCHIVE, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
+    'veille/config.json': user, 'veille/state.json': STATE, 'veille/wakes.json': WAKES, 'veille/night-summary.json': NIGHT, 'veille/fil.json': FIL, 'veille/archive.json': ARCHIVE, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
     'export-eta/pending.json': PENDING, 'export-eta/state.json': EXPORTS,
   }
   const hit = (p: string) => Object.keys(files).find((k) => p.replace(/\\/g, '/').endsWith('.claude/' + k))
@@ -196,4 +201,43 @@ test('no alias when export-eta already serves /export-eta', async ($, on) => {
   await w.clock.advance(5000)
   expect(registered).toContain('veille')
   expect(registered.includes('export-eta')).toBe(false)
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Fil shows the wakes of the Veille with their check and result (${surface})`, async ($, on) => {
+    base(on)
+    await $.command.run({ command: 'veille', args: 'fil' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /Réveils de la Veille/)).toBe(true)
+    expect(await has(ui, /Coordinator · opus-5-5 · medium · acceptEdits · conforme/)).toBe(true)
+    expect(await has(ui, /Relaunched lane B/)).toBe(true)
+  })
+
+  test(`Alertes: night summary of /veille jour, « Nuit » runs the watcher's nuit (${surface})`, async ($, on) => {
+    const w = base(on)
+    await $.command.run({ command: 'veille', args: '' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /Bilan de la nuit : 23:00/)).toBe(true)
+    expect(await has(ui, /^Nuit$/)).toBe(true)
+    const btn = await ui.find({ type: 'Button', text: /^Nuit$/ })
+    await ui.press(btn)
+    expect(w.runs.some((a) => a[a.length - 1] === 'nuit' && /veille\.mjs$/.test(String(a[a.length - 2])))).toBe(true)
+  })
+}
+
+test('during the night the pane says since when and offers « Jour »', async ($, on) => {
+  base(on, undefined, JSON.stringify({ mode: 'nuit-active', installed: true, night_started: NOW - 120 * MIN }))
+  await $.command.run({ command: 'veille', args: '' })
+  const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface: 'terminal', viewport: { columns: 140, rows: 80 }, props: PANE })
+  expect(await has(ui, /Nuit active depuis \d\d:\d\d/)).toBe(true)
+  expect(await has(ui, /^Jour$/)).toBe(true)
+})
+
+test('/veille jour runs the watcher and answers with the night summary; /veille nuit runs nuit', async ($, on) => {
+  const w = base(on)
+  const r = await $.command.run({ command: 'veille', args: 'jour' })
+  expect(w.runs.some((a) => a[a.length - 1] === 'jour')).toBe(true)
+  expect(JSON.stringify(r)).toContain('Bilan de la nuit')
+  await $.command.run({ command: 'veille', args: 'nuit' })
+  expect(w.runs.some((a) => a[a.length - 1] === 'nuit')).toBe(true)
 })

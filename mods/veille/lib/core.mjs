@@ -223,12 +223,13 @@ export function wakeDecision(alert, scan, cfg, state, nowMs) {
 }
 
 // ≤ 10 lines: what, who, since, what the mode allows, the hard limits, how to ack.
+// extra.fresh: the brief opens a fresh session (the safe wake), not the conversation itself.
 // extra.archive: finished conversations listed in archive.json, for the VEILLE conversation to archive in one batch.
 export function brief(alert, cfg, nowMs, ackCmd, extra = {}) {
   const mode = modeOf(cfg)
   const can = mode.may.filter((a) => a !== 'alert').map((a) => ((cfg.labels || {}).may_names || {})[a] || a).join(', ')
   const lines = [
-    `[Veille ${mode.name}] ${new Date(nowMs).toISOString().slice(0, 16).replace('T', ' ')} UTC : action demandée.`,
+    `[Veille ${mode.name}] ${new Date(nowMs).toISOString().slice(0, 16).replace('T', ' ')} UTC : action demandée${extra.fresh ? ' (session neuve dans le dossier de la conversation, pas la conversation elle-même)' : ''}.`,
     `Alerte : ${alert.what}`,
     alert.title ? `Conversation : ${alert.title}${alert.cli ? ` (${alert.cli})` : ''}` : null,
     alert.link ? `Lien : ${alert.link}` : null,

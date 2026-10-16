@@ -19,9 +19,10 @@ test('each mode lists exactly what it may do', () => {
   const allowed = (m, over = {}) => ['alert', 'notify', 'notify_julian', 'mail', 'push_claude', 'merge', 'wake'].filter((a) => may(cfgOf({ mode: m, ...over }), a))
   assert.deepEqual(allowed('rien'), [])
   assert.deepEqual(allowed('légère'), ['alert', 'notify', 'mail'])
-  assert.deepEqual(allowed('active'), ['alert', 'notify', 'mail'], 'wake stays off until wake.enabled')
+  assert.deepEqual(allowed('active', { wake: { enabled: false } }), ['alert', 'notify', 'mail'], 'wake.enabled false turns wakes off')
+  assert.deepEqual(allowed('active'), ['alert', 'notify', 'mail', 'wake'], 'wake on in the shipped config since the 16 Oct wake-test')
   assert.deepEqual(allowed('active', { wake: { enabled: true } }), ['alert', 'notify', 'mail', 'wake'])
-  assert.deepEqual(allowed('nuit-active'), ['alert', 'notify_julian', 'mail', 'merge'])
+  assert.deepEqual(allowed('nuit-active'), ['alert', 'notify_julian', 'mail', 'merge', 'wake'])
   assert.deepEqual(allowed('nuit-test-légère'), ['alert', 'notify', 'mail'], 'push_claude stays off until push.claude')
   assert.deepEqual(allowed('nuit-test-légère', { push: { claude: true } }), ['alert', 'notify', 'mail', 'push_claude'])
   for (const m of ['légère', 'nuit-test-légère']) assert.ok(!may(cfgOf({ mode: m, wake: { enabled: true } }), 'merge'))
@@ -198,7 +199,7 @@ test('merge candidates: green, no conflict, in the allow-list (base repo owner)'
 test('wake: off by default, coordinator only, budgeted, at most twice per row, never a live session', () => {
   const alert = { key: 'idle:c2:x', kind: 'idle', what: 'Aucun tour depuis 1 h alors que x#7 est rouge', title: 'Lane B', cli: 'c2', since: NOW - 60 * MIN }
   const scan = { sessions: [...SCAN.sessions, session({ cli: 'coord', app_title: 'COORD', ctx: 120000 })] }
-  assert.equal(wakeDecision(alert, scan, cfgOf({ mode: 'active' }), {}, NOW).ok, false, 'wake.enabled false')
+  assert.equal(wakeDecision(alert, scan, cfgOf({ mode: 'active', wake: { enabled: false } }), {}, NOW).ok, false, 'wake.enabled false')
   const cfg = cfgOf({ mode: 'active', wake: { enabled: true }, coordinator_session: 'coord' })
   const d = wakeDecision(alert, scan, cfg, {}, NOW)
   assert.equal(d.ok, true)
