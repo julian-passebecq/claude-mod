@@ -23,20 +23,27 @@ import {
   fmtPct,
   fmtTok,
   fmtUsd,
+  ageText,
+  handoffAdvice,
+  handoffButtons,
+  handoffReason,
   hhmm,
   launcherButtons,
   launcherPress,
   markerLine,
+  recentHandoffs,
+  resumeCandidates,
   sparkline,
   toggleOpen,
 } from './logic'
-import type { BandPart, Config, Ctx, LauncherButton, View } from './logic'
+import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
 
 const PANE = { id: 'jauge' }
 const viewAtom = atom({ plugin: 'band', key: 'view' } as const, null)
 const engineAtom = atom({ plugin: 'band', key: 'engine' } as const, null)
 const errorAtom = atom({ plugin: 'band', key: 'error' } as const, '')
 const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { commands: [], open: [] })
+const handoffAtom = atom({ plugin: 'band', key: 'handoff' } as const, { ran: [], show: false })
 
 type Options = { config?: string; band?: string; status_line?: string }
 
@@ -173,6 +180,76 @@ const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) 
   })
 }
 
+// ---------- hand-off helper ----------
+// Read-only: it stats RESUME and reads it on a press; « Préparer RESUME » runs the handoff command only on a press.
+
+const seeResume = async ($: EngineInterface, c: Config) => {
+  const hc = c.handoff
+  if (!hc || hc.enabled === false) return
+  let cwd = ''
+  try {
+    cwd = await $.session.cwd()
+  } catch {}
+  const places = resumeCandidates(cwd, hc.files ?? [], c.worktree_markers)
+  let resume: { path: string; mtime?: number } | undefined = places[0] ? { path: places[0] } : undefined
+  for (const p of places) {
+    try {
+      const st = await $.fs.stat(p)
+      if (st.kind === 'file') {
+        resume = { path: p, mtime: st.mtimeMs }
+        break
+      }
+    } catch {}
+  }
+  let startedAt: number | undefined
+  try {
+    startedAt = (await $.session.usage()).startedAt
+  } catch {}
+  await update($, handoffAtom, s => ({ ...s, resume, ...(startedAt !== undefined ? { startedAt } : {}) }))
+}
+
+const noteRan = async ($: EngineInterface) => {
+  const now = await $.clock.now()
+  await update($, handoffAtom, s => ({ ...s, ran: [...s.ran, now].slice(-10) }))
+}
+
+const showResume = async ($: EngineInterface, c: Config) => {
+  await seeResume($, c)
+  const s = await read($, handoffAtom)
+  let text: string | undefined
+  if (s.resume?.mtime !== undefined) {
+    try {
+      const all = (await $.fs.read(s.resume.path, { as: 'text' })) as string
+      const cap = c.handoff?.preview_chars ?? 12000
+      text = all.length > cap ? `${all.slice(0, cap)}\n\n…` : all
+    } catch {}
+  } else $.ui.toast(`RESUME ${c.labels.handoff_absent ?? 'absent'} : ${s.resume?.path ?? '?'}`)
+  await update($, handoffAtom, x => ({ ...x, show: true, ...(text !== undefined ? { text } : {}) }))
+  await $.ui.open({ id: PANE.id, title: c.labels.pane_title ?? 'Jauge' })
+}
+
+const pressHandoff = async ($: EngineInterface, b: HandoffButton, isWorking: boolean) => {
+  const c = await loadConfig($)
+  const hc = c.handoff
+  if (!hc) return
+  if (!b.enabled) {
+    $.ui.toast(b.hint ?? b.label)
+    return
+  }
+  if (b.key === 'handoff-open') {
+    await showResume($, c)
+    return
+  }
+  if (isWorking) $.ui.toast(`${b.label} : ${c.labels.handoff_queued ?? 'queued'}`)
+  // $.command.run skips the calling plugin's own hooks, so band's command.run observer will not see this run: note it here.
+  await noteRan($)
+  $.command
+    .run({ command: hc.command, ...(hc.args ? { args: hc.args } : {}) })
+    .catch((err: unknown) => $.ui.toast(`/${hc.command} : ${String(err).slice(0, 160)}`))
+}
+
+const fileHref = (p: string) => `file:///${encodeURI(p.replace(/\\/g, '/').replace(/^\/+/, ''))}`
+
 const refresh = async ($: EngineInterface) => {
   if (scanning) return
   scanning = true
@@ -209,6 +286,7 @@ const refresh = async ($: EngineInterface) => {
     await figures($)
     await statusLine($)
     await seeCommands($)
+    await seeResume($, c)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -242,6 +320,7 @@ export const register: Register = (on, raw) => {
     const r = await next(e)
     try {
       const c = await loadConfig($)
+      if (c.handoff && c.handoff.enabled !== false && e.command === c.handoff.command) await noteRan($)
       const item = c.launcher?.items?.find(i => i.command === e.command)
       if (item) {
         const closing = (e.args ?? '').trim() === (c.launcher?.close_args || 'close')
@@ -249,7 +328,7 @@ export const register: Register = (on, raw) => {
       }
     } catch {}
     return r
-  })
+  }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
     const r = await next(e)
@@ -267,7 +346,13 @@ export const register: Register = (on, raw) => {
     const err = await read($, errorAtom)
     const ctx = ctxOf(c, en, v, await $.clock.now())
     const text = bandText(bandParts(v ?? undefined, ctx, en?.week, { items: c.band.items, scopes: [...SCOPES] }, c))
-    return { text: `jauge: ${text || 'pas encore de mesure'}${err ? ` · erreur: ${err}` : ''}${cfgProblem ? ` · ${cfgProblem}` : ''}` }
+    let relay = ''
+    if (c.handoff && c.handoff.enabled !== false) {
+      const hs = await read($, handoffAtom)
+      const advice = handoffAdvice(ctx, c.handoff)
+      relay = ` · passation : ${advice.show ? `${c.labels.handoff_advice ?? 'conseillée'} (${handoffReason(advice, ctx, c.handoff, c.labels)})` : 'pas encore'} · RESUME ${ageText(hs.resume?.mtime, await $.clock.now(), c.labels)}`
+    }
+    return { text: `jauge: ${text || 'pas encore de mesure'}${relay}${err ? ` · erreur: ${err}` : ''}${cfgProblem ? ` · ${cfgProblem}` : ''}` }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -275,12 +360,31 @@ export const register: Register = (on, raw) => {
     const c = await loadConfig($)
     const v = await read($, viewAtom)
     const en = await read($, engineAtom)
-    const parts = bandParts(v ?? undefined, ctxOf(c, en, v, v?.now ?? Date.now()), en?.week, c.band, c)
+    const ctx = ctxOf(c, en, v, v?.now ?? Date.now())
+    const parts = bandParts(v ?? undefined, ctx, en?.week, c.band, c)
     const buttons = await buttonsOf($, c)
-    if (!parts.length && !buttons.length) return next(e)
+    const advice = c.handoff?.band === false ? { show: false, reasons: [] } : handoffAdvice(ctx, c.handoff)
+    if (!parts.length && !buttons.length && !advice.show) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
     const isWorking = e.props.isWorking
+    let relay = null
+    if (advice.show && c.handoff) {
+      const hs = await read($, handoffAtom)
+      const lc = await read($, launcherAtom)
+      const hb = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)
+      relay = (
+        <Box flexDirection="row" flexWrap="wrap" gap={1}>
+          <Text color={c.colors.warn}>{`${c.labels.handoff_advice ?? 'Passation conseillée'} : ${handoffReason(advice, ctx, c.handoff, c.labels)}`}</Text>
+          {hb.map(b => (
+            <Button key={b.key} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, b, isWorking)}>
+              {b.label}
+            </Button>
+          ))}
+          <Text dimColor>{`RESUME ${ageText(hs.resume?.mtime, v?.now ?? Date.now(), c.labels)}`}</Text>
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column">
         {parts.length ? (
@@ -292,6 +396,7 @@ export const register: Register = (on, raw) => {
             ))}
           </Box>
         ) : null}
+        {relay}
         {buttons.length ? (
           <Box flexDirection="row" flexWrap="wrap" gap={1}>
             <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
@@ -312,7 +417,7 @@ export const register: Register = (on, raw) => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: 'jauge' }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const { Box, Text, Button, Link, Markdown } = $.ui.resolve(e)
     const c = await loadConfig($)
     const v = await read($, viewAtom)
     const en = await read($, engineAtom)
@@ -367,6 +472,55 @@ export const register: Register = (on, raw) => {
         {en?.week !== undefined ? <Text>{`${lb.week} ${fmtPct(en.week)} (limite 7 jours)`}</Text> : null}
       </Box>
     ) : null
+
+    let relay = null
+    const hc = c.handoff
+    if (hc && hc.enabled !== false) {
+      const hs = await read($, handoffAtom)
+      const lc = await read($, launcherAtom)
+      const advice = handoffAdvice(ctx, h)
+      const hb = handoffButtons(hc, lc.commands, hs.resume, lb)
+      const mine = v?.compactions.find(r => r.isThis)?.items ?? []
+      const hist = recentHandoffs(mine, hs.ran, hs.resume, hs.startedAt, hc.history_n, lb, c.idle_compact.idle_min)
+      relay = (
+        <Box flexDirection="column">
+          <Text bold>{lb.handoff_title ?? 'Passation (RESUME)'}</Text>
+          {advice.show ? (
+            <Text color={c.colors.warn}>{`${lb.handoff_advice ?? 'Passation conseillée'} : ${handoffReason(advice, ctx, hc, lb)}`}</Text>
+          ) : (
+            <Text dimColor>{`pas encore : conseillée à ${fmtTok(hc.threshold_tokens)} de contexte ou si l'auto-compact est prévu dans ${hc.eta_min} min`}</Text>
+          )}
+          <Box flexDirection="row" flexWrap="wrap" gap={1}>
+            {hb.map(b => (
+              <Button key={`p-${b.key}`} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, b, false)}>
+                {b.label}
+              </Button>
+            ))}
+            {hs.show ? (
+              <Button key="p-handoff-hide" onPress={() => update($, handoffAtom, s => ({ ...s, show: false }))}>
+                Masquer RESUME
+              </Button>
+            ) : null}
+          </Box>
+          <Text dimColor>{`/${hc.command}${hc.args ? ` ${hc.args}` : ''} · ${hb[0].hint ?? 'se lance seulement sur clic'}`}</Text>
+          {hs.resume ? (
+            <Box flexDirection="row" flexWrap="wrap" gap={1}>
+              <Text>{`${hs.resume.path} : ${ageText(hs.resume.mtime, now, lb)}`}</Text>
+              {hs.resume.mtime !== undefined ? <Link href={fileHref(hs.resume.path)} label="ouvrir le fichier" /> : null}
+              {hs.resume.mtime !== undefined ? nv : null}
+            </Box>
+          ) : (
+            <Text dimColor>RESUME : dossier de la session inconnu</Text>
+          )}
+          <Text dimColor>{lb.handoff_history ?? 'Derniers relais et compactages'}</Text>
+          {hist.length === 0 ? <Text dimColor>{lb.handoff_none ?? 'aucun'}</Text> : null}
+          {hist.map((x, i) => (
+            <Text key={`hh-${i}`} {...(x.kind === 'compact' ? {} : { color: c.colors.this })}>{`${hhmm(x.t)}  ${x.text}`}</Text>
+          ))}
+          {hs.show && hs.text !== undefined ? <Markdown key="resume-md" text={hs.text} /> : null}
+        </Box>
+      )
+    }
 
     const w = v?.windows ?? c.windows_s
     const wl = (s: number) => (s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`)
@@ -461,6 +615,7 @@ export const register: Register = (on, raw) => {
         {err ? <Text color={c.colors.bad}>{`erreur : ${err}`}</Text> : null}
         {cfgProblem ? <Text color={c.colors.bad}>{cfgProblem}</Text> : null}
         {conv}
+        {relay}
         {table}
         {top}
         {sparks}

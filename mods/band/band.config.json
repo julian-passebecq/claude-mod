@@ -37,6 +37,18 @@
       { "label": "Guide", "mod": "guide", "command": "mods-guide" }
     ]
   },
+  "handoff": {
+    "_doc": "Hand-off helper, buttons only, nothing runs by itself. An orange line « Passation conseillée » under the band when this conversation's context reaches threshold_tokens (the RESUME rule, 250 K) or the forecast puts auto-compact within eta_min minutes. « Préparer RESUME » runs /<command> <args> (the handoff skill, ~/.claude/skills/handoff); « Ouvrir RESUME » shows the first of files found under the session's folder, then its repo root, in the Jauge pane. history_n: hand-offs and compactions of this conversation listed in the pane.",
+    "enabled": true,
+    "band": true,
+    "threshold_tokens": 250000,
+    "eta_min": 20,
+    "command": "handoff",
+    "args": "",
+    "files": ["handoff/RESUME.md"],
+    "history_n": 3,
+    "preview_chars": 12000
+  },
   "context": {
     "window_fallback": 200000,
     "_autocompact_pct_fallback": "used only when the engine gives no autoCompactThreshold",
@@ -81,7 +93,22 @@
     "pane_title": "Jauge",
     "launcher": "Mods",
     "launcher_missing": "non chargé : ajouter mods/{mod} à CLAUDE_CODE_PLUGIN_DIRS",
-    "launcher_queued": "en file : s'ouvre quand Claude a fini son tour"
+    "launcher_queued": "en file : s'ouvre quand Claude a fini son tour",
+    "handoff_advice": "Passation conseillée",
+    "handoff_reason_tokens": "contexte {tokens} ≥ {threshold}",
+    "handoff_reason_eta": "auto-compact dans ~{min} min",
+    "handoff_prepare": "Préparer RESUME",
+    "handoff_open": "Ouvrir RESUME",
+    "handoff_updated": "mis à jour",
+    "handoff_absent": "absent",
+    "handoff_missing": "commande /{command} absente de cette session (skill handoff non chargé)",
+    "handoff_queued": "en file : se lance quand Claude a fini son tour",
+    "handoff_title": "Passation (RESUME)",
+    "handoff_history": "Derniers relais et compactages de cette conversation",
+    "handoff_none": "aucun",
+    "handoff_compact": "compactage",
+    "handoff_ran": "/handoff lancé",
+    "handoff_written": "RESUME écrit"
   },
   "_shared_lib": "auto: per-line usage and prices from mods/usage/lib (its parser and prices.json) when that mod sits beside this one; off: band's own parser and the rates below.",
   "shared_lib": "auto",

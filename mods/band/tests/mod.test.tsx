@@ -15,7 +15,8 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
   ...extra,
 })
 
-function world(on: any, opts: { week?: boolean } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean } = {}) {
+  const tokens = opts.tokens ?? 164000
   mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
   const statuses: (string | undefined)[] = []
@@ -30,7 +31,15 @@ function world(on: any, opts: { week?: boolean } = {}) {
   })
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   on('fs.read', ($: any, e: any) => {
-    if (String(e.path).replace(/\\/g, '/').endsWith('/band.config.json')) return { value: SHIPPED }
+    const p = String(e.path).replace(/\\/g, '/')
+    if (p.endsWith('/band.config.json')) return { value: SHIPPED }
+    if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
+    throw new Error('ENOENT')
+  })
+  on('fs.stat', ($: any, e: any) => {
+    if (opts.resume && String(e.path).replace(/\\/g, '/') === 'C:/code/app/handoff/RESUME.md') {
+      return { value: { kind: 'file', size: 40, mtimeMs: NOW - 3 * 3600000, isLink: false } }
+    }
     throw new Error('ENOENT')
   })
   on('process.run', ($: any, e: any) => (runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify(view), stderr: '' } }))
@@ -39,7 +48,7 @@ function world(on: any, opts: { week?: boolean } = {}) {
   on('session.usage', ($: any, e: any) => ({
     value: {
       startedAt: NOW - 3600000,
-      context: { tokens: 164000, window: 400000, percent: 41, ...(e?.breakdown ? { breakdown: { autoCompactThreshold: 368000, isAutoCompactEnabled: true } } : {}) },
+      context: { tokens, window: 400000, percent: Math.round((tokens * 100) / 400000), ...(e?.breakdown ? { breakdown: { autoCompactThreshold: 368000, isAutoCompactEnabled: true } } : {}) },
       rateLimits: opts.week === false ? [] : [{ kind: 'seven_day', percentUsed: 37 }],
     },
   }))
@@ -147,4 +156,65 @@ test('launcher: the person typing /conso close keeps the button in step', async 
   const again = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
   expect(await again.find({ type: 'Button', text: 'Conso ✕' })).toBeUndefined()
   await again.unmount()
+})
+
+// Hand-off helper: the orange line from 250 K, its two buttons, the pane's RESUME block and history.
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`hand-off: under 250 K no line; from 250 K « Passation conseillée », Préparer runs /handoff, Ouvrir shows RESUME (${surface})`, async ($, on) => {
+    world(on, { tokens: 260000, resume: true })
+    const ran: string[] = []
+    on('command.list', () => ({ value: [{ name: 'handoff', description: '', source: 'user' }] }))
+    on('command.run', { command: 'handoff' }, ($: any, e: any) => (ran.push(`handoff ${e.args ?? ''}`.trim()), {}))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+    expect(await band.find({ type: 'Text', text: /^Passation conseillée : contexte 260 k ≥ 250 k$/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'RESUME mis à jour il y a 3 h' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: 'Préparer RESUME' })).toBeDefined()
+    expect(ran).toEqual([])
+    await band.press({ key: 'handoff-prepare' })
+    expect(ran).toEqual(['handoff'])
+    await band.press({ key: 'handoff-open' })
+    await band.unmount()
+    const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface, viewport: { columns: 160, rows: 120 }, props: PANE } as any)
+    expect(await pane.find({ type: 'Text', text: 'C:/code/app/handoff/RESUME.md : mis à jour il y a 3 h' })).toBeDefined()
+    expect(await pane.find({ type: 'Markdown' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /\/handoff lancé$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /compactage auto 368 k→17 k$/ })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('hand-off: below the threshold nothing shows and nothing runs', async ($, on) => {
+  world(on, { tokens: 164000 })
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Text', text: /Passation conseillée/ })).toBeUndefined()
+  expect(await band.find({ type: 'Button', text: 'Préparer RESUME' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('hand-off: no handoff command in the session greys Préparer (a toast, no run); no RESUME says absent', async ($, on) => {
+  world(on, { tokens: 300000 })
+  const toasts: string[] = []
+  on('command.list', () => ({ value: [] }))
+  on('ui.toast', ($: any, e: any) => (toasts.push(String(e.text)), { value: undefined }))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Text', text: 'RESUME absent' })).toBeDefined()
+  await band.press({ key: 'handoff-prepare' })
+  expect(toasts.at(-1)).toMatch(/\/handoff absente de cette session/)
+  await band.press({ key: 'handoff-open' })
+  expect(toasts.at(-1)).toBe('RESUME absent : C:/code/app/.claude/worktrees/band/handoff/RESUME.md')
+  await band.unmount()
+})
+
+test('hand-off: a /handoff typed by the person is listed in the pane', async ($, on) => {
+  world(on, { tokens: 260000 })
+  on('command.list', () => ({ value: [{ name: 'handoff', description: '', source: 'user' }] }))
+  on('command.run', { command: 'handoff' }, () => ({}))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  await $.command.run({ command: 'handoff', args: '' } as any)
+  const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface: 'terminal', viewport: { columns: 160, rows: 120 }, props: PANE } as any)
+  expect(await pane.find({ type: 'Text', text: /\/handoff lancé$/ })).toBeDefined()
+  await pane.unmount()
 })

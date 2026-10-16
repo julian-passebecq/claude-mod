@@ -109,6 +109,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [Un mod est-il isolé](#un-mod-est-il-isolé)
     - [Un mod consomme-t-il des jetons](#un-mod-consomme-t-il-des-jetons)
     - [Ouvrir un autre mod depuis la Jauge](#ouvrir-un-autre-mod-depuis-la-jauge)
+    - [Passer le relais depuis la Jauge](#passer-le-relais-depuis-la-jauge)
 <!-- toc:end -->
 
 ## Bases
@@ -473,9 +474,9 @@ Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux,
 
 #### band
 
-Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, plus une barre Mods qui ouvre et ferme les autres mods. /jauge
+Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge
 
-- **État** : en construction · version 0.1.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.
+- **État** : en construction · version 0.2.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée ; « relais lancés » = /handoff vus dans cette session seulement.
 - **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
 - **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut, toasts · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
 - **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
@@ -560,3 +561,7 @@ Pas par lui-même. Seulement s'il appelle `$.model.complete`, lance un agent, ou
 #### Ouvrir un autre mod depuis la Jauge
 
 La ligne « Mods : » sous la Jauge a un bouton par mod (`launcher` dans `band.config.json`). Un clic lance sa commande et ouvre son panneau, le bouton devient « Conso ✕ » ; un second clic le ferme. Un bouton grisé = mod non chargé : ajouter `<dépôt>/mods/<x>` à `CLAUDE_CODE_PLUGIN_DIRS` et ouvrir une nouvelle session.
+
+#### Passer le relais depuis la Jauge
+
+Quand le contexte de la conversation atteint 250 K (règle RESUME) ou que l'auto-compact est prévu dans moins de 20 min, une ligne orange « Passation conseillée » apparaît sous la Jauge. « Préparer RESUME » lance `/handoff` (le skill `~/.claude/skills/handoff`) ; grisé si ce skill n'est pas dans la session. « Ouvrir RESUME » affiche `handoff/RESUME.md` du dossier de la session (puis de la racine du dépôt) dans le panneau /jauge, avec son âge (« mis à jour il y a 3 h » ou « absent »). Rien ne se lance tout seul : seulement sur clic. Le panneau liste aussi les 3 derniers relais et compactages de la conversation. Seuils, commande, fichiers et libellés : `handoff` dans `band.config.json`.

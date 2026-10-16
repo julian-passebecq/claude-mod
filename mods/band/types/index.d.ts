@@ -89,6 +89,20 @@ export type EngineFigures = {
   at: number
 }
 
+/** The hand-off helper's state in this session. */
+export type HandoffState = {
+  /** the RESUME file found (mtime set), or the first place looked when absent (no mtime) */
+  resume?: { path: string; mtime?: number }
+  /** when the hand-off command ran in this session (ms), from the button or typed */
+  ran: number[]
+  /** this conversation's start ($.session.usage().startedAt) */
+  startedAt?: number
+  /** the RESUME preview is shown in the pane */
+  show: boolean
+  /** its text (cut at preview_chars) */
+  text?: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     band: {
@@ -100,6 +114,8 @@ declare module 'claude-code' {
       error: string
       /** the Mods button bar: slash commands seen in this session ($.command.list()) and the mods it opened */
       launcher: { commands: { name: string; plugin?: string }[]; open: string[] }
+      /** the hand-off helper: RESUME found (path, mtime), /handoff runs seen in this session, the RESUME preview */
+      handoff: HandoffState
     }
   }
 }

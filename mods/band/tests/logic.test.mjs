@@ -16,12 +16,18 @@ import {
   costOf,
   deepMerge,
   fmtTok,
+  ageText,
   growthTpm,
+  handoffAdvice,
+  handoffButtons,
+  handoffReason,
   isLoaded,
   launcherButtons,
   launcherPress,
   rateOf,
+  recentHandoffs,
   repoKey,
+  resumeCandidates,
   sparkline,
   toggleOpen,
 } from '../hooks/logic.ts'
@@ -258,4 +264,76 @@ test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   assert.deepEqual(toggleOpen(open, 'usage', b.open), [])
   assert.deepEqual(launcherButtons({ ...L, enabled: false }, cmds, [], CFG.labels), [])
   assert.equal(launcherButtons(L, [], ['usage'], CFG.labels)[1].open, false, 'a mod not loaded is never shown open')
+})
+
+// ---------- hand-off helper ----------
+
+const H = CFG.handoff
+const ctxAt = (tokens, growth) =>
+  contextInfo({ tokens, window: 400000, autoCompactThreshold: 368000, growthTpm: growth, now: NOW }, CFG.context, CFG.idle_compact)
+
+test('hand-off advice: shown from threshold_tokens (250 K by default) or when auto-compact is forecast within eta_min', () => {
+  assert.equal(H.threshold_tokens, 250000)
+  assert.deepEqual(handoffAdvice(ctxAt(249999), H), { show: false, reasons: [] })
+  assert.deepEqual(handoffAdvice(ctxAt(250000), H), { show: true, reasons: ['tokens'] })
+  // 200 K, 168 K to the 368 K threshold at 10 K/min -> ~17 min <= 20
+  assert.deepEqual(handoffAdvice(ctxAt(200000, 10000), H), { show: true, reasons: ['eta'] })
+  assert.deepEqual(handoffAdvice(ctxAt(200000, 1000), H), { show: false, reasons: [] })
+  assert.deepEqual(handoffAdvice(ctxAt(300000, 10000), H).reasons, ['tokens', 'eta'])
+  assert.equal(handoffAdvice(ctxAt(300000), { ...H, enabled: false }).show, false)
+  assert.equal(handoffAdvice(ctxAt(200000, 10000), { ...H, eta_min: 0 }).show, false)
+  assert.equal(handoffAdvice(undefined, H).show, false)
+  assert.equal(handoffAdvice(ctxAt(120000), { ...H, threshold_tokens: 100000 }).show, true)
+  assert.equal(handoffReason(handoffAdvice(ctxAt(300000, 10000), H), ctxAt(300000, 10000), H, CFG.labels), 'contexte 300 k ≥ 250 k · auto-compact dans ~7 min')
+})
+
+test('hand-off buttons: Préparer greyed without the handoff command; Ouvrir always pressable, says absent', () => {
+  const none = handoffButtons(H, [], undefined, CFG.labels)
+  assert.deepEqual(
+    none.map(b => [b.key, b.label, b.enabled]),
+    [
+      ['handoff-prepare', 'Préparer RESUME', false],
+      ['handoff-open', 'Ouvrir RESUME', true],
+    ],
+  )
+  assert.match(none[0].hint, /\/handoff absente/)
+  assert.equal(none[1].hint, 'absent')
+  const ok = handoffButtons(H, [{ name: 'handoff' }], { path: 'C:/r/handoff/RESUME.md', mtime: NOW }, CFG.labels)
+  assert.equal(ok[0].enabled, true)
+  assert.equal(ok[0].hint, undefined)
+  assert.equal(ok[1].hint, undefined)
+  assert.equal(handoffButtons({ ...H, command: 'relais' }, [{ name: 'handoff' }], undefined, CFG.labels)[0].enabled, false)
+})
+
+test('RESUME age and where it is looked for', () => {
+  assert.equal(ageText(undefined, NOW, CFG.labels), 'absent')
+  assert.equal(ageText(NOW - 3 * 3600000, NOW, CFG.labels), 'mis à jour il y a 3 h')
+  assert.equal(ageText(NOW - 12 * 60000, NOW, CFG.labels), 'mis à jour il y a 12 min')
+  assert.equal(ageText(NOW - 10000, NOW, CFG.labels), "mis à jour à l'instant")
+  assert.equal(ageText(NOW - 3 * 86400000, NOW, CFG.labels), 'mis à jour il y a 3 j')
+  assert.deepEqual(resumeCandidates(String.raw`c:\code\app\.claude\worktrees\x`, H.files, CFG.worktree_markers), [
+    'C:/code/app/.claude/worktrees/x/handoff/RESUME.md',
+    'C:/code/app/handoff/RESUME.md',
+  ])
+  assert.deepEqual(resumeCandidates('C:/code/app', H.files, CFG.worktree_markers), ['C:/code/app/handoff/RESUME.md'])
+  assert.deepEqual(resumeCandidates(undefined, H.files, CFG.worktree_markers), [])
+})
+
+test('last hand-offs and compactions of this conversation: newest first, n kept, agent compactions and old RESUME left out', () => {
+  const comps = [
+    { t: NOW - 7200000, trigger: 'manual' },
+    { t: NOW - 3600000, trigger: 'auto', pre: 368000, post: 17000, gapMin: 1 },
+    { t: NOW - 60000, trigger: 'auto', a: 'agent-1' },
+  ]
+  const rows = recentHandoffs(comps, [NOW - 1800000], { mtime: NOW - 600000 }, NOW - 9000000, 3, CFG.labels, 54)
+  assert.deepEqual(
+    rows.map(r => [r.kind, r.text]),
+    [
+      ['resume', 'RESUME écrit'],
+      ['handoff', '/handoff lancé'],
+      ['compact', 'compactage auto 368 k→17 k'],
+    ],
+  )
+  assert.equal(recentHandoffs(comps, [], { mtime: NOW - 600000 }, NOW - 300000, 3, CFG.labels, 54).length, 2)
+  assert.equal(recentHandoffs([], [], undefined, undefined, 3, CFG.labels, 54).length, 0)
 })

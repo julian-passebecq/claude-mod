@@ -45,9 +45,9 @@
       "dir": "band",
       "name": "band (Jauge, bandeau V6)",
       "state": "building",
-      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Sous la jauge, une barre Mods : un bouton par mod (Usine, Conso, Scénarios, CI, Control, Guide) qui lance sa commande pour ouvrir son panneau, un second clic le ferme ; grisé si le mod n'est pas chargé. Reprend context-meter et le bandeau de cc-control.",
+      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Ligne orange « Passation conseillée » à 250 K ou si l'auto-compact est prévu dans 20 min : boutons « Préparer RESUME » (/handoff) et « Ouvrir RESUME » (âge du fichier), rien ne se lance seul ; 3 derniers relais et compactages dans /jauge. Sous la jauge, une barre Mods : un bouton par mod (Usine, Conso, Scénarios, CI, Control, Guide) qui lance sa commande pour ouvrir son panneau, un second clic le ferme ; grisé si le mod n'est pas chargé. Reprend context-meter et le bandeau de cc-control.",
       "data": "$.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json",
-      "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.",
+      "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée ; « relais lancés » = /handoff vus dans cette session seulement.",
       "tests": ["node --test mods/band/tests/logic.test.mjs", "claude plugin test mods/band"]
     },
     {
