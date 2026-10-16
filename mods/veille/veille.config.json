@@ -104,6 +104,7 @@
       "empty_message": "(pas de message texte)"
     }
   },
+  "problemes": { "_doc": "Each tour also runs the problemes mod's collector (mods/problemes/scanner/problemes_scan.mjs collect, zero tokens) when its files are in the installed copy. enabled: false turns it off.", "enabled": true, "timeout_s": 180 },
   "pane": { "events": 25, "refresh_s": 60 },
   "labels": {
     "title": "Veille",

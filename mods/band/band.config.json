@@ -64,7 +64,8 @@
       { "label": "Fil", "mod": "veille", "command": "veille", "args": "fil", "key": "veille-fil" },
       { "label": "Ménage", "mod": "menage", "command": "menage" },
       { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" },
-      { "label": "À faire", "mod": "a-faire", "command": "afaire" }
+      { "label": "À faire", "mod": "a-faire", "command": "afaire" },
+      { "label": "Problèmes", "mod": "problemes", "command": "problemes" }
     ]
   },
   "handoff": {

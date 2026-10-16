@@ -1,0 +1,179 @@
+{
+  "_doc": "Réglages du mod problemes (« Problèmes »). Surcharge n'importe quelle clé dans ~/.claude/problemes/problemes.config.json (fusion profonde ; les listes sont remplacées en entier) : c'est là que vont tes chemins et tes sources d'import. Une valeur entre <chevrons> compte comme non réglée. Chemins : ~, %VAR% et $VAR acceptés. Toutes les données réelles restent dans data_dir, jamais dans le dépôt.",
+  "data_dir": "~/.claude/problemes",
+  "node": "node",
+  "refresh_min": 30,
+  "collect_timeout_s": 300,
+  "max_problems_per_node": 40,
+  "timeline_max": 60,
+  "collect": {
+    "_doc": "Collecte automatique, sans tokens : scanner/problemes_scan.mjs collect (lancé par le panneau quand le registre a plus de refresh_min minutes, par ↻, ou par la Veille à chaque tour). Lit seulement les octets ajoutés aux transcripts depuis la dernière fois (curseurs dans data_dir/cursor.json) et les fichiers de session de l'app modifiés depuis. backfill_days : au premier passage, enregistrements plus vieux ignorés. roots : dossiers qui contiennent tes dépôts (le nom d'application = premier dossier en dessous ; sans roots, le nom du dossier du dépôt). max_evidence : exemples gardés par problème et par collecte.",
+    "transcripts": "~/.claude/projects",
+    "subagents": true,
+    "sessions": ["%APPDATA%/Claude/claude-code-sessions"],
+    "backfill_days": 14,
+    "roots": ["<PROJECTS_ROOT>"],
+    "worktree_dirs": [".claude/worktrees", ".worktrees"],
+    "max_evidence": 3,
+    "reopen_fixed": true,
+    "chunk_mb": 8
+  },
+  "detect": {
+    "_doc": "Ce que le collecteur repère (types de « hit ») : ask (appel AskUserQuestion), trailing_question (dernière ligne d'une fin de tour de la conversation principale qui finit par ?), blocked (fin de tour avec BLOCKED:), denied (appel refusé : permission), tool_error (outil en erreur), workflow_error (agents_error, Workflow failed), ci_failure (sortie de gh / glab checks ou pipeline avec failed, skipped, canceled), api_error, needs_action (fichier de session : postTurnSummary.needs_action, ce que la fin de tour attend), permission_dir et permission_rule (fichier de session : dossiers et règles accordés pendant la session). Regex modifiables ici.",
+    "blocked_regex": "\\bBLOCKED:\\s*(.+)",
+    "question_max_chars": 400,
+    "denied_regex": "doesn't want to proceed|tool use was rejected|permission to use .* (?:has been|was) denied|user denied",
+    "ci_command_regex": "\\b(gh|glab)\\b[^\\n]*\\b(pr checks|ci (status|view|list|get)|run (view|watch|list)|pipeline)",
+    "ci_failure_regex": "\\b(fail(?:ed|ure)?|skipped|canceled|cancelled)\\b"
+  },
+  "categories": [
+    {
+      "id": "blocages",
+      "label": "Blocages manuels",
+      "children": [
+        { "id": "blocages/question", "label": "Questions à Julian (AskUserQuestion)" },
+        { "id": "blocages/fin-de-tour", "label": "Fins de tour qui attendent Julian" },
+        { "id": "blocages/permission", "label": "Permissions : refus, dossiers, règles accordées" },
+        { "id": "blocages/carte", "label": "Cartes et clics (chips, approbations de l'app)" }
+      ]
+    },
+    {
+      "id": "workflow",
+      "label": "Workflow",
+      "children": [
+        { "id": "workflow/agents", "label": "Agents et Workflows en échec" },
+        { "id": "workflow/arrets", "label": "Arrêts : lanes immobiles, veilles mortes" },
+        { "id": "workflow/blocked", "label": "BLOCKED et rouge deux fois" },
+        { "id": "workflow/gardes", "label": "Gardes worktree et chemins" },
+        { "id": "workflow/rm", "label": "rm sur un chemin critique" },
+        { "id": "workflow/merges", "label": "Merges non faits" },
+        { "id": "workflow/outils", "label": "Outils et commandes" },
+        { "id": "workflow/claude", "label": "Erreurs de Claude" }
+      ]
+    },
+    {
+      "id": "regles",
+      "label": "Règles",
+      "children": [
+        { "id": "regles/trous", "label": "Trous et règles sans effet" },
+        { "id": "regles/contradictions", "label": "Contradictions" },
+        { "id": "regles/anciennes", "label": "Sessions sur d'anciennes règles" }
+      ]
+    },
+    {
+      "id": "app",
+      "label": "App Desktop / Claude Code",
+      "children": [
+        { "id": "app/gardes", "label": "Gardes de l'app" },
+        { "id": "app/bugs", "label": "Bugs et erreurs API" },
+        { "id": "app/versions", "label": "Écarts de version" }
+      ]
+    },
+    {
+      "id": "ci",
+      "label": "CI",
+      "children": [
+        { "id": "ci/gitlab", "label": "Runner GitLab local" },
+        { "id": "ci/skipped", "label": "Pipelines skipped ou vides" },
+        { "id": "ci/github", "label": "GitHub Actions" }
+      ]
+    },
+    { "id": "apps", "label": "Par application", "dynamic": "app" },
+    { "id": "mods", "label": "Mods" }
+  ],
+  "rules": {
+    "_doc": "Règles de classement, la première qui correspond gagne. kinds : types de hit ; match : regex (insensible à la casse) sur le texte ; tools, sub (true = sous-agent) ; category (\"apps\" = sous-arbre de l'application) ; per_app : un problème par application ; key : regex dont le premier groupe sépare les problèmes ; by: \"text\" : un problème par texte normalisé ; ignore : compté mais pas enregistré. title, symptom, cause, fix acceptent {app}, {text}, {key}, {tool}. kind seed : classement des lignes importées.",
+    "list": [
+      { "id": "ask-main", "kinds": ["ask"], "sub": false, "per_app": true, "category": "blocages/question", "title": "Questions AskUserQuestion à Julian ({app})", "symptom": "{text}", "cause": "La conversation s'arrête pour demander au lieu de décider.", "fix": "Décider seul tout ce qu'un agent peut décider ; ne demander que la liste réservée à Julian, en une seule question groupée." },
+      { "id": "ask-sub", "kinds": ["ask"], "sub": true, "category": "blocages/question", "title": "Un sous-agent pose une question AskUserQuestion", "symptom": "{text}", "cause": "Un agent de Workflow ou un sous-agent demande à Julian au lieu de remonter au lead.", "fix": "Les questions d'une lane vont au lead (≤ 5 lignes), jamais AskUserQuestion." },
+      { "id": "needs-action", "kinds": ["needs_action"], "per_app": true, "category": "blocages/fin-de-tour", "title": "Fin de tour qui attend une action de Julian ({app})", "symptom": "{text}", "cause": "Résumé de fin de tour de l'app : la conversation attend quelqu'un.", "fix": "Faire l'action soi-même si elle est pré-autorisée ; sinon une seule question groupée au lead." },
+      { "id": "trailing-question", "kinds": ["trailing_question"], "per_app": true, "category": "blocages/fin-de-tour", "title": "Message final qui finit par une question ({app})", "symptom": "{text}", "cause": "Le tour se termine sur une question : la conversation attend une réponse.", "fix": "Appliquer l'option recommandée quand un agent peut la faire seul." },
+      { "id": "blocked", "kinds": ["blocked"], "per_app": true, "category": "workflow/blocked", "title": "Fin BLOCKED ({app})", "symptom": "{text}", "cause": "La conversation s'arrête : la condition de fin n'est pas atteinte.", "fix": "Lire la raison ; si le même correctif a échoué deux fois, architect." },
+      { "id": "workflow-error", "kinds": ["workflow_error"], "per_app": true, "category": "workflow/agents", "title": "Workflow avec des agents en échec ({app})", "symptom": "{text}", "fix": "Reprendre avec resumeFromRunId, ne jamais tuer un Workflow en cours." },
+      { "id": "worktree-guard", "kinds": ["tool_error", "denied"], "match": "isolated in the worktree|running in an isolated git worktree", "category": "workflow/gardes", "per_app": true, "title": "Garde worktree : écriture hors du worktree de l'agent ({app})", "symptom": "{text}", "cause": "Le prompt de l'agent donne des chemins du checkout principal au lieu de son worktree.", "fix": "Commencer le prompt par cwd = <worktree> et donner des chemins relatifs." },
+      { "id": "worktree-create", "kinds": ["tool_error"], "match": "Cannot create agent worktree", "category": "workflow/gardes", "title": "Worktree d'agent impossible à créer", "symptom": "{text}", "cause": "Agent avec isolation worktree lancé hors d'un dépôt git.", "fix": "Lancer depuis un dépôt, ou sans isolation." },
+      { "id": "rm-protected", "kinds": ["tool_error", "denied"], "match": "protected from removal|critical path|dangerous (rm|removal)", "category": "workflow/rm", "title": "Suppression refusée sur un chemin protégé", "symptom": "{text}", "cause": "rm / Remove-Item sur un chemin que Claude Code protège (racine, dossier système, argument mal découpé).", "fix": "Un chemin absolu entre guillemets par rm -rf, pas de joker, pas de cd avant ; worktrees par git worktree remove." },
+      { "id": "denied", "kinds": ["denied"], "key": "^(.{0,40})", "per_app": true, "category": "blocages/permission", "title": "Appel d'outil refusé ({app})", "symptom": "{text}", "cause": "Une demande de permission a été refusée ou annulée.", "fix": "Voir pourquoi l'appel demandait une permission (chemin hors projet, commande non autorisée)." },
+      { "id": "permission-dir", "kinds": ["permission_dir"], "per_app": true, "category": "blocages/permission", "title": "Accès à un dossier hors projet accordé ({app})", "symptom": "{text}", "cause": "La session a dû demander l'accès à un autre dossier.", "fix": "Une lane = un dépôt ; un autre dépôt = une autre session." },
+      { "id": "permission-rule", "kinds": ["permission_rule"], "category": "blocages/permission", "title": "Règle de permission ajoutée pendant une session", "symptom": "{text}" },
+      { "id": "sleep-blocked", "kinds": ["tool_error"], "match": "Blocked: sleep", "category": "workflow/outils", "title": "sleep au premier plan refusé", "symptom": "{text}", "fix": "run_in_background, ou une commande qui attend elle-même (gh pr checks --watch)." },
+      { "id": "bash-quoting", "kinds": ["tool_error"], "match": "unexpected EOF while looking for matching|syntax error near unexpected token", "category": "workflow/outils", "title": "Commande shell mal citée", "symptom": "{text}", "cause": "Script long en heredoc ou en -c.", "fix": "Les scripts longs vont dans un fichier." },
+      { "id": "win-path-long", "kinds": ["tool_error"], "match": "path longer than allowed|path too long|ENAMETOOLONG", "category": "workflow/outils", "title": "Chemin trop long sous Windows", "symptom": "{text}" },
+      { "id": "hook-error", "kinds": ["tool_error"], "match": "hook error", "key": "(\\w+:[\\w.-]+) hook error", "category": "app/gardes", "title": "Hook en erreur : {key}", "symptom": "{text}" },
+      { "id": "preview-local", "kinds": ["tool_error"], "match": "shows a local file, not a web page|outside (?:the|your) project", "category": "app/gardes", "title": "Aperçu d'un fichier local ou hors projet refusé", "symptom": "{text}", "fix": "Ne jamais ouvrir un fichier hors du projet dans l'aperçu." },
+      { "id": "session-archive", "kinds": ["tool_error"], "match": "was not archived|already archived|live work", "category": "app/gardes", "title": "Archivage de session refusé", "symptom": "{text}" },
+      { "id": "proposal-card", "kinds": ["tool_error"], "match": "proposal card", "category": "blocages/carte", "title": "Carte de proposition refusée par l'app", "symptom": "{text}" },
+      { "id": "rg-timeout", "kinds": ["tool_error"], "match": "search timed out", "category": "app/bugs", "title": "Recherche ripgrep expirée", "symptom": "{text}", "fix": "Chercher dans un sous-dossier, ou via explore-fast." },
+      { "id": "api-auth", "kinds": ["api_error"], "match": "401|authentication", "category": "app/bugs", "title": "Erreur API : authentification", "symptom": "{text}" },
+      { "id": "api-other", "kinds": ["api_error"], "key": "\"(?:type|code)\"\\s*:\\s*\"([a-z_]+)\"", "category": "app/bugs", "title": "Erreur API {key}", "symptom": "{text}" },
+      { "id": "ci-skipped", "kinds": ["ci_failure"], "match": "skipped|0 jobs|no checks reported", "per_app": true, "category": "ci/skipped", "title": "Pipeline ou checks skipped / absents ({app})", "symptom": "{text}", "cause": "Un pipeline skipped ou sans job ne prouve rien ; il ne doit jamais être mergé.", "fix": "Relancer le pipeline ; vérifier les règles du .gitlab-ci.yml." },
+      { "id": "ci-gitlab", "kinds": ["ci_failure"], "match": "glab|gitlab", "per_app": true, "category": "ci/gitlab", "title": "Pipeline GitLab en échec ({app})", "symptom": "{text}" },
+      { "id": "ci-github", "kinds": ["ci_failure"], "per_app": true, "category": "ci/github", "title": "Checks GitHub en échec ({app})", "symptom": "{text}" },
+      { "id": "routine-edit", "kinds": ["tool_error"], "match": "modified since read|Found \\d+ matches of the string|String to replace not found|File has not been read yet|File does not exist", "ignore": true },
+      { "id": "seed-rm", "kinds": ["seed"], "match": "critical path|\\brm -rf|dangerous rm", "category": "workflow/rm" },
+      { "id": "seed-wrapup", "kinds": ["seed"], "match": "wrap_up|si tu veux|dis-moi si|tell me whether|\\boffers?\\b", "category": "blocages/fin-de-tour" },
+      { "id": "seed-card", "kinds": ["seed"], "match": "start_session|\\bcards?\\b|carte", "category": "blocages/carte" },
+      { "id": "seed-guard", "kinds": ["seed"], "match": "\\bguards?\\b|garde|preview|10-send|approval", "category": "app/gardes" },
+      { "id": "seed-skipped", "kinds": ["seed"], "match": "skipped", "category": "ci/skipped" },
+      { "id": "seed-runner", "kinds": ["seed"], "match": "runner|pipeline|\\bCI\\b", "category": "ci/gitlab" },
+      { "id": "seed-merge", "kinds": ["seed"], "match": "\\bmerge", "category": "workflow/merges" },
+      { "id": "seed-chip", "kinds": ["seed"], "match": "\\bchips?\\b|click|clic", "category": "blocages/carte" },
+      { "id": "seed-question", "kinds": ["seed"], "match": "asked Julian|question|AskUserQuestion|token that already", "category": "blocages/question" },
+      { "id": "seed-stall", "kinds": ["seed"], "match": "stall|idle|silent|wake|monitor|died|immobile", "category": "workflow/arrets" },
+      { "id": "seed-rules", "kinds": ["seed"], "match": "\\brules?\\b|règle|CLAUDE\\.md", "category": "regles/trous" }
+    ]
+  },
+  "seed": {
+    "_doc": "Imports (scanner/problemes_scan.mjs import) : chaque source n'est importée qu'une fois par ligne (signature seed:<id>:<réf>). kind : markdown (tableaux dont une colonne s'appelle What / Problème / Question / Defect…, et puces des sections qui ont bullets: true), incidents (JSON { incidents: [...] }), findings (JSON { findings: [...] }, seulement verdict « did not » ou statut open / ignored). path, ou git: { repo, ref, path } pour lire un fichier d'une branche sans checkout. sections : { match (regex sur le titre au-dessus), category (impose), fallback (si aucune règle seed ne correspond), status, bullets, skip, title_from (colonne prise comme titre quand le tableau n'a pas de colonne What / Problème, par ex. cause) }. Colonnes reconnues par leur début : What / Question / Defect (titre), Effect / Symptom, Cause, Fix, Still / Reste, Status, When / Time, Project, Source / Session, Y/N / Évitable (N = sujet légitime, statut accepté). optional: true : absente, la source est sautée sans erreur. Tes sources vont dans ~/.claude/problemes/problemes.config.json.",
+    "sources": []
+  },
+  "colors": {
+    "ouvert": "error",
+    "corrigé": "success",
+    "contourné": "warning",
+    "accepté": "inactive",
+    "dim": "inactive"
+  },
+  "labels": {
+    "pane_title": "Problèmes",
+    "top": "{open} ouverts · {fixed} corrigés · cette semaine +{week}",
+    "subtitle": "registre local · collecté il y a {age} · {occ} occurrences cette semaine · lecture seule hors notes",
+    "first": "Premier passage du collecteur en cours (transcripts des {days} derniers jours : jusqu'à quelques minutes).",
+    "empty_ledger": "Registre vide : aucun problème trouvé pour l'instant.",
+    "collecting": "collecte en cours…",
+    "refresh": "↻",
+    "f_status": "Statut",
+    "f_week": "Période",
+    "f_category": "Catégorie",
+    "f_app": "Application",
+    "all": "Tous",
+    "status_names": { "ouvert": "Ouverts", "corrigé": "Corrigés", "contourné": "Contournés", "accepté": "Acceptés" },
+    "week_names": { "all": "Toutes", "this": "Cette semaine", "30d": "30 jours" },
+    "apps_max": 12,
+    "node": "{label} · {open} ouverts / {total}",
+    "cross": "vue croisée : chaque problème reste aussi dans sa catégorie",
+    "problem": "{id} · {title} · ×{count} · {status}",
+    "symptom": "Symptôme",
+    "cause": "Cause",
+    "fix": "Correctif",
+    "seen": "Vu",
+    "seen_line": "première fois {first} · dernière {last} · {count} fois · source {source}",
+    "evidence": "Preuves",
+    "timeline": "Chronologie",
+    "notes": "Notes",
+    "note_label": "Ajouter une note",
+    "note_placeholder": "ce qu'on a compris, le correctif, le lien de la PR…",
+    "note_submit": "noter",
+    "note_saved": "note ajoutée à {id} (registre local)",
+    "note_failed": "note non écrite : {error}",
+    "unknown": "non renseigné",
+    "more": "… et {n} de plus (filtre pour les voir)",
+    "other": "Autres",
+    "empty": "rien",
+    "collect_stats": "dernière collecte : {files} fichiers lus, {hits} repérés, {new} nouveaux problèmes, {ignored} ignorés",
+    "notes_doc": [
+      "Collecte sans tokens : transcripts et fichiers de session de l'app, lus en incrémental. Les demandes de permission acceptées ne sont pas dans les transcripts (non vérifié) : seuls les refus et les dossiers ou règles accordés sont comptés.",
+      "Statut, correctif, cause : node scanner/problemes_scan.mjs set P-NNN status corrigé --fix \"…\" (le panneau n'écrit que des notes)."
+    ]
+  }
+}
