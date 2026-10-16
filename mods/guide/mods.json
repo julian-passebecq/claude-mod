@@ -67,6 +67,15 @@
       "data": "compteurs système (Windows : ntdll/kernel32 par ctypes ; Linux : /proc), nvidia-smi ou compteur de performance Windows (typeperf) pour le GPU, scanner et config du mod ci pour le runner GitLab (compteurs seulement, jamais de jeton) ; échantillons seulement pendant que le panneau est ouvert (5 s) ou que l'entrée du bandeau est allumée (15 s)",
       "note": "règle « agents conseillés » et plafonds 4 pipelines / 3 npm ci-tsc dans machine.config.json. Non vérifié : enfants du processus runner = jobs locaux ; compteur GPU sur un Windows non anglais ; ordre des mods dans le bandeau : l'entrée garde le dessin des mods suivants, mais band (Jauge) ne garde pas le sien, donc elle n'apparaît que si machine passe avant band.",
       "tests": ["python -I -m unittest discover -s mods/machine/tests -p \"test_*.py\"", "node --test mods/machine/tests/logic.test.mjs", "claude plugin test mods/machine"]
+    },
+    {
+      "dir": "metrics",
+      "name": "metrics (Les règles marchent ?)",
+      "state": "building",
+      "description": "Mesure si les règles de Claude Control aident, par jour et par version des règles : PR/MR mergées, tokens et coût par PR (M8), part des tours Opus / Sonnet / Haiku, appels d'agent avec modèle nommé (M1), tours ≥ 250 K (M2), arrêts manuels, refus de permission (M10), gardes de l'app, creux CI, arrêts BLOCKED, réveils (M6), compactages. Courbes par jour avec les versions en repères et tableau avant / après.",
+      "data": "transcripts ~/.claude/projects (lecture incrémentale, parseur de mods/usage/lib), git remote de tes repos, gh search prs / gh run list et glab mr list / glab ci list (lecture seule, au plus toutes les 30 min), git log du fichier de règles ; caches dans ~/.claude/metrics-mod",
+      "note": "aucun texte envoyé au modèle (la commande ouvre un panneau). Non vérifié : les attentes de permission (seuls les refus sont comptés), le modèle des agent() de Workflow (lu dans le script), les creux CI (le travail démarrable n'est pas connu).",
+      "tests": ["node --test mods/metrics/tests/logic.test.mjs", "claude plugin test mods/metrics"]
     }
   ],
   "archived": [
