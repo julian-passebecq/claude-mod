@@ -3,6 +3,7 @@
 // preview; unfolded: the full last message (Markdown), the ask and its buttons, PR links, « Ouvrir la conversation ».
 // Reads ~/.claude/veille/fil.json only (written by the watcher); nothing sent to a model, nothing added to a prompt.
 import { filterFil, flatten, hm, isNew, summaryLine, FILTERS } from '../lib/fil.mjs'
+import { archiveConfig } from '../lib/archive.mjs'
 
 const STATE_TONE = { en_cours: 'ok', attend: 'julian', bloquee: 'bad', terminee: 'dim', repos: 'info' }
 
@@ -40,6 +41,29 @@ export function filText(fil, cfg, ui = {}, read = null, nowMs = Date.now(), widt
   return out
 }
 
+// « À archiver (N) »: folded to its title; unfolded, one line per candidate (title, project, reason) and a button that
+// copies every id. h.archive is ~/.claude/veille/archive.json; h.toggleArchive and h.copyIds are the pane's handlers.
+export function archiveLines(arch, cfg) {
+  const L = archiveConfig(cfg).labels
+  if (!arch) return [L.missing || 'archive.json absent']
+  const c = arch.candidates || []
+  return [fillT(L.title || 'À archiver ({n})', { n: c.length }), ...c.map((x) => `${x.title} · ${x.project} · ${x.reason}`)]
+}
+
+function drawArchive(el, cfg, arch, open, h, T, row, col, btn) {
+  const L = archiveConfig(cfg).labels
+  const c = (arch && arch.candidates) || []
+  const title = btn(`${open ? '▾' : '▸'} ${fillT(L.title || 'À archiver ({n})', { n: arch ? c.length : '?' })}`, h.toggleArchive, false, 'fil-archive')
+  if (!open) return row([title], { alignItems: 'center', marginBottom: 1 })
+  if (!arch) return col([title, T(L.missing || 'archive.json absent', { dim: true })], { marginBottom: 1 })
+  return col([
+    title,
+    ...(c.length ? c.map((x) => T(`${x.title} · ${x.project} · ${x.reason}`, { dim: true })) : [T(L.none || 'Rien à archiver.', { dim: true })]),
+    c.length ? row([btn(L.copy_ids || 'Copier la liste des ids', (press) => h.copyIds(c.map((x) => x.sid).join('\n'), c.length, press), true, 'fil-archive-copy')]) : null,
+    T(L.note || '', { dim: true }),
+  ], { marginLeft: 2, marginBottom: 1 })
+}
+
 export function drawFil(el, cfg, fil, ui, h) {
   const colors = cfg.colors || {}
   const L = filLabels(cfg)
@@ -64,7 +88,8 @@ export function drawFil(el, cfg, fil, ui, h) {
     row([btn(h.busy === 'fil' ? L.refreshing || 'Lecture…' : L.refresh || 'Rafraîchir', h.refresh), btn(L.mark_all || 'Tout marquer lu', h.markAll)]),
     h.msg ? T(h.msg, { dim: true }) : null,
   ], { marginBottom: 1 })
-  if (!fil) return col([head, T(L.missing || 'fil.json absent', { tone: 'warn' })])
+  const archive = h.toggleArchive ? drawArchive(el, cfg, h.archive, !!ui.archiveOpen, h, T, row, col, btn) : null
+  if (!fil) return col([head, archive, T(L.missing || 'fil.json absent', { tone: 'warn' })])
 
   const view = filterFil(fil, ui.filter || 'tout', ui.project || '', h.now)
   const projOpen = (p) => (ui.openProj && p.name in ui.openProj ? ui.openProj[p.name] : (p.counts.attend || p.counts.en_cours || p.counts.bloquee) > 0)
@@ -105,5 +130,5 @@ export function drawFil(el, cfg, fil, ui, h) {
       open ? col([...flatten(p.convs).map(conv), p.hidden ? T(fillT(L.more || '+ {n} autres', { n: p.hidden }), { dim: true }) : null], { marginLeft: 2, marginTop: 1 }) : null,
     ], { marginBottom: 1 })
   })
-  return col([head, ...(projects.length ? projects : [T(L.none || 'Aucune conversation.', { dim: true })])])
+  return col([head, archive, ...(projects.length ? projects : [T(L.none || 'Aucune conversation.', { dim: true })])])
 }

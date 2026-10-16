@@ -1,20 +1,22 @@
 // veille - the pane « Veille » and a one-line band entry. Read-only view of ~/.claude/veille (written by the watcher,
 // the scheduled task ClaudeVeille); the buttons run the watcher's own commands (mode, ack, tour, coordinator), so there
 // is one code path. Nothing here blocks, rewrites or adds text to a prompt, and nothing calls a model.
-//   /veille [fil | mode <x> | ack <clé|all> | coordinateur | tour | close]
+//   /veille [fil | archiver | mode <x> | ack <clé|all> | coordinateur | tour | close]
 // Two tabs: Alertes, and Fil (every conversation's last message, from ~/.claude/veille/fil.json, see fil-view.mjs).
 import { deepMerge, modeName } from '../lib/modes.mjs'
 import { markAllRead, markRead } from '../lib/fil.mjs'
+import { archiveConfig, archiveText } from '../lib/archive.mjs'
 import { viewModel, bandLine, eventText, ago } from './view.mjs'
 import { drawFil, filLabels } from './fil-view.mjs'
 
 let options = {}
 const D = { cfg: null, state: null, heartbeat: null, acks: [], open: false, busy: '', msg: '', at: 0,
-  tab: 'alertes', fil: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {} } }
+  tab: 'alertes', fil: null, archive: null, filLoaded: false, read: null, filUi: { filter: 'tout', project: '', openProj: {}, openConv: {}, archiveOpen: false } }
 
 // Fil: the digest file (read on demand only), the « read » marks and the folds, kept in the mod's $.store.
 async function loadFil($) {
   D.fil = await readJson($, (await vhome($)) + '/fil.json')
+  D.archive = await readJson($, (await vhome($)) + '/archive.json')
   D.filLoaded = true
   try { D.read = (await $.store.get('fil.read')) || null } catch { D.read = null }
   try { const u = await $.store.get('fil.ui'); if (u && typeof u === 'object') D.filUi = { ...D.filUi, ...u, openConv: {} } } catch { /* defaults */ }
@@ -31,7 +33,7 @@ async function openUrl($, url) {
 }
 
 async function saveFilUi($) {
-  try { await $.store.set('fil.ui', { filter: D.filUi.filter, project: D.filUi.project, openProj: D.filUi.openProj }) } catch { /* memory only */ }
+  try { await $.store.set('fil.ui', { filter: D.filUi.filter, project: D.filUi.project, openProj: D.filUi.openProj, archiveOpen: D.filUi.archiveOpen }) } catch { /* memory only */ }
 }
 
 const root = ($) => $.plugin.root.replace(/\\/g, '/')
@@ -150,8 +152,8 @@ export function register(on, raw) {
     try {
       await $.command.register({
         name: 'veille', immediate: true,
-        description: 'Veille : fil des conversations (dernier message de chacune, /veille fil), mode du veilleur (rien, légère, active, nuit-active, nuit-test-légère), alertes, dernier tour, actions',
-        argumentHint: 'fil | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
+        description: 'Veille : fil des conversations (dernier message de chacune, /veille fil), conversations à archiver (/veille archiver), mode du veilleur (rien, légère, active, nuit-active, nuit-test-légère), alertes, dernier tour, actions',
+        argumentHint: 'fil | archiver | mode <rien|légère|active|nuit-active|nuit-test-légère> | ack <clé|all> | coordinateur | tour | close',
       })
     } catch { /* a name clash must not break the rest */ }
     const every = Math.max(15, ((D.cfg && D.cfg.pane) || {}).refresh_s || 60) * 1000
@@ -172,6 +174,13 @@ export function register(on, raw) {
       await $.ui.open({ id: 'veille', title: 'Veille', focus: true, closeOnEscape: true })
       $.ui.invalidate('ui.render')
       return {}
+    }
+    if (v === 'archiver' || v === 'archive') {
+      // the list the watcher wrote at its last fire (archive.json); nothing is archived here
+      const a = await readJson($, (await vhome($)) + '/archive.json')
+      let now = Date.now()
+      try { now = await $.clock.now() } catch { /* Date.now */ }
+      return { text: archiveText(a, now).join('\n') }
     }
     if (v === 'mode') {
       const m = modeName(D.cfg, rest.join(' '))
@@ -219,7 +228,12 @@ export function register(on, raw) {
       if (!D.filLoaded) await loadFil($).catch(() => undefined)
       const now = Date.now()
       const body = drawFil(el, cfg, D.fil, D.filUi, {
-        now, ago, busy: D.busy, msg: D.msg, read: D.read,
+        now, ago, busy: D.busy, msg: D.msg, read: D.read, archive: D.archive,
+        toggleArchive: () => { D.filUi.archiveOpen = !D.filUi.archiveOpen; void saveFilUi($); $.ui.invalidate('ui.render') },
+        copyIds: (text, n, press) => {
+          const done = String((archiveConfig(cfg).labels || {}).copied || '{n} id(s) copié(s)').replace('{n}', n)
+          void $.ui.copy({ text, surface: press && press.surface }).then((r) => { D.msg = r && r.isCopied === false ? text.replace(/\n/g, ' ') : done; $.ui.invalidate('ui.render') }).catch(() => { D.msg = text.replace(/\n/g, ' '); $.ui.invalidate('ui.render') })
+        },
         filter: (f) => { D.filUi.filter = f; void saveFilUi($); $.ui.invalidate('ui.render') },
         project: (p) => { D.filUi.project = D.filUi.project === p ? '' : p; void saveFilUi($); $.ui.invalidate('ui.render') },
         toggleProj: (name, open) => { D.filUi.openProj = { ...D.filUi.openProj, [name]: open }; void saveFilUi($); $.ui.invalidate('ui.render') },

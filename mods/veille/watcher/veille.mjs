@@ -9,7 +9,8 @@
 //   node veille.mjs install [--launcher wscript|conhost] | uninstall
 //   node veille.mjs test-mail
 //   node veille.mjs fil               rebuild the Fil digest (fil.json) now, from files only
-// State in ~/.claude/veille/. Only `fire`/`tour` write state.json and heartbeat.json; `mode`, `coordinator`,
+//   node veille.mjs archiver          rebuild archive.json (finished conversations to archive) and print the list
+// State in ~/.claude/veille/. Only `fire`/`tour` write state.json and heartbeat.json (and fil.json, archive.json); `mode`, `coordinator`,
 // `install` write config.json; `ack` writes acks.jsonl. Tokens stay with gh and glab: never read, printed or stored.
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -24,6 +25,8 @@ import { compose, digest, sendMail, smtpProblem } from '../lib/mail.mjs'
 import { age } from '../../factory/hooks/waiting.mjs'
 import { julianAlerts } from '../lib/fil.mjs'
 import { writeFil } from './fil.mjs'
+import { writeArchive } from './archive.mjs'
+import { archiveText } from '../lib/archive.mjs'
 import { exportBatch } from './export-batch.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -50,7 +53,7 @@ const P = (cfg) => {
   return {
     home: h, config: path.join(h, 'config.json'), state: path.join(h, 'state.json'), heartbeat: path.join(h, 'heartbeat.json'),
     events: path.join(h, 'events.jsonl'), acks: path.join(h, 'acks.jsonl'), lock: path.join(h, 'lock'), cache: path.join(h, 'scan_cache.json'),
-    smtp: path.join(h, 'smtp.json'), fil: path.join(h, 'fil.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
+    smtp: path.join(h, 'smtp.json'), fil: path.join(h, 'fil.json'), archive: path.join(h, 'archive.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
   }
 }
 
@@ -315,7 +318,7 @@ async function tour(cfg, why) {
     for (const a of list) {
       const d = wakeDecision(a, scan, cfg, { ...state, spent, wakes }, now)
       if (!d.ok) { if (may(cfg, 'wake', mode) && (cfg.wake.kinds || []).includes(a.kind) && !a.acked && rec.fresh.some((f) => f.key === a.key)) events.push(logEvent(cfg, { kind: 'wake_skipped', key: a.key, reason: d.why })); continue }
-      const text = brief(a, cfg, now, `node "${path.join(p.bin, 'veille', 'watcher', 'veille.mjs')}" ack`)
+      const text = brief(a, cfg, now, `node "${path.join(p.bin, 'veille', 'watcher', 'veille.mjs')}" ack`, { archive: archiveCount(cfg), file: p.archive })
       const log = detached(cfg, [tp.claude, '-p', '--resume', d.target.cli, text], d.target.cwd, 'wake')
       wakes[a.key] = [...(wakes[a.key] || []), now].slice(-10)
       spent = [...spent, { at: now, tokens: d.tokens }]
@@ -433,9 +436,17 @@ function readAcks(cfg) {
 
 // ---- the scheduled entry ---------------------------------------------------------------------------------------------
 
+// archive.json at every fire, whatever the mode: read-only, files only, never archives (the VEILLE conversation does).
+function archivePass(cfg) {
+  try { return writeArchive(cfg, P(cfg).archive) } catch (e) { logEvent(cfg, { kind: 'archive_failed', error: String(e && e.message || e).slice(0, 200) }); return null }
+}
+
+const archiveCount = (cfg) => ((readJson(P(cfg).archive, {}) || {}).candidates || []).length
+
 async function fire(cfg) {
   const p = P(cfg)
   const now = Date.now()
+  archivePass(cfg)
   const hb = readJson(p.heartbeat, {}) || {}
   const gap = gapOf(hb.last_fire, now, cfg.fire_every_min || 5)
   const gaps = [...(hb.gaps || []).filter((g) => now - g.to < 24 * 3600000), ...(gap ? [gap] : [])]
@@ -466,7 +477,7 @@ function copyTree(files, dest) {
 }
 
 export const BIN_FILES = [
-  'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
+  'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
   'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
@@ -596,7 +607,7 @@ export async function main(argv) {
   const [cmd, ...rest] = argv
   switch (cmd) {
     case 'fire': return fire(cfg)
-    case 'tour': return tour(cfg, 'manual')
+    case 'tour': archivePass(cfg); return tour(cfg, 'manual')
     case 'status': return status(cfg)
     case 'mode': {
       const m = modeName(cfg, rest.join(' '))
@@ -633,8 +644,13 @@ export async function main(argv) {
       return 0
     }
     case 'julian': return julianPass(cfg)
+    case 'archiver': case 'archive': {
+      const a = writeArchive(cfg, P(cfg).archive)
+      for (const l of archiveText(a, Date.now())) console.log(l)
+      return 0
+    }
     default:
-      console.log('usage: node veille.mjs fire|tour|status|fil|julian|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
+      console.log('usage: node veille.mjs fire|tour|status|fil|archiver|julian|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
       return cmd ? 1 : 0
   }
 }

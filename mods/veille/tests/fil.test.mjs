@@ -182,3 +182,6 @@ test('new since last read, filters, summary line, text render', () => {
 test('the installed copy carries the Fil files', () => {
   for (const f of ['veille/lib/fil.mjs', 'veille/watcher/fil.mjs']) assert.ok(BIN_FILES.includes(f), f)
 })
+
+// « À archiver » runs with the Fil tests (CI's node --test list names this file)
+import './archive.test.mjs'
