@@ -195,19 +195,11 @@ test('architects are exempt from the Opus read-only warning; a release review is
   assert.equal(architectReason('Architect review of 2.1.0', CFG), 'before done')
 })
 
-test('svg: escapes text, stays under the Svg cap, collapses repeated log rows', async () => {
-  const { treeSvg, dashSvg, wrap } = await import('../hooks/svg.mjs')
+test('session log collapses repeated rows and names MCP tools; short() drops a date suffix', async () => {
   const { compactEvents } = await import('../hooks/logic.mjs')
   const ev = compactEvents([['t1', 'tool', 'mcp__ccd_session_mgmt__archive_session'], ['t2', 'tool', 'mcp__ccd_session_mgmt__archive_session'], ['t3', 'prompt', '<b>&']])
   assert.deepEqual(ev.map((e) => e[2]), ['archive_session (session_mgmt) ×2', '<b>&'])
-  const many = Array.from({ length: 200 }, (_, i) => ({ id: 'a' + i, type: 'coder', model: 'claude-opus-5-5', status: 'done', tokens: 1, cost: 0.1, task: 'x'.repeat(300) }))
-  const m = { title: 'T <x>', repo: 'r', branch: 'b', main: { model: 'claude-opus-5-5', effort: 'medium', ctx: 1, window: 400000, cost: 1, ownCost: 1, ctxPct: 0, ctxLevel: 'ok', live: true },
-    agents: many, workflows: [], bill: { 'claude-opus-5-5': { cost: 1, tokens: 1, calls: 1 } }, total: 1, turns: [], guards: [], events: ev, warnings: [], pr: null, waiting: false }
-  const svg = treeSvg(m, CFG, NOW)
-  assert.ok(svg.length < 131072 && svg.includes('T &lt;x&gt;') && svg.includes('+ 190 earlier agents'))
-  const g = dashboard({ sessions: [] }, CFG, NOW)
-  assert.match(dashSvg(g, CFG, NOW, 'calls'), /conversations · 0/)
-  assert.deepEqual(wrap('aaa bbb ccc', 7, 3), ['aaa bbb', 'ccc'])
+  assert.equal(short('claude-haiku-4-5-20251001'), 'haiku 4.5')
 })
 
 // ---- "Ça t'attend" strip -----------------------------------------------------------------------------------------

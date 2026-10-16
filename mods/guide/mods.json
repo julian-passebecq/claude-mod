@@ -4,9 +4,9 @@
     {
       "dir": "factory",
       "state": "stable",
-      "data": "transcripts (~/.claude/projects), fichiers de session de l'app (postTurnSummary, spawnedFrom, prs), gh search / glab api pour tes PR et MR ouvertes et leur CI (jetons gardés par gh et glab, jamais lus)",
-      "note": "bandeau « Ça t'attend » en haut de /factory : PR/MR verte non mergée depuis N min, question ou action qui attend Julian, lane sans tour alors que sa PR est rouge, en conflit ou sans pipeline (skipped), sous-conversations de chaque lead. Une notification native par nouvelle ligne ($.ui.notify, sinon un toast), réglable dans factory.config.json → waiting. $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; cartes d'approbation en attente : non détectables (non vérifié) ; lien de session claude://… non vérifié",
-      "tests": ["node --test mods/factory/tests/logic.test.mjs", "claude plugin test mods/factory"]
+      "data": "transcripts (~/.claude/projects), fichiers de session de l'app (postTurnSummary, spawnedFrom, prs), gh search / glab api pour tes PR et MR ouvertes et leur CI (jetons gardés par gh et glab, jamais lus) ; onglet Quotas : logique et fichiers du mod usage (~/.claude/usage-mod) et $.session.usage() ; onglet Système : échantillonneur du mod machine",
+      "note": "v2 : sept écrans en onglets (Mission, Focus, Arbre, Pipeline, Quotas, Système, Journal), empilés de haut en bas à la largeur du panneau, sans dessin à taille fixe ni zoom. « Ça t'attend » est dans Focus (PR/MR verte non mergée, question ou action qui attend Julian, lane à l'arrêt sur une PR rouge, en conflit ou skipped, sous-conversations de chaque lead), une notification native par nouvelle ligne ($.ui.notify, sinon un toast). Quotas et Système affichent « module non chargé » sans les mods usage et machine. Étape du Pipeline déduite des sessions, PR et CI (non vérifié) ; effort d'un agent de Workflow lu dans son propre transcript (non vérifié) ; sous-conversation reliée par spawnedFrom (non vérifié) ; $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; lien de session claude://… non vérifié",
+      "tests": ["node --test mods/factory/tests/logic.test.mjs", "node --test mods/factory/tests/screens.test.mjs", "claude plugin test mods/factory"]
     },
     {
       "dir": "control",

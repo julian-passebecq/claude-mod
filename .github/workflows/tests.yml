@@ -22,6 +22,6 @@ jobs:
           python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
           python -I -m unittest discover -s mods/machine/tests -p "test_*.py"
       - name: Node tests (factory, scenarios, guide, usage, band, machine, metrics)
-        run: node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs mods/band/tests/logic.test.mjs mods/machine/tests/logic.test.mjs mods/metrics/tests/logic.test.mjs
+        run: node --test mods/factory/tests/logic.test.mjs mods/factory/tests/screens.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs mods/band/tests/logic.test.mjs mods/machine/tests/logic.test.mjs mods/metrics/tests/logic.test.mjs
       - name: Confidentiality scan
         run: python -I tools/confidentiality_scan.py .

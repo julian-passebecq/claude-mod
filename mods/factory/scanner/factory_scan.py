@@ -3,8 +3,10 @@
 Usage: python factory_scan.py --cache FILE [--hours 36] [--detail CLI_ID] [--projects DIR] [--app DIR]
                               [--board DIR] [--ci-ttl 600] [--live-s 180] [--now EPOCH] [--cli]
                               [--waiting] [--pr-ttl 180] [--pr-max-age-days 14] [--pr-max-checks 25] [--gl-host HOST]
+                              [--recent N]
 Prints one JSON document: {generated, sessions: [...], detail: {...} | null, reviews: {...} | null}.
 
+--recent N keeps each conversation's last N log events in its row (`recent`, for the timeline and journal screens).
 --waiting adds `reviews`: Julian's open, non-draft PRs (gh search --author=@me) and MRs (glab api, scope=created_by_me)
 updated in the last N days, each with CI state, conflict flag and the time CI turned green. gh and glab hold their own
 tokens: this script never reads, prints or stores a token. The list is cached --pr-ttl seconds in the cache file.
@@ -52,6 +54,7 @@ PR_TTL = float(arg('--pr-ttl', '180'))
 PR_MAX_AGE = float(arg('--pr-max-age-days', '14')) * 86400
 PR_MAX_CHECKS = int(arg('--pr-max-checks', '25'))
 GL_HOST = arg('--gl-host', '')
+RECENT = int(arg('--recent', '0'))
 
 _day_cache = {}
 
@@ -634,7 +637,10 @@ def main():
             live=NOW - e['mtime'] < LIVE_S, needs_action=(app.get('postTurnSummary') or {}).get('needs_action') or '',
             status_detail=(app.get('postTurnSummary') or {}).get('status_detail') or '',
             resume_md=bool(cwd) and os.path.isfile(os.path.join(cwd, 'handoff', 'RESUME.md')),
-            subs=[{k: s[k] for k in ('id', 'type', 'status', 'model', 'explicit_model', 'models', 'days', 'readonly', 'tools', 'workflow', 'loops')} for s in subs],
+            subs=[{k: s[k] for k in ('id', 'type', 'status', 'model', 'explicit_model', 'effort', 'desc', 'phase', 'models', 'days',
+                                     'readonly', 'tools', 'workflow', 'loops', 'last_ts')} for s in subs],
+            recent=a['events'][-RECENT:] if RECENT > 0 else [],
+            merged_prs=sum(1 for p in (app.get('prs') or []) if isinstance(p, dict) and str(p.get('state') or '').upper() == 'MERGED'),
             guards=guards.get(cli, []) + guards.get(app.get('sessionId') or '-', []),
             status_category=(app.get('postTurnSummary') or {}).get('status_category') or '',
             awaiting=bool(app.get('interruptedAwaitingPerson')),
