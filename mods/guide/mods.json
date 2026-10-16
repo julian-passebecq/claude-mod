@@ -30,9 +30,9 @@
     {
       "dir": "usage",
       "state": "building",
-      "data": "transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json",
-      "note": "tokens par 1 % calibrés sur ce PC seulement (non vérifié)",
-      "tests": ["node --test mods/usage/tests/logic.test.mjs", "claude plugin test mods/usage"]
+      "data": "transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json ; onglet Codex : ~/.codex/sessions/**/rollout-*.jsonl (token_count, turn_context), jamais auth.json ni config.toml",
+      "note": "tokens par 1 % calibrés sur ce PC seulement (non vérifié) ; % Codex lus seulement s'ils sont écrits dans les sessions (Codex 0.142+ via app-server : non vérifié), coût Codex non calculé",
+      "tests": ["node --test mods/usage/tests/logic.test.mjs", "node --test mods/usage/tests/codex.test.mjs", "claude plugin test mods/usage"]
     },
     {
       "dir": "guide",

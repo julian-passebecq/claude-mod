@@ -7,14 +7,15 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { tokensOf } from '../lib/transcripts.mjs'
+import { CV, codexView } from '../lib/codex.mjs'
 import { deepMerge, expandHome, fmtPct, fmtTokens, fmtUsd, heatRow, model, outcome, promptLine, when } from './logic.mjs'
 
-const TABS = ['today', 'week', 'forecast', 'scenarios', 'full'] as const
-const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full' }
+const TABS = ['today', 'week', 'forecast', 'scenarios', 'full', 'codex'] as const
+const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full', codex: 'codex' }
 const tab = atom({ plugin: 'usage', key: 'tab' } as const, 'today')
 const copied = atom({ plugin: 'usage', key: 'copied' } as const, '')
 
-type Options = { status_line?: string }
+type Options = { status_line?: string; codex?: string }
 const S: { busy: boolean; error: string; at: number; last: any; aggr: any } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined }
 
 const home = async ($: EngineInterface) => {
@@ -39,6 +40,7 @@ async function context($: EngineInterface, options: Options) {
   const dataDir = expandHome(base.data_dir || '~/.claude/usage-mod', h)
   const cfg = deepMerge(base, (await readJson($, `${dataDir}/usage.config.json`)) || {})
   if (options.status_line === 'on' || options.status_line === 'off') cfg.status_line = options.status_line
+  if (options.codex === 'on' || options.codex === 'off') cfg.codex = { ...(cfg.codex || {}), enabled: options.codex }
   return { root, dataDir, cfg }
 }
 
@@ -65,7 +67,7 @@ async function rescan($: EngineInterface, options: Options) {
   S.busy = true
   try {
     const { root, cfg } = await context($, options)
-    const r = await $.process.run([cfg.node || 'node', `${root}/scanner/usage_scan.mjs`, 'scan'], { timeoutMs: Math.min((cfg.scan_timeout_s ?? 600) * 1000, 600000) })
+    const r = await $.process.run([cfg.node || 'node', `${root}/scanner/usage_scan.mjs`, 'scan', '--codex-enabled', String(cfg.codex?.enabled ?? 'auto')], { timeoutMs: Math.min((cfg.scan_timeout_s ?? 600) * 1000, 600000) })
     if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `scanner exit ${r.exitCode}`)
     S.error = ''
     S.at = await $.clock.now()
@@ -84,8 +86,10 @@ async function compute($: EngineInterface, options: Options) {
   const aggr = S.aggr ?? (S.aggr = await readJson($, `${dataDir}/aggregate.json`))
   const sc = await readJson($, `${root}/${cfg.scenarios_file || '../scenarios/scenarios.json'}`)
   const now = await $.clock.now()
+  const codexOff = cfg.codex?.enabled === 'off'
+  const cx = codexOff ? { available: false, reason: 'off' } : codexView(await readJson($, `${dataDir}/codex.json`), cfg, { now, tzMin: aggr?.tzMin ?? 0 })
   const m = aggr ? model(aggr, cfg, { now, live: await liveLimits($), samples: await samples($, dataDir), scenarios: sc?.scenarios ?? [] }) : undefined
-  return { cfg, m, sc, now, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
+  return { cfg, m, sc, cx, now, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
 }
 
 async function refreshStatus($: EngineInterface, options: Options) {
@@ -116,13 +120,15 @@ export const register: Register = (on, raw) => {
     const words = String(e.args ?? '').toLowerCase().split(/\s+/).filter(Boolean)
     const want = words.map(w => ALIASES[w.normalize('NFD').replace(/[̀-ͯ']/g, '')]).find(Boolean)
     if (want) await update($, tab, () => want)
-    const { cfg, m, stale } = await compute($, options)
+    const { cfg, m, cx, stale } = await compute($, options)
     if (stale || words.includes('refresh')) $.clock.after(0, () => rescan($, options))
     await $.ui.open({ id: 'usage', title: cfg.labels?.pane_title ?? 'usage' })
     const l = cfg.labels ?? {}
     if (!m) return { text: `conso: premier scan en cours (${cfg.projects_dir})` }
     const week = m.week ? `${l.week_label} ${fmtPct(m.week.reading.pct)} · ${outcome(m.week.current, m.tz, l)} ${l.pace_now}` : l.no_reading
-    return { text: `conso: aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · ${fmtUsd(m.today.total[7])} · ${week}` }
+    const cxl = cfg.codex?.labels ?? {}
+    const codex = cx.reason === 'off' ? '' : ` · ${cxl.codex ?? 'Codex'} ${cx.available && cx.hasData ? `${fmtTokens(cx.today.total[CV.total])} tokens${cx.windows[0] ? ` · ${cx.windows[0].label} ${fmtPct(cx.windows[0].pct)}` : ''}` : cxl.unavailable ?? 'non disponible'}`
+    return { text: `conso: aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · ${fmtUsd(m.today.total[7])} · ${week}${codex}` }
   })
 
   // Observe only: save a sample when a rate-limit window moved, refresh the status line. The event passes on unchanged.
@@ -144,8 +150,13 @@ export const register: Register = (on, raw) => {
 
   on('ui.render', { component: 'Pane', requestId: 'usage' }, async ($, e) => {
     const { Box, Text, Button, Code } = $.ui.resolve(e)
-    const { cfg, m, sc } = await compute($, options)
+    const { cfg, m, sc, cx, now } = await compute($, options)
     const l = cfg.labels ?? {}
+    const cxl = cfg.codex?.labels ?? {}
+    const fill = (t: string, v: Record<string, string>) => String(t ?? '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? `{${k}}`)
+    const dir = String(cfg.codex?.sessions_dir ?? '~/.codex/sessions')
+    const cxTokens = (v: number[]) => `${fmtTokens(v[CV.total])} tokens (entrée ${fmtTokens(v[CV.input])} dont cache ${fmtTokens(v[CV.cached])} · sortie ${fmtTokens(v[CV.output])} dont raisonnement ${fmtTokens(v[CV.reasoning])})`
+    const cxOk = cx.available && cx.hasData
     const current = ((await read($, tab)) as string) || 'today'
     const last = await read($, copied)
     const unit = m?.basis === 'tokens' ? 'tokens' : '$'
@@ -160,8 +171,11 @@ export const register: Register = (on, raw) => {
       <Box flexDirection="column">
         <Text dimColor>{`${cfg.plan_label ?? cfg.plan} · lecture seule · coûts : ${l.estimate}${S.busy ? ' · scan en cours…' : ''}`}</Text>
         {S.error ? <Text color="error">{`scan: ${S.error}`}</Text> : null}
+        {m && cx.reason !== 'off' ? (
+          <Text>{`${cxl.claude ?? 'Claude'} aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · 7 j ${fmtTokens(tokensOf(m.weekView.total))}  |  ${cxl.codex ?? 'Codex'} ${cxOk ? `aujourd'hui ${fmtTokens(cx.today.total[CV.total])} tokens · 7 j ${fmtTokens(cx.week.total[CV.total])}${cx.windows.map((w: any) => ` · ${w.label} ${fmtPct(w.pct)}`).join('')}` : cxl.unavailable ?? 'non disponible'}`}</Text>
+        ) : null}
         <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {TABS.map(t => (
+          {TABS.filter(t => t !== 'codex' || cx.reason !== 'off').map(t => (
             <Button key={`tab-${t}`} {...(t !== current ? { plain: true as const } : {})} onPress={() => update($, tab, () => t)}>
               {l.tabs?.[t] ?? t}
             </Button>
@@ -212,6 +226,40 @@ export const register: Register = (on, raw) => {
         </Box>
       )
 
+    const codexPane = () => {
+      if (cx.reason === 'off') return <Text>{cxl.off}</Text>
+      if (!cx.available) return <Text>{fill(cx.reason === 'no_dir' ? cxl.no_dir : `${cxl.unavailable} : {dir}`, { dir })}</Text>
+      if (!cx.hasData) return <Text>{fill(cxl.no_data, { dir })}</Text>
+      const byModel = (title: string, xs: { key: string; v: number[] }[]) => (
+        <Box flexDirection="column">
+          <Text bold>{title}</Text>
+          {xs.length === 0 ? <Text dimColor>  —</Text> : xs.map(x => <Text>{`  ${x.key.slice(0, 32).padEnd(32)} ${fmtTokens(x.v[CV.total])} tokens`}</Text>)}
+        </Box>
+      )
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="column">
+            <Text bold>{`Aujourd'hui : ${cxTokens(cx.today.total)}`}</Text>
+            <Text bold>{`7 jours : ${cxTokens(cx.week.total)}`}</Text>
+            <Text dimColor>{`${cx.sessions} session(s) lues${cx.model ? ` · dernier modèle ${cx.model}` : ''}${cx.plan ? ` · plan ${cx.plan}` : ''}`}</Text>
+          </Box>
+          <Box flexDirection="column">
+            <Text bold>Limites Codex</Text>
+            {cx.windows.length === 0 ? <Text>{`  ${cxl.no_limits}`}</Text> : cx.windows.map((w: any) => (
+              <Text>{`  ${w.label} : ${fmtPct(w.pct)} utilisés${w.reset ? ` · reset ${when(w.reset, m.tz, l)}` : ''} · lu ${when(w.at, m.tz, l)}${w.past ? ` (${cxl.past})` : w.stale ? ` (${cxl.stale})` : ''}`}</Text>
+            ))}
+            {cx.missing.map((x: string) => <Text dimColor>{`  ${x} : ${cxl.unavailable}`}</Text>)}
+          </Box>
+          {byModel("Par modèle aujourd'hui", cx.today.model)}
+          {byModel('Par modèle, 7 jours', cx.week.model)}
+          <Box flexDirection="column">
+            <Text bold>Par jour</Text>
+            {cx.week.perDay.map((d: any) => <Text>{`  ${d.key}  ${fmtTokens(d.v[CV.total])} tokens`}</Text>)}
+          </Box>
+          <Text dimColor>{fill(cxl.source, { dir })}</Text>
+        </Box>
+      )
+    }
     const s5 = (sc?.scenarios ?? []).find((s: any) => s.id === (cfg.plein_regime?.scenario ?? 'S5'))
     const views: Record<string, any> = {
       today: period(m.today, false),
@@ -233,6 +281,7 @@ export const register: Register = (on, raw) => {
           <Text dimColor>{`Reste ${fmtPct(m.fit.left)} · ${m.fit.hoursLeft === undefined ? '?' : Math.round(m.fit.hoursLeft)} h avant le reset, dont ${m.fit.activeHours === undefined ? '?' : Math.round(m.fit.activeHours)} h actives.`}</Text>
         </Box>
       ),
+      codex: codexPane(),
       full: (
         <Box flexDirection="column" gap={1}>
           <Text bold color={m.full.suggest ? 'success' : undefined}>{m.full.suggest ? l.suggest_full : l.no_full}</Text>

@@ -43,9 +43,31 @@
     "claude-vscode": "VS Code"
   },
   "prices": {},
+  "codex": {
+    "_doc": "Onglet Codex : lit seulement les rollout-*.jsonl de sessions_dir (événements token_count et turn_context, comme le plugin codex-hud). enabled : auto (actif si le dossier existe), on, off. expected_windows : fenêtres (minutes) annoncées « non disponible » quand Codex n'en écrit aucune. Coût non calculé.",
+    "enabled": "auto",
+    "sessions_dir": "~/.codex/sessions",
+    "days": 8,
+    "stale_limits_h": 24,
+    "expected_windows": [300, 10080],
+    "window_labels": { "300": "Fenêtre 5 h", "10080": "Semaine" },
+    "labels": {
+      "tab": "Codex",
+      "claude": "Claude",
+      "codex": "Codex",
+      "unavailable": "non disponible",
+      "off": "Codex désactivé (codex.enabled = off dans usage.config.json ou option codex = off).",
+      "no_dir": "non disponible : aucun dossier de sessions Codex ({dir}).",
+      "no_data": "non disponible : aucune session Codex ces derniers jours dans {dir}.",
+      "no_limits": "% de limite Codex : non disponible (aucun rate_limits dans les sessions récentes).",
+      "stale": "ancienne lecture",
+      "past": "fenêtre déjà réinitialisée depuis",
+      "source": "Source : {dir}/AAAA/MM/JJ/rollout-*.jsonl, événements token_count (tokens cumulés par session, différence par événement) et turn_context (modèle). Même lecture que le plugin codex-hud. Coût non calculé. Sous Codex 0.142+ lancé par l'app-server, les % peuvent ne pas être écrits sur disque (non vérifié)."
+    }
+  },
   "labels": {
     "pane_title": "Consommation",
-    "tabs": { "today": "Aujourd'hui", "week": "Semaine", "forecast": "Prévision", "scenarios": "Scénarios de consommation", "full": "Plein régime" },
+    "tabs": { "today": "Aujourd'hui", "week": "Semaine", "forecast": "Prévision", "scenarios": "Scénarios de consommation", "full": "Plein régime", "codex": "Codex" },
     "kinds": { "main": "fil principal", "subagent": "sous-agent (Agent)", "workflow": "agent de Workflow", "subconversation": "sous-conversation" },
     "week_label": "Semaine",
     "five_hour_label": "Fenêtre 5 h",
