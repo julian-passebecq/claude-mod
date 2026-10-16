@@ -4,13 +4,14 @@
 //   ▾ Cette conversation (open)  status line, its tree lead → sub-conversations → Workflows → agents, step, PR/CI
 //   ▸ Ce projet                  project tree + factory's Focus and Pipeline (lib/factory/hooks/draw.mjs drawScreen)
 //   ▸ Tous les projets           one or two lines per project
+//   ▸ Qui consomme               top 3 conversations + top project of a window (usage's classement.json), full view button
 //   ▸ Claude global              quotas (band's bar, lib/band/hooks/gauge.ts), Veille alerts, a /machine button
 import { drawScreen } from '../lib/factory/hooks/draw.mjs'
 import { layout, clip } from '../lib/factory/hooks/screens.mjs'
 import { barSvg } from '../lib/band/hooks/gauge.ts'
 import {
   cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
-  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf,
+  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary,
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
 
@@ -49,7 +50,7 @@ export function drawCockpit(el, V0) {
   const L = h.c.labels
   const out = []
   for (const s of sectionsOf(V.cfg)) {
-    const part = { breadcrumb: drawCrumbs, conv: drawConv, project: drawProject, all: drawAll, global: drawGlobal, fichiers: drawFiles }[s](h, V, L)
+    const part = { breadcrumb: drawCrumbs, conv: drawConv, project: drawProject, all: drawAll, conso: drawConso, global: drawGlobal, fichiers: drawFiles }[s](h, V, L)
     if (part) out.push(part)
   }
   if (V.error) out.splice(1, 0, h.T(`scanner : ${V.error}`, { tone: 'bad' }))
@@ -230,6 +231,25 @@ function drawGlobal(h, V, L) {
       open.slice(0, 3).forEach((a, i) => out.push(h.T(`• ${a.what || a.key}${a.title ? ' · ' + a.title : ''}`, { tone: a.julian ? 'warn' : a.severity === 'bad' ? 'bad' : undefined, key: 'va' + i, wrap: 'truncate-end' })))
     }
     out.push(h.row([h.T(L.machine, { bold: true }), h.btn(L.machine_button, () => V.act.machine(), false, 'machine')], { key: 'machine-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
+    return out
+  })
+}
+
+// « Qui consomme »: preset toggle, top conversations, the top project, a button to the full Classement (/conso classement).
+function drawConso(h, V, L) {
+  const c = V.conso
+  return section(h, V, 'conso', L.sec_conso, consoSummary(c), () => {
+    const out = []
+    const presets = (c && c.presets) || (h.c.qui_consomme && h.c.qui_consomme.presets) || []
+    const cur = c ? c.preset.id : V.consoPreset
+    out.push(h.row(presets.map((p) => h.btn(p.label, () => V.act.consoPreset(p.id), p.id === cur, 'cp-' + p.id)), { key: 'conso-presets', alignItems: 'center' }))
+    if (!c) out.push(h.T(L.conso_none, { dim: true, key: 'conso-none' }))
+    else {
+      out.push(h.lr(`${c.preset.label}`, `${fmtTokens(c.total.tokens)} · ${fmtUsd(c.total.cost)}`, { key: 'conso-total', bold: true }))
+      c.rows.forEach((r, i) => out.push(h.lr(`${i + 1}. ${clip(r.label, 34)}${r.project ? ` (${r.project})` : ''}`, `${fmtUsd(r.cost)} · ${r.pct} %`, { key: 'conso-r' + i })))
+      if (c.project) out.push(h.lr(`${L.conso_project} : ${c.project.label}`, `${fmtUsd(c.project.cost)} · ${c.project.pct} %`, { key: 'conso-p', dimLeft: true }))
+    }
+    out.push(h.row([h.btn(L.conso_full, () => V.act.consoFull(), false, 'conso-full')], { key: 'conso-full-row' }))
     return out
   })
 }

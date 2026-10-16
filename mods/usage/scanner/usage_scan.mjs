@@ -3,6 +3,8 @@
 //   node usage_scan.mjs sample '<json>'         append one rate-limit reading to <data_dir>/samples.jsonl
 //   node usage_scan.mjs report [--json]         scan, then print today's / this week's totals and the forecast
 //   node usage_scan.mjs codex                   only the Codex part: write <data_dir>/codex.json, print one JSON line
+//   node usage_scan.mjs classement [--preset today] [--group conversation] [--top 3]
+//                                               scan, then print the ranking (« qui consomme ») as text, or --json
 // Options: --data-dir DIR, --projects DIR, --codex DIR, --codex-enabled auto|on|off (defaults from usage.config.json, ~ expanded), --now MS (tests).
 // Reads only ~/.claude/projects/**/*.jsonl, Codex's rollout-*.jsonl (codex.sessions_dir) and its own folder;
 // never a credentials file.
@@ -12,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { aggregate, tokensOf } from '../lib/transcripts.mjs'
+import { buildClassement, rank, trendText } from '../lib/classement.mjs'
 import { loadCache, saveCache, scanProjects } from '../lib/scan-node.mjs'
 import { scanCodex } from '../lib/codex-scan.mjs'
 import { CV, codexEnabled, codexView } from '../lib/codex.mjs'
@@ -64,6 +67,9 @@ function scan({ cfg, prices, dataDir, projects, home }, now) {
   const tzMin = -new Date(now).getTimezoneOffset()
   const aggr = aggregate(cache.files, { now, tzMin, days: cfg.view_days ?? 8, surfaces: cfg.surfaces || {}, subRule: cfg.subconversation_origin })
   writeFileSync(join(dataDir, 'aggregate.json'), JSON.stringify(aggr))
+  const ccfg = cfg.classement || {}
+  const days = Math.min(ccfg.days ?? 31, cfg.retention_days ?? 14)
+  writeFileSync(join(dataDir, 'classement.json'), JSON.stringify(buildClassement(cache.files, { now, tzMin, days, subRule: cfg.subconversation_origin })))
   let codex
   try {
     codex = codexScan({ cfg, dataDir, home }, now)
@@ -132,6 +138,22 @@ function report(ctx, now) {
   }
 }
 
+/** Text (or --json) ranking for one preset and grouping, after a scan: the same figures as the Classement tab. */
+function classement(ctx, now) {
+  scan(ctx, now)
+  const c = ctx.cfg.classement || {}
+  const data = readJson(join(ctx.dataDir, 'classement.json'))
+  const presetId = arg('--preset', c.default_preset || 'today')
+  const preset = (c.presets || []).find(p => p.id === presetId) || { id: presetId, hours: Number(presetId) || 24 }
+  const group = arg('--group', c.default_group || 'conversation')
+  const basis = ctx.cfg.basis === 'tokens' ? 'tokens' : 'cost'
+  const r = rank(data, { now, preset, group, top: Number(arg('--top', c.top ?? 20)), basis, labels: c.labels || {} })
+  if (process.argv.includes('--json')) return console.log(JSON.stringify(r))
+  console.log(`classement ${preset.label || preset.id} par ${group}: ${fmtTokens(tokensOf(r.total))} tokens · ${fmtUsd(r.total[7])}`)
+  r.rows.forEach((x, i) => console.log(`${String(i + 1).padStart(2)}. ${String(x.label).slice(0, 50)}${x.project ? ` (${x.project})` : ''} · ${fmtTokens(tokensOf(x.v))} · ${fmtUsd(x.v[7])} · ${fmtPct(x.share * 100)} ${trendText(x, c.labels)}${x.id ? ` · ${x.id}` : ''}`))
+  if (r.others) console.log(`    ${r.others.label} (${r.others.count}) · ${fmtTokens(tokensOf(r.others.v))} · ${fmtUsd(r.others.v[7])}`)
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const ctx = config(arg('--data-dir'))
   const now = Number(arg('--now')) || Date.now()
@@ -144,6 +166,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const added = addSample(ctx.dataDir, { ts: now, ...s }, (ctx.cfg.calibration || {}).sample_min_interval_s ?? 300)
       console.log(JSON.stringify({ ok: true, added }))
     } else if (cmd === 'report') report(ctx, now)
+    else if (cmd === 'classement') classement(ctx, now)
     else if (cmd === 'codex') console.log(JSON.stringify(codexScan(ctx, now)))
     else throw new Error(`unknown command ${cmd}`)
     writeHealth('usage')

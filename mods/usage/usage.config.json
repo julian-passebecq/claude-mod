@@ -5,7 +5,7 @@
   "data_dir": "~/.claude/usage-mod",
   "projects_dir": "~/.claude/projects",
   "node": "node",
-  "retention_days": 14,
+  "retention_days": 31,
   "view_days": 8,
   "idle_gap_s": 300,
   "refresh_min": 10,
@@ -43,6 +43,44 @@
     "claude-vscode": "VS Code"
   },
   "prices": {},
+  "classement": {
+    "_doc": "Onglet Classement (/conso classement) : qui consomme le plus sur une fenêtre. Les lignes sont par heure d'horloge : « 1 h » = les tranches horaires qui touchent la dernière heure. « aujourd'hui » = les mêmes heures que l'onglet Aujourd'hui (totaux identiques). days : historique gardé pour le classement (borné par retention_days ; la tendance 30 j demande 60 j et s'affiche vide au-delà). links_file : fil.json du mod veille, pour le bouton Ouvrir (lien claude:// de l'app, non vérifié).",
+    "days": 31,
+    "presets": [
+      { "id": "1h", "label": "1 h", "hours": 1 },
+      { "id": "4h", "label": "4 h", "hours": 4 },
+      { "id": "today", "label": "aujourd'hui", "since": "midnight" },
+      { "id": "2d", "label": "2 j", "hours": 48 },
+      { "id": "7d", "label": "7 j", "hours": 168 },
+      { "id": "30d", "label": "30 j", "hours": 720 }
+    ],
+    "default_preset": "today",
+    "groups": [
+      { "id": "conversation", "label": "conversation" },
+      { "id": "project", "label": "projet" },
+      { "id": "model", "label": "modèle" },
+      { "id": "agent", "label": "type d'agent" },
+      { "id": "feature", "label": "fonction" },
+      { "id": "source", "label": "Claude / Codex" }
+    ],
+    "default_group": "conversation",
+    "top": 20,
+    "buttons_top": 10,
+    "bar_width": 12,
+    "links_file": "~/.claude/veille/fil.json",
+    "labels": {
+      "others": "autres",
+      "new": "nouveau",
+      "kinds": { "main": "fil principal", "subagent": "sous-agent (Agent)", "workflow": "agent de Workflow", "subconversation": "sous-conversation" },
+      "features": { "main": "fil principal", "subagent": "Agent", "workflow": "Workflow", "subconversation": "sous-conversation", "skill": "skill", "mcp": "MCP" },
+      "families": { "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "fable": "Fable" },
+      "copy": "Copier l'id",
+      "open": "Ouvrir",
+      "sub": "sous-agents",
+      "no_tool": "Par famille d'outil : non disponible (les transcripts donnent les tokens par requête, pas par outil). Commandes de mod : non disponible.",
+      "codex_note": "Codex : par jour entier (codex.json), tokens seulement, hors total et hors part."
+    }
+  },
   "codex": {
     "_doc": "Onglet Codex : lit seulement les rollout-*.jsonl de sessions_dir (événements token_count et turn_context, comme le plugin codex-hud). enabled : auto (actif si le dossier existe), on, off. expected_windows : fenêtres (minutes) annoncées « non disponible » quand Codex n'en écrit aucune. Coût non calculé.",
     "enabled": "auto",

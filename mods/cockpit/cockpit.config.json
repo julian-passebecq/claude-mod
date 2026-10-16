@@ -1,9 +1,9 @@
 {
   "_doc": "cockpit settings. Your own JSON (userConfig 'config', else ~/.claude/effort-board/cockpit.config.json) is deep-merged over this file; keys starting with _ are ignored. Prices, thresholds and screen labels of the detail views are factory's (lib/factory/factory.config.json + ~/.claude/effort-board/factory.config.json).",
-  "_sections": "order: top to bottom, by scope. enabled: which show. open: which foldable sections start unfolded (a closed one shows a one-line summary). breadcrumb = Méga › Projet › Conversation › Agent on one small row; conv = Cette conversation (status line, its tree lead → sub-conversations → Workflows → agents, step, PR/CI; the agent card when an agent is selected); project = Ce projet (its conversations as a tree, factory's Focus and Pipeline); all = Tous les projets (one or two lines per project); global = Claude global (quotas, Veille, a /machine button); fichiers = a button that opens filetree's own tab.",
+  "_sections": "order: top to bottom, by scope. enabled: which show. open: which foldable sections start unfolded (a closed one shows a one-line summary). breadcrumb = Méga › Projet › Conversation › Agent on one small row; conv = Cette conversation (status line, its tree lead → sub-conversations → Workflows → agents, step, PR/CI; the agent card when an agent is selected); project = Ce projet (its conversations as a tree, factory's Focus and Pipeline); all = Tous les projets (one or two lines per project); conso = Qui consomme (top 3 conversations and the top project of 1 h / aujourd'hui / 7 j, from the usage mod's classement.json; a button opens the full Classement, /conso classement); global = Claude global (quotas, Veille, a /machine button); fichiers = a button that opens filetree's own tab.",
   "sections": {
-    "order": ["breadcrumb", "conv", "project", "all", "global", "fichiers"],
-    "enabled": ["breadcrumb", "conv", "project", "all", "global", "fichiers"],
+    "order": ["breadcrumb", "conv", "project", "all", "conso", "global", "fichiers"],
+    "enabled": ["breadcrumb", "conv", "project", "all", "conso", "global", "fichiers"],
     "open": ["conv"]
   },
   "_default_level": "where the selection starts: medium (default: this conversation selected, its Workflows and agents open), macro (its project) or mega.",
@@ -16,6 +16,11 @@
   "_diagram": "the project tree drawn as an SVG under its clickable rows in « Ce projet » (desktop only). Off by default: it repeated the rows.",
   "diagram": { "enabled": false, "width": 340, "row_h": 22, "max_rows": 40 },
   "tree": { "max_convs": 30, "max_agents": 20, "show_done_agents": true },
+  "_qui_consomme": "« Qui consomme » card. presets: the toggle (id, label, hours or since: midnight, same shape as usage's classement.presets). top: conversations shown. basis: cost (list-price equivalent) or tokens. rescan_min: when classement.json is older and the section is open, cockpit runs usage's incremental scanner once. data_dir: empty = usage's data_dir. command/args: what the full-view button runs.",
+  "qui_consomme": {
+    "presets": [{ "id": "1h", "label": "1 h", "hours": 1 }, { "id": "today", "label": "aujourd’hui", "since": "midnight" }, { "id": "7d", "label": "7 j", "hours": 168 }],
+    "default": "today", "top": 3, "basis": "cost", "rescan_min": 10, "data_dir": "", "command": "conso", "args": "classement"
+  },
   "usage_bar_width": 160,
   "_colors": "SVG colours (the drawing is an image: theme keys do not reach it). term_colors: theme keys for text.",
   "colors": { "running": "#58a6ff", "ok": "#3fb950", "warn": "#d29922", "bad": "#f85149", "dim": "#8b949e", "line": "#8b949e88", "text": "#808890", "selected": "#d2a8ff", "usage": "#2f81f7" },

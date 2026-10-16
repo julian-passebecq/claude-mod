@@ -14,14 +14,22 @@ const scanFor = (detail: string) => JSON.stringify({ generated: 0, sessions: [LE
   detail: detail === 'child-cli' ? { ...CHILD, calls: [{ tool: 'Workflow', runId: 'wf_1', desc: 'package-wave' }], turns: [], events: [], errors: [], guards: [] }
     : { ...LEAD, calls: [], turns: [], events: [], errors: [], guards: [] } })
 
+// usage's classement.json, invented: [hour, sid, kind, model, agent, skill, mcp, in, out, cr, cw5, cw1h, msgs, active, cost]
+const CR = (h: number, sid: string, usd: number) => [Math.floor(NOW / 3600000) * 3600000 - h * 3600000, sid, 'main', 'claude-opus-5-5', '', '', '', 1000, 100, 5000, 0, 200, 1, 0, usd]
+const CLS = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { s1: { t: 'Lane alpha', p: 'proj-one' }, s2: { t: 'Lane beta', p: 'proj-two' } },
+  rows: [CR(0, 's1', 4), CR(0, 's2', 1), CR(50, 's2', 20)] }
+
 function world(on: any) {
   const opened: string[] = []
   const ran: unknown[] = []
   const scans: string[] = []
   on('clock.now', () => ({ value: NOW }))
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
-  on('fs.exists', ($: any, e: any) => ({ value: /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$/.test(String(e.path)) && !String(e.path).includes('effort-board') }))
-  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('cockpit.config.json') ? JSON.stringify({})
+  const P = (e: any) => String(e.path).replace(/\\/g, '/') // the kit hands Windows paths with backslashes
+  on('fs.exists', ($: any, e: any) => ({ value: /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/classement\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
+  on('fs.read', ($: any, e: any) => ({ value: P(e).endsWith('cockpit.config.json') ? JSON.stringify({})
+    : P(e).endsWith('/usage/usage.config.json') ? JSON.stringify({ data_dir: '~/.claude/usage-mod', node: 'node' })
+    : P(e).endsWith('/usage-mod/classement.json') ? JSON.stringify(CLS)
     : JSON.stringify({ context_window: 400000, rates: { opus: { in: 4, out: 20, cache_read: 0.4, cache_write_5m: 5, cache_write_1h: 8 } }, thresholds: { handoff_tokens: 250000 } }) }))
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
@@ -87,5 +95,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, /^▾ Ce projet · eta$/)).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'files' })
     expect(JSON.stringify(w.ran)).toContain('filetree')
+  })
+
+  test(`« Qui consomme »: top conversations of a window, preset toggle, button to the full Classement (${surface})`, async ($, on) => {
+    const w = world(on)
+    await $.command.run({ command: 'cockpit', args: '' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 80 }, props: PANE } as any)
+    expect(await has(ui, /^▸ Qui consomme$/)).toBe(true)
+    expect(await has(ui, /aujourd’hui \$5\.00 · Lane alpha 80 % · proj-one 80 %/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'sec-conso' })
+    expect(await has(ui, /^1\. Lane alpha \(proj-one\)$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'cp-7d' })
+    expect(await has(ui, /^1\. Lane beta \(proj-two\)$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'conso-full' })
+    expect(JSON.stringify(w.ran)).toContain('"command":"conso"')
+    expect(JSON.stringify(w.ran)).toContain('classement')
   })
 }

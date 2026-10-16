@@ -24,6 +24,8 @@ export const FILES = [
   'band/hooks/gauge.ts',
   'veille/lib/modes.mjs',
   'veille/hooks/view.mjs',
+  'usage/lib/classement.mjs',
+  'usage/lib/transcripts.mjs',
 ]
 
 export function stale() {

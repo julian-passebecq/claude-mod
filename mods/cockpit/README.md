@@ -13,6 +13,7 @@
  PR #29 · open · CI running
 [▸ Ce projet · eta] 4 conv · 1 en cours · $7.00 aujourd’hui
 [▸ Tous les projets] 2 en cours · 3 au repos · 1 attend Julian · $424
+[▸ Qui consomme] aujourd’hui $461 · MODS 1 41 % · claude-control 52 %
 [▸ Claude global] 5 h 24 % · sem 14 % · 1 alerte(s)
 ```
 
@@ -21,6 +22,7 @@
 | **Cette conversation** | open, selected | status line (model · effort, ctx, state), the lead tree holding it (lead → sub-conversations → Workflows → agents, model/effort/tokens/cost), the running Workflow and current step, PR/CI. Finished agents and Workflows fold behind « + N terminé(s) ». An agent selected: its card and log. |
 | **Ce projet** | closed | the project's conversations as a tree (the app's `spawnedFrom` link, even lanes launched in another repo), then factory's **Focus** and **Pipeline** for that project |
 | **Tous les projets** | closed | two lines per project: name and cost today, then counters (conv, en cours, attend Julian, agents, ctx max) |
+| **Qui consomme** | closed | Toggle 1 h / aujourd’hui / 7 j (`qui_consomme.presets`), the top 3 conversations with cost and share, the top project, and **Classement complet** which runs `/conso classement` (the full ranking in the usage mod). Reads usage's `classement.json`; when it is older than `rescan_min` (10 min) and the section is open, runs usage's incremental scanner once. Same ranking code as usage (`lib/usage/lib/classement.mjs`, a synced copy). |
 | **Claude global** | closed | Session (5 h), Semaine, Semaine Fable with bars and « reset dans … », cloud credits, this session's cost / model share / cache hit, Veille's open alerts, a `/machine` button. What the API does not give says « non lisible depuis un mod ». |
 
 The breadcrumb (one small row) zooms out; a click on a node drills down and unfolds the section that shows it. The context gauge is not here: it is band's, above the prompt, where you look. A button at the bottom runs `/filetree`.

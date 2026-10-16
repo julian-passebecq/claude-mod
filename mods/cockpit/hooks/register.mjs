@@ -10,7 +10,7 @@ import { waitingArgs } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
 import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
-import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor } from './nav.mjs'
+import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
 
 const PANE = 'cockpit'
@@ -19,7 +19,7 @@ let CFG = null // cockpit.config.json (+ user file)
 let FCFG = null // factory.config.json (lib copy, + ~/.claude/effort-board/factory.config.json)
 const D = {
   scan: null, nav: null, self: null, busy: false, error: '', at: 0, open: false, filter: 'all', strips: null,
-  usage: null, usageRaw: null, veille: null, columns: 0,
+  usage: null, usageRaw: null, veille: null, columns: 0, conso: null, consoData: null, consoPreset: '', consoScan: false,
 }
 
 const norm = (p) => String(p || '').replace(/\\/g, '/')
@@ -93,8 +93,30 @@ async function refreshStrips($) {
   try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
   const me = D.scan ? findSession(D.scan, D.self) : null
   D.usage = usageCard(D.usageRaw, me, FCFG || {}, now)
+  await loadConso($, now).catch(() => undefined)
   await loadVeille($)
   $.ui.invalidate('ui.render')
+}
+
+// « Qui consomme »: reads the usage mod's classement.json. When it is older than rescan_min and the section is open,
+// runs usage's own incremental scanner once in the background (read-only; byte offsets, so only new lines are read).
+async function loadConso($, now) {
+  const q = cockpitConfig(CFG).qui_consomme
+  const ucfg = (await readJson($, sibling($, 'usage') + '/usage.config.json')) || {}
+  const dir = norm(expand(q.data_dir || ucfg.data_dir || '~/.claude/usage-mod', await homeDir($)))
+  D.consoData = await readJson($, dir + '/classement.json')
+  D.conso = consoCard(D.consoData, CFG, now, D.consoPreset || q.default)
+  const old = !D.consoData || now - (D.consoData.generated || 0) > q.rescan_min * 60000
+  if (old && (D.strips || {}).conso && !D.consoScan && ucfg.data_dir !== undefined) {
+    D.consoScan = true
+    $.clock.after(0, async () => {
+      try { await $.process.run([ucfg.node || 'node', sibling($, 'usage') + '/scanner/usage_scan.mjs', 'scan'], { timeoutMs: 600000 }) } catch { /* the card says so */ }
+      D.consoScan = false
+      D.consoData = await readJson($, dir + '/classement.json')
+      D.conso = consoCard(D.consoData, CFG, await $.clock.now(), D.consoPreset || q.default)
+      $.ui.invalidate('ui.render')
+    })
+  }
 }
 
 async function loadVeille($) {
@@ -144,9 +166,17 @@ function actions($) {
     toggle: (id) => {
       D.strips = { ...(D.strips || {}), [id]: !(D.strips || {})[id] }
       redraw()
-      if (id === 'global' && D.strips.global) void refreshStrips($)
+      if ((id === 'global' || id === 'conso') && D.strips[id]) void refreshStrips($)
     },
     files: () => { void $.command.run({ command: 'filetree' }).catch(() => $.ui.toast('filetree non chargé : ajoute vendor/filetree à CLAUDE_CODE_PLUGIN_DIRS')) },
+    consoPreset: (id) => {
+      D.consoPreset = id
+      void $.clock.now().then((now) => { D.conso = consoCard(D.consoData, CFG, now, id); redraw() })
+    },
+    consoFull: () => {
+      const q = cockpitConfig(CFG).qui_consomme
+      void $.command.run({ command: q.command, args: q.args }).catch(() => $.ui.toast(cockpitConfig(CFG).labels.conso_missing))
+    },
     machine: () => { void $.command.run({ command: 'machine' }).catch(() => $.ui.toast('machine non chargé : ajoute mods/machine à CLAUDE_CODE_PLUGIN_DIRS')) },
   }
 }
@@ -222,6 +252,7 @@ export function register(on, opts) {
     return drawCockpit(el, {
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
       busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
+      conso: D.conso, consoPreset: D.consoPreset,
     })
   })
 }
