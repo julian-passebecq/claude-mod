@@ -1,18 +1,33 @@
 // scenarios mod ("Scénarios d'agents"): a read-only guide over editable presets of roles -> model, effort, unit, max parallel.
-// /scenarios [id] [kind] opens the pane; the pane copies a ready-to-paste snippet. Scenarios come from scenarios.json
+// /scenarios [id] [kind] opens the pane; the pane copies a ready-to-paste snippet; « Appliquer ce scénario » notes the
+// chosen per-role model/effort in ~/.claude/scenarios/applied.json and shows the diff (never edits settings or agents). Scenarios come from scenarios.json
 // beside this mod plus the user's own file (userConfig `file`). Nothing here blocks or rewrites a tool call: the only
 // non-UI hook, on agent.spawn, passes the spawn on unchanged and at most shows a toast.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Catalog, Checked, ScenarioFile } from '../types'
-import { KINDS, KIND_LABEL, check, expandHome, limitsFor, merge, parseArgs, roleLine, settingsFor, snippet } from './logic'
+import type { Checked, ScenarioFile } from '../types'
+import { applyScenario, readApplied } from './apply_io'
+import { drawScenarios } from './draw'
+import { check, expandHome, merge, parseArgs, snippet } from './logic'
 import type { Kind } from './logic'
 
 const PANE = { id: 'scenarios', title: "Scénarios d'agents" }
 const selected = atom({ plugin: 'scenarios', key: 'selected' } as const, '')
+/** File access handed to apply_io.ts ($ never crosses an import). */
+const io = ($: EngineInterface) => ({
+  read: async (path: string): Promise<string | undefined> => {
+    try {
+      return (await $.fs.read(path, { as: 'text' })) as string
+    } catch {
+      return undefined
+    }
+  },
+  write: (path: string, text: string) => $.fs.write(path, text),
+})
 const kind = atom({ plugin: 'scenarios', key: 'kind' } as const, 'prompt')
 const copied = atom({ plugin: 'scenarios', key: 'copied' } as const, '')
+const applyMsg = atom({ plugin: 'scenarios', key: 'applyMsg' } as const, '')
 
 type Options = { file?: string; warn_no_model?: string }
 
@@ -55,11 +70,6 @@ const load = async ($: EngineInterface, options: Options): Promise<Checked> => {
   }
   const checked = check(merge(shipped.data, extra))
   return { ...checked, errors: [...problems, ...checked.errors] }
-}
-
-const kindsOf = (c: Catalog): Kind[] => {
-  const listed = c.snippets.filter((k): k is Kind => (KINDS as readonly string[]).includes(k))
-  return listed.length ? listed : [...KINDS]
 }
 
 export const register: Register = (on, raw) => {
@@ -109,104 +119,32 @@ export const register: Register = (on, raw) => {
   }).catch(($, e, next) => next(e)) // fail open: a failing warning never stops a spawn
 
   on('ui.render', { component: 'Pane', requestId: 'scenarios' }, async ($, e) => {
-    const { Box, Text, Button, Code, Link } = $.ui.resolve(e)
     const { catalog, errors, warnings } = await load($, options)
-    const want = await read($, selected)
-    const s = catalog.scenarios.find(x => x.id === want) ?? catalog.scenarios[0]
-    const k = ((await read($, kind)) as Kind) || 'prompt'
-    const last = await read($, copied)
-    const kinds = kindsOf(catalog)
-    const url = (key: string) => catalog.sources[key] ?? ''
-    const cite = (key: string, verified = true) => (
-      <Box flexDirection="row" gap={1}>
-        {verified ? null : <Text color="warning">non vérifié</Text>}
-        {url(key) ? <Link href={url(key)} label={url(key)} /> : <Text dimColor>no source</Text>}
-      </Box>
-    )
-
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text dimColor>Read-only guide. Edit scenarios.json or your own file (userConfig "file") to add S5 and more.</Text>
-        {errors.length > 0 && (
-          <Box flexDirection="column">
-            <Text color="error" bold>{`${errors.length} error(s): those scenarios are left out`}</Text>
-            {errors.map(x => <Text color="error">{`· ${x}`}</Text>)}
-          </Box>
-        )}
-        {warnings.length > 0 && (
-          <Box flexDirection="column">
-            {warnings.map(x => <Text color="warning">{`· ${x}`}</Text>)}
-          </Box>
-        )}
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {catalog.scenarios.map(x => (
-            <Button key={`sc-${x.id}`} {...(x.id !== s?.id ? { plain: true as const } : {})} onPress={() => update($, selected, () => x.id)}>
-              {`${x.id} ${x.name}`}
-            </Button>
-          ))}
-        </Box>
-        {!s && <Text>No valid scenario. Fix the errors above.</Text>}
-        {s && (
-          <Box flexDirection="column" gap={1}>
-            <Text bold>{`${s.id} · ${s.name}`}</Text>
-            {s.summary ? <Text>{s.summary}</Text> : null}
-            <Text dimColor>
-              {`Escalation: ${s.escalation === false ? 'no' : 'after one failure, one step up'}` +
-                (s.caps && Object.keys(s.caps).length ? ` · caps: ${Object.entries(s.caps).map(([a, b]) => `${a.replace(/_/g, ' ')} ${b}`).join(', ')}` : '')}
-            </Text>
-            <Box flexDirection="column">
-              {s.roles.map(r => (
-                <Box flexDirection="column">
-                  <Text bold>{roleLine(catalog, r)}</Text>
-                  {settingsFor(catalog, r).map(line => (
-                    <Box flexDirection="column">
-                      <Text>{`  ${line.text}`}</Text>
-                      <Box flexDirection="row" gap={1}>
-                        <Text dimColor>{'   '}</Text>
-                        {cite(line.source, line.verified)}
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              ))}
-            </Box>
-            <Text bold>Documented limits</Text>
-            <Box flexDirection="column">
-              {limitsFor(catalog, s).map(l => (
-                <Box flexDirection="column">
-                  <Text>{`· ${l.text}`}</Text>
-                  <Box flexDirection="row" gap={1}>
-                    <Text dimColor>{'  '}</Text>
-                    {cite(l.source, l.verified)}
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-            <Text bold>Snippet</Text>
-            <Box flexDirection="row" gap={1} flexWrap="wrap">
-              {kinds.map(x => (
-                <Button key={`kind-${x}`} {...(x !== k ? { plain: true as const } : {})} onPress={() => update($, kind, () => x)}>
-                  {KIND_LABEL[x]}
-                </Button>
-              ))}
-            </Box>
-            <Code source={snippet(catalog, s, k)} language={k === 'frontmatter' ? 'yaml' : k === 'prompt' ? 'text' : 'javascript'} />
-            <Box flexDirection="row" gap={1}>
-              <Button
-                key="copy"
-                hotkey="c"
-                onPress={async press => {
-                  const r = await $.ui.copy({ text: snippet(catalog, s, k), surface: press.surface })
-                  await update($, copied, () => (r.isCopied ? `copied: ${s.id} ${KIND_LABEL[k]}` : 'copy failed: select the text above'))
-                }}
-              >
-                Copy snippet
-              </Button>
-              {last ? <Text dimColor>{last}</Text> : null}
-            </Box>
-          </Box>
-        )}
-      </Box>
-    )
+    const claudeDir = `${(await home($)).replace(/\\/g, '/')}/.claude`
+    return drawScenarios($.ui.resolve(e), {
+      catalog, errors, warnings,
+      selected: await read($, selected),
+      kind: ((await read($, kind)) as Kind) || 'prompt',
+      copied: await read($, copied),
+      applied: await readApplied(io($), catalog, claudeDir),
+      applyMsg: await read($, applyMsg),
+      onSelect: id => update($, selected, () => id),
+      onKind: k => update($, kind, () => k),
+      onCopy: async (text, label, press) => {
+        const r = await $.ui.copy({ text, surface: press.surface })
+        await update($, copied, () => (r.isCopied ? `copied: ${label}` : 'copy failed: select the text above'))
+      },
+      onApply: async id => {
+        const s = catalog.scenarios.find(x => x.id === id)
+        if (!s) return
+        let msg: string
+        try {
+          msg = await applyScenario(io($), catalog, s, claudeDir, new Date(await $.clock.now()).toISOString())
+        } catch (err) {
+          msg = `écriture impossible : ${String(err).slice(0, 160)}`
+        }
+        await update($, applyMsg, () => msg)
+      },
+    })
   })
 }

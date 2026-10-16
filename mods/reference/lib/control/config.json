@@ -1,0 +1,675 @@
+{
+  "_doc": "One config for the control mod: paths, price table, metric targets, hidden-rule catalogue, evidence links and every UI label. Nothing names a rules version: the version, sections and rule lines are read live from ~/.claude/CLAUDE.md at each scan. Your own overrides go in paths.user_config (deep-merged, lists replaced); the <...> paths are placeholders, a missing path is skipped.",
+  "paths": {
+    "claude_home": "~/.claude",
+    "projects_root": "<PROJECTS_ROOT>",
+    "out_dir": "~/.claude/effort-board/control",
+    "audit_report": "<CLAUDE_CONTROL_REPO>/docs/audits/2026-10-09-night/REPORT.md",
+    "practices_md": "<CLAUDE_CONTROL_REPO>/docs/PRACTICES.md",
+    "history_md": "<CLAUDE_CONTROL_REPO>/docs/HISTORY.md",
+    "user_config": "~/.claude/effort-board/control.config.json"
+  },
+  "scan": {
+    "history_days": 30,
+    "windows": [
+      {
+        "id": "1d",
+        "label": "Last 24 h",
+        "hours": 24
+      },
+      {
+        "id": "7d",
+        "label": "Last 7 days",
+        "hours": 168
+      },
+      {
+        "id": "30d",
+        "label": "Last 30 days",
+        "hours": 720
+      },
+      {
+        "id": "ref",
+        "label": "2-9 Oct (audit run)",
+        "from": "2026-10-02T00",
+        "to": "2026-10-09T14"
+      }
+    ],
+    "exclude_cwd": [],
+    "exclude_sdk_bench": [],
+    "read_only_tools": [
+      "Read",
+      "Grep",
+      "Glob",
+      "WebSearch",
+      "WebFetch"
+    ],
+    "ctx_big": 300000,
+    "ctx_handoff": 250000,
+    "stale_minutes": 60,
+    "active_days": 14
+  },
+  "prices": {
+    "_doc": "USD per million tokens. Input/output from docs/models/models.json (claude.com/pricing, 2 Oct). Cache read = 0.1 x input, cache write = 1.25 x input (5-min cache). Haiku 5.5 has no price in models.json: Haiku 4.5's rate is used (estimate).",
+    "cache_read_factor": 0.1,
+    "cache_write_factor": 1.25,
+    "models": {
+      "opus": {
+        "in": 4,
+        "out": 20,
+        "source": "claude-opus-5-5, claude.com/pricing"
+      },
+      "sonnet": {
+        "in": 2,
+        "out": 10,
+        "source": "claude-sonnet-5-5, claude.com/pricing"
+      },
+      "haiku": {
+        "in": 1,
+        "out": 5,
+        "source": "haiku-4-5 rate (no haiku-5-5 price recorded)"
+      },
+      "fable": {
+        "in": 10,
+        "out": 50,
+        "source": "claude-fable-5-1, claude.com/pricing"
+      },
+      "other": {
+        "in": 0,
+        "out": 0,
+        "source": "unpriced"
+      }
+    }
+  },
+  "metrics": [
+    {
+      "id": "sub_no_model",
+      "label": "Agent/Workflow subagent calls without a model",
+      "unit": "%",
+      "better": "low",
+      "green": 10,
+      "amber": 30,
+      "rule": "Every Agent and Workflow agent() call names its model",
+      "rule_find": "call names its .?model"
+    },
+    {
+      "id": "sub_opus_share",
+      "label": "Subagent turns on Opus",
+      "unit": "%",
+      "better": "low",
+      "green": 50,
+      "amber": 75,
+      "rule": "Opus leads and codes; Sonnet tests/docs/audits; Haiku search and triage",
+      "rule_find": "^Tests, docs, audits"
+    },
+    {
+      "id": "haiku_readonly_share",
+      "label": "Read-only calls (Read/Grep/Glob/Web) run on Haiku",
+      "unit": "%",
+      "better": "high",
+      "green": 30,
+      "amber": 10,
+      "rule": "search, lookup, CI/log triage go to a Haiku agent",
+      "rule_find": "^Search, lookup"
+    },
+    {
+      "id": "opus_readonly_share",
+      "label": "Read-only calls run on Opus",
+      "unit": "%",
+      "better": "low",
+      "green": 40,
+      "amber": 70,
+      "rule": "search and triage are not Opus work",
+      "rule_find": "^Search, lookup"
+    },
+    {
+      "id": "opus_main_medium",
+      "label": "Opus main-thread turns at medium",
+      "unit": "%",
+      "better": "high",
+      "green": 95,
+      "amber": 85,
+      "rule": "lead session and coders at medium",
+      "rule_find": "^Lead session"
+    },
+    {
+      "id": "high_not_architect",
+      "label": "Opus subagent turns at high/xhigh outside the architect",
+      "unit": "%",
+      "better": "low",
+      "green": 2,
+      "amber": 5,
+      "rule": "high effort only for the architect",
+      "rule_find": "^Architect"
+    },
+    {
+      "id": "sonnet_main_high",
+      "label": "Sonnet main-thread turns above medium",
+      "unit": "%",
+      "better": "low",
+      "green": 5,
+      "amber": 20,
+      "rule": "Sonnet at low-medium",
+      "rule_find": "^Tests, docs, audits"
+    },
+    {
+      "id": "ctx_big_share",
+      "label": "Main-thread turns at 300K+ context",
+      "unit": "%",
+      "better": "low",
+      "green": 2,
+      "amber": 10,
+      "rule": "one package per conversation; hand-off file before the context gets big",
+      "rule_find": "one package per conversation"
+    },
+    {
+      "id": "handoff_ratio",
+      "label": "Hand-offs among hand-offs + auto-compactions",
+      "unit": "%",
+      "better": "info",
+      "rule": "hand-off file before the auto-compact",
+      "rule_find": "auto-compact"
+    },
+    {
+      "id": "monitor_cron_per_day",
+      "label": "Monitor + CronCreate + /loop calls per day",
+      "unit": "/day",
+      "better": "low",
+      "green": 1,
+      "amber": 5,
+      "rule": "no timer wake-ups (each fire re-sends the whole context)",
+      "rule_find": "CronCreate"
+    },
+    {
+      "id": "workflow_model_share",
+      "label": "Workflow agent() calls with a model",
+      "unit": "%",
+      "better": "high",
+      "green": 80,
+      "amber": 40,
+      "rule": "every Workflow agent() call names its model",
+      "rule_find": "call names its .?model"
+    },
+    {
+      "id": "workflow_per_day",
+      "label": "Workflow runs per day",
+      "unit": "/day",
+      "better": "high",
+      "green": 2,
+      "amber": 0.5,
+      "rule": "work with two or more independent parts runs as one Workflow",
+      "rule_find": "^Workflow"
+    },
+    {
+      "id": "plan_mode",
+      "label": "Plan mode uses",
+      "unit": "count",
+      "better": "info",
+      "rule": "interactive plan mode only when the user is at the keyboard",
+      "rule_find": "plan mode"
+    },
+    {
+      "id": "goal_uses",
+      "label": "/goal commands per day",
+      "unit": "/day",
+      "better": "high",
+      "rule": "top-level launch prompts start with /goal <done condition>",
+      "green": 1,
+      "amber": 0.2,
+      "rule_find": "^Goal"
+    },
+    {
+      "id": "plan_agent_calls",
+      "label": "Plan subagent calls",
+      "unit": "count",
+      "better": "info",
+      "rule": "a Plan subagent writes the plan",
+      "rule_find": "^Plan"
+    },
+    {
+      "id": "explore_builtin_per_day",
+      "label": "Built-in Explore calls per day (inherit the session model)",
+      "unit": "/day",
+      "better": "low",
+      "green": 0.2,
+      "amber": 2,
+      "rule": "search goes to a Haiku agent, not the built-in Explore",
+      "rule_find": "built-in .?Explore"
+    },
+    {
+      "id": "architect_calls",
+      "label": "Architect subagent calls",
+      "unit": "count",
+      "better": "info",
+      "rule": "architect only at its triggers",
+      "rule_find": "^Architect"
+    },
+    {
+      "id": "opus_cost_share",
+      "label": "Estimated $ on Opus",
+      "unit": "%",
+      "better": "info",
+      "rule": "Opus is the core (lead, coders); the rest should be cheap"
+    }
+  ],
+  "hidden_env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "Every subagent call that names no model runs on this model, whatever the agent type.",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "Caps the context window: auto-compaction fires near this size instead of the model's full window.",
+    "CLAUDE_CODE_PLUGIN_DIRS": "Loads these mod folders into every session (mods can refuse or rewrite tool calls).",
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "Turns on function-hook mods (early access).",
+    "ANTHROPIC_MODEL": "Overrides the default model of every session.",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "Caps each answer's length.",
+    "MAX_THINKING_TOKENS": "Caps thinking tokens per turn.",
+    "DISABLE_AUTOUPDATER": "Freezes the Claude Code version."
+  },
+  "stale_clauses": [
+    {
+      "pattern": "(an )?AI never merges?",
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
+    },
+    {
+      "pattern": "needs? an explicit ask",
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
+    },
+    {
+      "pattern": "no automatic merge",
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
+    },
+    {
+      "pattern": "never merge",
+      "why": "stale for dev repos if the live rules say the PR opener merges on green"
+    },
+    {
+      "pattern": "\\bwork\\b (repo|project)",
+      "why": "Project category is set only in the global Projects table"
+    },
+    {
+      "pattern": "GPT ?[56](\\.\\d)? Pro (is|stays) (the )?tech lead",
+      "why": "no external tech lead in the live rules"
+    }
+  ],
+  "known_items": {
+    "ask_filter.py": "PreToolUse hook on AskUserQuestion: blocks questions about merges, PRs, CI, branches, reviews, versions, tests, workflows (exit 2); product/scope questions pass.",
+    "watch.py": "Free watcher script: OFF since 4 Oct (all ClaudeControl* tasks disabled); nothing writes watch_report, brief.md, quota.jsonl.",
+    "cc-control": "Guards (send cap, previews, other sessions, chip cap, build slot), status band, /cc-status /cc-tree /cc-graph.",
+    "hook": "Visible rules: no hook, mod or script blocks or rewrites a tool call; active hooks must be none"
+  },
+  "rules": {
+    "_doc": "How the live rules file is read. version_regex finds the version in the first non-empty line (e.g. \"Claude Control V5.8 (15 Oct 2026)\" -> 5.8); section_regex marks a section heading; a parenthesised part of a line is evidence when it matches citation_regex; practices_ref_regex ids are looked up in paths.practices_md.",
+    "version_regex": "\\bV(\\d+(?:\\.\\d+)*)\\b",
+    "section_regex": "^# (.+)$",
+    "citation_regex": "\\d{4}|\\b\\d{1,2} (?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)|PR ?#\\d+|audit|PRACTICES",
+    "practices_ref_regex": "PRACTICES\\s+([A-Z]\\d{1,2})\\b",
+    "blocker_rule_find": "No hidden blockers"
+  },
+  "evidence_links": [
+    {
+      "find": "Plan.{0,4}: a .?Plan.? subagent",
+      "metrics": [
+        "plan_agent_calls",
+        "architect_calls",
+        "plan_mode"
+      ]
+    },
+    {
+      "find": "^Goal",
+      "metrics": [
+        "goal_uses"
+      ]
+    },
+    {
+      "find": "^Workflow",
+      "metrics": [
+        "workflow_per_day",
+        "workflow_model_share"
+      ]
+    },
+    {
+      "find": "session that opened the PR merges it",
+      "metrics": [],
+      "setup_flag": "stale_clause"
+    },
+    {
+      "find": "call names its .?model",
+      "metrics": [
+        "sub_no_model",
+        "workflow_model_share",
+        "explore_builtin_per_day"
+      ]
+    },
+    {
+      "find": "^Search, lookup",
+      "metrics": [
+        "sub_opus_share",
+        "haiku_readonly_share",
+        "opus_readonly_share"
+      ]
+    },
+    {
+      "find": "^Architect",
+      "metrics": [
+        "high_not_architect",
+        "architect_calls"
+      ]
+    },
+    {
+      "find": "^Lead session",
+      "metrics": [
+        "opus_main_medium"
+      ]
+    },
+    {
+      "find": "^Tests, docs, audits",
+      "metrics": [
+        "sonnet_main_high"
+      ]
+    },
+    {
+      "find": "one package per conversation",
+      "metrics": [
+        "ctx_big_share",
+        "handoff_ratio"
+      ]
+    },
+    {
+      "find": "No CronCreate",
+      "metrics": [
+        "monitor_cron_per_day"
+      ]
+    },
+    {
+      "find": "No hidden blockers",
+      "metrics": [],
+      "setup_flag": "blocker"
+    }
+  ],
+  "secrets": {
+    "_doc": "settings.json env values are shown only for these names, and never for a name matching name_regex. Everything else is listed by name only.",
+    "name_regex": "KEY|TOKEN|SECRET|PASS|AUTH|CRED|COOKIE|PRIVATE|SESSION",
+    "show_values": [
+      "CLAUDE_CODE_SUBAGENT_MODEL",
+      "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+      "CLAUDE_CODE_PLUGIN_DIRS",
+      "ANTHROPIC_MODEL",
+      "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+      "MAX_THINKING_TOKENS",
+      "DISABLE_AUTOUPDATER"
+    ]
+  },
+  "v6": {
+    "_doc": "Pending rule changes: git show <ref>:<path> in the rules repo, first ref that has the file. Headings or table cells with one of the group words sort the bullets under them.",
+    "repo": "<CLAUDE_CONTROL_REPO>",
+    "path": "docs/V6-CHANGES.md",
+    "refs": [
+      "origin/main",
+      "main"
+    ],
+    "groups": {
+      "kept": [
+        "kept",
+        "keep",
+        "gardé",
+        "gardée",
+        "garder",
+        "conservé",
+        "inchangé"
+      ],
+      "changed": [
+        "changed",
+        "change",
+        "modifié",
+        "changé",
+        "new",
+        "nouveau",
+        "ajouté"
+      ],
+      "dropped": [
+        "dropped",
+        "drop",
+        "removed",
+        "supprimé",
+        "abandonné",
+        "retiré"
+      ]
+    }
+  },
+  "config_claude": {
+    "_doc": "CONFIG view (/config-claude, /control config): what it reads, the built-in agents and documented defaults it shows, and its labels. Secrets: a settings value whose key matches secret_regex, any env value whose name starts with env_names_only_prefixes, and token-looking strings are masked before anything is written. Doc facts read on code.claude.com on 16 Oct 2026; verified=false marks what the docs do not say.",
+    "secret_regex": "token|secret|passw|key|auth|credential|cookie",
+    "env_names_only_prefixes": ["ANTHROPIC_"],
+    "env_prefixes": ["CLAUDE_CODE_", "ANTHROPIC_", "CLAUDE_"],
+    "env_extra": ["MAX_THINKING_TOKENS", "DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "MCP_TIMEOUT", "MCP_TOOL_TIMEOUT"],
+    "managed_paths": {
+      "nt": ["C:/Program Files/ClaudeCode/managed-settings.json"],
+      "posix": ["/Library/Application Support/ClaudeCode/managed-settings.json", "/etc/claude-code/managed-settings.json"]
+    },
+    "project_rule_files": ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude/CLAUDE.md"],
+    "claude_json": "~/.claude.json",
+    "claude_control_repo": "",
+    "rules_inventory": "docs/RULES-INVENTORY.md",
+    "deploy_backups": "effort-board/_deploy_backups",
+    "deploy_map": [
+      { "repo": "config/claude/CLAUDE.md", "live": "CLAUDE.md" },
+      { "repo": "config/claude/agents", "live": "agents", "glob": "*.md" },
+      { "repo": "config/claude/skills", "live": "skills", "tree": true },
+      { "repo": "config/claude/workflows", "live": "workflows", "tree": true }
+    ],
+    "settings_doc": "https://code.claude.com/docs/en/settings#settings-precedence",
+    "default_output_style": "Default",
+    "default_permission_mode": "défaut de la surface (auto dans le terminal et VS Code)",
+    "changes_days": 7,
+    "changes_max": 200,
+    "max_file_chars": 400000,
+    "shard_chars": 1500000,
+    "viewer_chars": 60000,
+    "builtin_agents": [
+      { "name": "Explore", "model": "modèle de la conversation principale", "tools": "lecture seule (Write et Edit refusés)", "what": "Recherche rapide en lecture seule dans le code.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": true },
+      { "name": "Plan", "model": "hérite du modèle principal", "tools": "lecture seule", "what": "Recherche pour préparer un plan en mode plan.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": true },
+      { "name": "general-purpose", "model": "CLAUDE_CODE_SUBAGENT_MODEL s'il est défini et que rien d'autre n'en nomme un, sinon le modèle principal", "tools": "tous", "what": "Tâches en plusieurs étapes, recherche et modification.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": true },
+      { "name": "claude", "model": "pas de modèle propre", "tools": "tous", "what": "Agent fourre-tout quand aucun type plus précis ne convient.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": true },
+      { "name": "statusline-setup", "model": "Sonnet", "tools": "non vérifié", "what": "Configure la ligne de statut.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": false },
+      { "name": "claude-code-guide", "model": "Haiku", "tools": "non vérifié", "what": "Répond aux questions sur Claude Code, l'Agent SDK et l'API.", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": false }
+    ],
+    "defaults": [
+      { "label": "Modèle", "setting": "model", "env": "ANTHROPIC_MODEL", "default": "modèle par défaut du compte (Opus 5.5 sur Pro/Max/Team/Enterprise/API)", "doc": "https://code.claude.com/docs/en/model-config#default-model-setting", "verified": true },
+      { "label": "Effort", "setting": "effortLevel", "env": "CLAUDE_CODE_EFFORT_LEVEL", "default": "medium sur Opus 5.5, Sonnet 5.5 et Haiku 5.5 ; high sur les autres modèles à effort", "doc": "https://code.claude.com/docs/en/model-config#adjust-effort-level", "verified": true },
+      { "label": "Mode de permission", "setting": "permissions.defaultMode", "default": "défaut de la surface : auto dans le terminal et VS Code (2.1.283+) ; auto et bypassPermissions ignorés depuis les settings projet et local", "doc": "https://code.claude.com/docs/en/permission-modes#which-mode-a-session-starts-in", "verified": true },
+      { "label": "Fenêtre d'auto-compact", "setting": "autoCompactWindow", "env": "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "default": "fenêtre choisie pour le modèle ; compacte à la limite du contexte (vers 967 K sur les modèles 1 M)", "doc": "https://code.claude.com/docs/en/model-config#set-the-auto-compact-window", "verified": true },
+      { "label": "Style de sortie", "setting": "outputStyle", "default": "Default", "doc": "https://code.claude.com/docs/en/output-styles#built-in-output-styles", "verified": true },
+      { "label": "Modèle des sous-agents sans modèle", "env": "CLAUDE_CODE_SUBAGENT_MODEL", "default": "ordre : model de l'appel, puis model de l'agent, puis CLAUDE_CODE_SUBAGENT_MODEL, puis le modèle principal", "doc": "https://code.claude.com/docs/en/sub-agents", "verified": true },
+      { "label": "Agents de Workflow en parallèle", "env": "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS", "default": "16 au plus (moins avec peu de CPU) ; 1 000 agents par run", "doc": "https://code.claude.com/docs/en/workflows#behavior-and-limits", "verified": true },
+      { "label": "Sous-agents en parallèle (outil Agent)", "env": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "default": "20", "doc": "https://code.claude.com/docs/en/sub-agents#concurrent-subagent-limit", "verified": true },
+      { "label": "Compaction au repos", "default": "non documentée", "doc": "https://code.claude.com/docs/en/costs", "verified": false },
+      { "label": "Attribution (commits, PR)", "setting": "attribution", "default": "ligne Co-Authored-By sur les commits, texte simple sur les PR", "doc": "https://code.claude.com/docs/en/settings-reference#attribution", "verified": true },
+      { "label": "Nettoyage des transcripts", "setting": "cleanupPeriodDays", "default": "30 jours", "doc": "https://code.claude.com/docs/en/settings-reference#cleanupperioddays", "verified": true },
+      { "label": "Canal de mise à jour", "setting": "autoUpdatesChannel", "env": "DISABLE_AUTOUPDATER", "default": "non documenté (latest probable)", "doc": "https://code.claude.com/docs/en/settings-reference#autoupdateschannel", "verified": false },
+      { "label": "Longueur max d'une réponse", "env": "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "default": "dépend du modèle (32 000 pour un modèle inconnu, plafond 128 000)", "doc": "https://code.claude.com/docs/en/env-vars", "verified": true },
+      { "label": "Réflexion (thinking)", "setting": "alwaysThinkingEnabled", "env": "MAX_THINKING_TOKENS", "default": "activée sur les modèles qui la prennent, profondeur adaptative", "doc": "https://code.claude.com/docs/en/settings-reference#alwaysthinkingenabled", "verified": true },
+      { "label": "Délai d'une commande Bash", "env": "BASH_DEFAULT_TIMEOUT_MS", "default": "120 000 ms (max 600 000)", "doc": "https://code.claude.com/docs/en/env-vars", "verified": true },
+      { "label": "Délais MCP", "env": "MCP_TIMEOUT", "default": "démarrage 30 000 ms ; outil 100 000 000 ms", "doc": "https://code.claude.com/docs/en/env-vars", "verified": true },
+      { "label": "Instructions git dans le prompt", "setting": "includeGitInstructions", "default": "true", "doc": "https://code.claude.com/docs/en/settings-reference#includegitinstructions", "verified": true }
+    ],
+    "desktop": {
+      "keys": [
+        { "path": "ccAutoArchiveOnPrClose", "label": "Archiver une session quand sa PR se ferme" },
+        { "path": "ccAutoArchiveInactiveDays", "label": "Archiver après N jours sans activité" },
+        { "path": "keepAwakeEnabled", "label": "Garder le PC éveillé" },
+        { "path": "sidebarMode", "label": "Mode de la barre latérale" },
+        { "path": "epitaxyPrefs.fastMode", "label": "Mode rapide" },
+        { "path": "epitaxyPrefs.cc-landing-worktree-enabled", "label": "Worktree par défaut pour une nouvelle session" },
+        { "path": "ccdScheduledTasksEnabled", "label": "Tâches planifiées (Code)" },
+        { "path": "bypassPermissionsOptInByAccount", "label": "Bypass permissions autorisé" }
+      ],
+      "unreadable": ["Préfixe des branches", "Remote Control par défaut", "Style de sortie de l'app"]
+    },
+    "categories": {
+      "rules": "1. Règles et instructions",
+      "agents": "2. Agents",
+      "skills": "3. Skills, commandes, workflows",
+      "settings": "4. Réglages",
+      "defaults": "5. Comportement par défaut (config naturelle)",
+      "hooks": "6. Hooks et permissions",
+      "mods": "7. Mods et plugins",
+      "mcp": "8. MCP et connecteurs",
+      "desktop": "9. App Desktop",
+      "control": "10. Claude Control"
+    },
+    "labels": {
+      "title": "Config Claude : tout ce qui est dans Claude Code",
+      "search": "chercher partout",
+      "results": "résultats",
+      "changes": "Changements",
+      "days": "jours",
+      "rendered": "Rendu",
+      "raw": "Brut",
+      "path": "chemin",
+      "modified": "modifié",
+      "size": "taille",
+      "more": "Suite",
+      "previous": "Précédent",
+      "no_content": "pas de contenu pour cet élément",
+      "truncated": "caractères de plus",
+      "project": "projet",
+      "global_claude_md": "CLAUDE.md global (~/.claude)",
+      "project_files": "Projets",
+      "output_styles": "Styles de sortie",
+      "output_style_active": "Style actif",
+      "memory": "Mémoire",
+      "inherit": "hérite (non nommé)",
+      "default": "défaut",
+      "all_tools": "tous",
+      "agents_user": "Utilisateur (~/.claude/agents)",
+      "agents_project": "Projets (.claude/agents)",
+      "agents_plugin": "Plugins",
+      "agents_builtin": "Intégrés (doc)",
+      "builtin": "intégré",
+      "verified": "vérifié",
+      "unverified": "non vérifié",
+      "yes": "oui",
+      "no": "non",
+      "skills": "Skills",
+      "commands": "Commandes slash",
+      "workflows": "Workflows",
+      "effective": "Valeurs effectives (par priorité)",
+      "set_by": "défini par",
+      "overrides": "écrase",
+      "merged": "fusion",
+      "merged_text": "listes fusionnées entre fichiers",
+      "precedence": "Ordre de priorité",
+      "precedence_text": "Le fichier le plus haut gagne pour une valeur simple ; les listes (permissions.allow…) sont fusionnées. Les variables d'environnement ne sont pas un niveau.",
+      "cli_unreadable": "drapeaux --settings de la ligne de commande : non lisibles depuis un mod",
+      "settings_files": "Fichiers settings",
+      "state": "état",
+      "absent": "absent",
+      "bad_json": "JSON illisible",
+      "env": "Variables d'environnement",
+      "process": "processus",
+      "names_only": "nom seulement",
+      "defaults": "Défauts documentés",
+      "ours": "chez nous",
+      "not_set": "non réglé : le défaut s'applique",
+      "hooks": "Hooks (settings)",
+      "hook_flag": "un hook tourne sur chaque événement qui correspond",
+      "no_hooks": "Aucun hook (attendu)",
+      "plugin_hooks": "Hooks de plugins",
+      "permissions": "Permissions",
+      "mods": "Mods (CLAUDE_CODE_PLUGIN_DIRS)",
+      "stale_mods": "Copies anciennes (~/.claude/mods)",
+      "loaded": "chargé",
+      "stale": "copie ancienne",
+      "stale_flag": "copie ancienne : la source est le dépôt claude-mod",
+      "plugins": "Plugins installés",
+      "synced": "synchronisé (compte)",
+      "enabled": "activé",
+      "disabled": "désactivé",
+      "marketplaces": "Marketplaces",
+      "available": "plugins disponibles",
+      "mcp": "Serveurs MCP",
+      "no_mcp": "Aucun serveur MCP dans ces fichiers",
+      "connectors_note": "les connecteurs claude.ai ne sont pas dans un fichier local",
+      "desktop": "Préférences (onglet Code)",
+      "not_in_file": "absent du fichier",
+      "unreadable": "non lisible depuis un mod",
+      "control_source": "D'où viennent les règles",
+      "no_control_repo": "Dépôt Claude Control non configuré (config_claude.claude_control_repo ou v6.repo)",
+      "last_deploy": "Dernier déploiement (sauvegarde)",
+      "drift": "Écarts dépôt → ~/.claude (contrat de déploiement)",
+      "differs": "diffère du dépôt",
+      "missing_live": "absent de ~/.claude",
+      "in_sync": "À jour : ~/.claude = dépôt",
+      "in_sync_badge": "à jour",
+      "diffs": "écarts"
+    }
+  },
+  "mods": {
+    "_doc": "Mods chargés: CLAUDE_CODE_PLUGIN_DIRS (settings.json env and this session environment) against the mod folders in ~/.claude/mods and extra_roots (\"@repo\" = the mods folder this mod sits in).",
+    "extra_roots": [
+      "@repo"
+    ],
+    "show_dev_mods": false
+  },
+  "labels": {
+    "blocker_flag": "Règles visibles : rien ne bloque ni ne réécrit un appel d'outil sans une ligne dans les règles",
+    "mod_states": {
+      "loaded": "chargé",
+      "installed": "installé, non chargé",
+      "dev": "dev-mod (une session)",
+      "missing": "dans CLAUDE_CODE_PLUGIN_DIRS mais introuvable",
+      "shadowed": "installé, même nom chargé depuis un autre dossier"
+    },
+    "sections": {
+      "settings": "settings.json (noms seulement)",
+      "settings_hooks": "Hooks (settings.json)",
+      "permissions": "Permissions (settings.json)",
+      "claude_md": "CLAUDE.md global (lu en direct)",
+      "repos": "Dépôts sous",
+      "agents": "Agents (~/.claude/agents)",
+      "skills": "Skills",
+      "workflows": "Workflows (~/.claude/workflows)",
+      "hooks": "Scripts de hook (~/.claude/hooks)",
+      "mods": "Mods"
+    },
+    "pane": {
+      "live": "Règles actives",
+      "no_title": "pas de ligne de titre dans CLAUDE.md",
+      "version": "version",
+      "changed": "modifié",
+      "sources": "lu en direct",
+      "blockers_none": "Bloqueurs : aucun (rien ne bloque ni ne réécrit un appel d'outil)",
+      "blockers_some": "Bloqueurs",
+      "blockers_expect": "les règles n'en attendent aucun",
+      "active": "actifs",
+      "found": "trouvés",
+      "hidden": "Règles cachées",
+      "hidden_why": "elles changent le comportement sans être dans CLAUDE.md",
+      "mods": "Mods chargés",
+      "mods_none": "aucun mod trouvé",
+      "mods_differ": "settings.json et l'environnement de cette session ne listent pas les mêmes dossiers : les nouvelles sessions prendront settings.json",
+      "sections": "Sections (clique pour déplier)",
+      "flagged": "signalés",
+      "no_data": "Pas encore de données dans",
+      "press_rescan": "appuie sur Rescan",
+      "practices_title": "Pratiques : sections du CLAUDE.md actif",
+      "measured_on": "mesuré sur",
+      "no_usage": "pas de données d'usage",
+      "evidence": "preuves",
+      "not_measured": "non mesuré",
+      "v6_title": "V6 en attente",
+      "v6_none": "Aucun V6-CHANGES.md sur la branche principale du dépôt des règles",
+      "v6_no_repo": "Dépôt des règles non configuré (v6.repo) : panneau V6 désactivé",
+      "v6_groups": {
+        "kept": "gardé",
+        "changed": "changé",
+        "dropped": "abandonné"
+      },
+      "best": "5 meilleures habitudes (mesurées)",
+      "worst": "5 pires habitudes (mesurées)",
+      "audit_right": "Audit : ce qu'on fait bien",
+      "audit_wrong": "Audit : ce qu'on fait mal",
+      "reference": "Référence : docs/PRACTICES.md (bonnes et mauvaises pratiques, avec preuves)",
+      "reference_missing": "docs/PRACTICES.md introuvable",
+      "open_usage": "Ouvrir USAGE pour les chiffres",
+      "against_rules": "Face aux règles actives",
+      "in_session": "actif dans cette session"
+    }
+  }
+}

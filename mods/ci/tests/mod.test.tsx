@@ -233,7 +233,8 @@ test('diagram helpers: words, headline, red only for real failures, ETA, Gantt, 
   const bar = (i: number) => g.rows[i]!.cells.map(c => c.text).join('')
   expect(bar(0)).toHaveLength(20)
   expect(bar(0)).toMatch(/^░+█+·+│?·*$/) // queue then run, before now
-  expect(bar(1)).toMatch(/░█+┄+/) // running: solid until now, dashed estimated tail
+  expect(bar(1)).toMatch(/░+▓+┄+/) // running (lib/core/gantt.mjs, as in factory): ▓ until now, dashed estimated tail
+  expect(g.legend).toBe('░ file  █ fini  ▓ en cours  ▒ échoué  ┄ estimation  │ maintenant')
   expect(g.rows[1]!.text).toMatch(/^fin ~\d\d:\d\d \(n=5\)$/)
   expect(g.rows[0]!.text).toBe('✔ 2m00 + 1m00 en file')
   const svg = overviewSvg(DIAGRAM, 'all')

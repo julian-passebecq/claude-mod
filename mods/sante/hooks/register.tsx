@@ -6,7 +6,8 @@
 // text) and nothing is deleted: cleanup commands are only shown, with a Copy button.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { deepMerge, evaluate, expandHome, fill, fmtAgo, fmtBytes, fmtDur, fmtNum, splitDirs } from './logic.mjs'
+import { drawSante } from './draw'
+import { deepMerge, expandHome, splitDirs } from './logic.mjs'
 
 const PANE = 'sante'
 type Options = { config?: string }
@@ -63,7 +64,7 @@ async function rescan($: EngineInterface) {
     const siblings = cfg.siblings === false ? [] : [root.replace(/\/[^/]+$/, '')]
     const now = await $.clock.now()
     const r = await $.process.run([cfg.node || 'node', `${root}/scanner/sante_scan.mjs`], {
-      stdin: JSON.stringify({ dirs, home: hd, cfg, now, siblings }),
+      stdin: JSON.stringify({ dirs, home: hd, cfg, now, siblings, commands: S.commands, engine: S.engine }),
       timeoutMs: Math.min((cfg.scan_timeout_s ?? 60) * 1000, 600000),
     })
     const out = JSON.parse(r.stdout || '{}')
@@ -112,101 +113,15 @@ export const register: Register = (on, raw) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
     const { cfg, now, homeDir } = await load($)
-    const l = cfg.labels ?? {}
-    const colors = cfg.colors ?? {}
-    const icons = cfg.icons ?? {}
-    const color = (lv: string) => (colors[lv] ? { color: colors[lv] } : {})
-    const busy = S.busy ? l.busy ?? 'examen en cours…' : ''
-    if (!S.report) {
-      return (
-        <Box flexDirection="column" gap={1}>
-          <Text>{l.first_scan ?? 'Premier examen des mods en cours…'}</Text>
-          {S.error ? <Text color="error">{`scan : ${S.error}`}</Text> : null}
-          {busy ? <Text dimColor>{busy}</Text> : null}
-        </Box>
-      )
-    }
-    const { rows, summary } = evaluate(S.report, { commands: S.commands, engine: S.engine, cfg, now })
-    const active = rows.filter((r: any) => r.level !== 'off')
-    const off = rows.filter((r: any) => r.level === 'off')
-    const SRC: Record<string, string> = { env: 'CLAUDE_CODE_PLUGIN_DIRS', dir: 'dossier', marketplace: 'marketplace', health: 'fiche santé seule' }
-    const src = (s: string) => l[`source_${s}`] ?? SRC[s] ?? s
-
-    const modBlock = (r: any) => {
-      const head = [
-        `${icons[r.level] ?? '●'} ${r.name}${r.version ? ` ${r.version}` : ''}`,
-        r.loaded ? l.loaded ?? 'chargé' : l.not_loaded ?? 'non chargé',
-        src(r.source),
-        r.commands.length ? r.commands.map((c: string) => `/${c}`).join(' ') : l.no_commands ?? 'aucune commande',
-        fill(l.min_version ?? 'minimum {min}', { min: r.minVersion ?? '?' }),
-      ].join(' · ')
-      const badJson = r.configs.filter((c: any) => !c.ok).length
-      const facts = [
-        r.lastRefresh ? `${l.refresh ?? 'dernier rafraîchissement'} ${fmtAgo(r.lastRefresh, now)}` : l.no_refresh ?? 'aucun cache connu',
-        r.caches.length ? `${l.cache ?? 'cache'} ${fmtBytes(r.cacheBytes)}${r.caches.some((c: any) => c.truncated) ? '+' : ''} (${r.caches.length})` : '',
-        r.configs.length ? `${l.configs ?? 'config'} ${badJson ? `${badJson}/${r.configs.length} invalides` : fill(l.configs_ok ?? '{n} JSON valides', { n: r.configs.length })}` : '',
-      ].filter(Boolean).join(' · ')
-      const hr = r.health
-      const healthLine = hr
-        ? fill(l.health ?? 'dernier scan {ago} · {dur} · CPU {cpu}', { ago: fmtAgo(hr.lastRun, now), dur: fmtDur(hr.durationMs), cpu: fmtDur(hr.cpuMs) })
-        : l.no_health ?? 'pas de fiche santé'
-      const cost = r.cost
-        ? fill(l.cost ?? '24 h : {runs} runs ({rate}/h) · CPU {cpu} ≈ {core} % d\'un cœur', {
-            runs: fmtNum(hr.window.runs), rate: fmtNum(r.cost.runsPerHour, 1), cpu: fmtDur(r.cost.cpuMs), core: fmtNum(r.cost.corePct, 2),
-          })
-        : ''
-      return (
-        <Box key={`mod-${r.name}`} flexDirection="column">
-          <Text {...color(r.level)} bold>{head}</Text>
-          {r.reasons.map((x: any) => <Text {...color(x.level)}>{`   ↳ ${x.text}`}</Text>)}
-          <Text dimColor>{`   ${facts}`}</Text>
-          <Text dimColor>{`   ${healthLine}${cost ? ` · ${cost}` : ''}`}</Text>
-          {r.cleanup.map((cmd: string, i: number) => (
-            <Box key={`clean-${r.name}-${i}`} flexDirection="row" gap={1} flexWrap="wrap">
-              <Text>{`   ${l.run_yourself ?? 'à lancer toi-même :'} ${cmd}`}</Text>
-              <Button
-                key={`copy-${r.name}-${i}`}
-                plain
-                onPress={async (press: any) => {
-                  const c = await $.ui.copy({ text: cmd, surface: press?.surface })
-                  S.copied = c?.isCopied ? l.copied ?? 'copié' : l.copy_failed ?? 'copie impossible'
-                  $.ui.invalidate('ui.render')
-                }}
-              >
-                {l.copy ?? 'Copier'}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      )
-    }
-
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text {...color(summary.level)} bold>{`${icons[summary.level] ?? '●'} ${summary.text}`}</Text>
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          <Text dimColor>{fill(l.scanned ?? 'examiné {ago} · {n} dossiers', { ago: fmtAgo(S.report.generated, now), n: rows.length }) + (busy ? ` · ${busy}` : '') + (S.copied ? ` · ${S.copied}` : '')}</Text>
-          <Button key="refresh" plain onPress={() => { $.clock.after(0, () => rescan($)) }}>{l.refresh_button ?? '↻'}</Button>
-        </Box>
-        {S.error ? <Text color="error">{`scan : ${S.error}`}</Text> : null}
-        <Box flexDirection="column" gap={1}>
-          <Text bold>{l.section_active ?? 'Mods actifs'}</Text>
-          {active.map(modBlock)}
-        </Box>
-        {off.length ? (
-          <Box flexDirection="column">
-            <Text bold>{l.section_off ?? 'Installés, non chargés'}</Text>
-            {off.map((r: any) => (
-              <Text {...color('off')}>{`${icons.off ?? '○'} ${r.name}${r.version ? ` ${r.version}` : ''} · ${src(r.source)}${r.dir ? ` · ${(homeDir && r.dir.startsWith(homeDir) ? `~${r.dir.slice(homeDir.length)}` : r.dir)}` : ''}`}</Text>
-            ))}
-          </Box>
-        ) : null}
-        <Box flexDirection="column">
-          {(l.notes ?? []).map((x: string) => <Text dimColor>{`· ${x}`}</Text>)}
-        </Box>
-      </Box>
-    )
+    return drawSante($.ui.resolve(e), {
+      report: S.report, error: S.error, busy: S.busy, copied: S.copied, commands: S.commands, engine: S.engine, cfg, now, homeDir,
+      onRefresh: () => { $.clock.after(0, () => rescan($)) },
+      onCopy: async (cmd, press) => {
+        const c = await $.ui.copy({ text: cmd, surface: press?.surface })
+        S.copied = c?.isCopied ? cfg.labels?.copied ?? 'copié' : cfg.labels?.copy_failed ?? 'copie impossible'
+        $.ui.invalidate('ui.render')
+      },
+    })
   })
 }

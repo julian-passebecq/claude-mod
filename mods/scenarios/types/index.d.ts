@@ -66,6 +66,8 @@ declare module 'claude-code' {
       kind: string
       /** last copy's outcome line */
       copied: string
+      /** outcome of the last « Appliquer ce scénario » press */
+      applyMsg: string
     }
   }
 }

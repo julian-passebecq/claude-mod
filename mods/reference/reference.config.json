@@ -1,0 +1,30 @@
+{
+  "_doc": "Référence hub. Everything the pane shows is set here; ~/.claude/reference-mod/reference.config.json is deep-merged on top, and userConfig `config` names another override file. Paths take ~ for the home folder. The tabs draw with synced copies of the owners' view code (lib/<mod>/, made by scripts/sync-libs.mjs) and read the owners' caches.",
+  "tabs": ["config", "guide", "scenarios", "sante", "ci"],
+  "start_tab": "config",
+  "python": "python",
+  "node": "node",
+  "paths": {
+    "claude_dir": "~/.claude",
+    "_control": "control's scanner output (config-claude.json + content shards); its config.json is synced in lib/control/config.json",
+    "control_out_dir": "~/.claude/effort-board/control",
+    "sante_data_dir": "~/.claude/sante-mod",
+    "_scenarios_file": "Your own scenarios JSON, added after the shipped ones (same shape as scenarios.json). Empty: shipped only.",
+    "scenarios_file": "",
+    "_ci_pipelines_cache": "Read when the ci mod's scanner is not beside this mod (Diagramme from its cache only).",
+    "ci_pipelines_cache": "~/.claude/ci-pipelines-cache.json"
+  },
+  "sante_refresh_min": 10,
+  "labels": {
+    "pane_title": "Référence",
+    "tab_config": "Config",
+    "tab_guide": "Guide",
+    "tab_scenarios": "Scénarios",
+    "tab_sante": "Santé",
+    "tab_ci": "CI",
+    "no_owner": "Le mod {mod} n'est pas à côté de celui-ci : lecture seule de son cache, sans {what}.",
+    "rescan": "rescan",
+    "refresh": "rafraîchissement",
+    "routing": "routage"
+  }
+}

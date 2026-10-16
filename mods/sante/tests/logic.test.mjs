@@ -8,7 +8,8 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 
 import { cmpVersion, commandsOf, cpuCost, evaluate, fmtBytes, fmtDur, nextHealth, registeredCommands, splitDirs, summarize } from '../hooks/logic.mjs'
-import { diskUsage, installedPlugins, logErrors, readJson, scan, writeHealth } from '../scanner/sante_scan.mjs'
+import { diskUsage, findingsOf, installedPlugins, logErrors, readJson, scan, writeHealth } from '../scanner/sante_scan.mjs'
+import { splitDirs as coreSplitDirs } from '../lib/core/mods.mjs'
 
 const here = new URL('..', import.meta.url)
 const CFG = JSON.parse(readFileSync(new URL('sante.config.json', here), 'utf8'))
@@ -200,12 +201,32 @@ test('readJson, diskUsage, logErrors, installedPlugins on missing paths do not t
   assert.deepEqual(installedPlugins(join(tmp, 'nope.json')), [])
 })
 
-test('writeHealth writes the shared record and keeps the 24 h window', () => {
-  const dir = join(tmp, 'health')
-  writeHealth(dir, 'sante', NOW, 100, 40, null)
-  writeHealth(dir, 'sante', NOW + 1000, 50, 10, 'boom')
-  const rec = JSON.parse(readFileSync(join(dir, 'sante.json'), 'utf8'))
+test('writeHealth goes through lib/core/health.mjs and adds the findings (red and orange lines)', () => {
+  const env = { MODS_HEALTH_DIR: join(tmp, 'health') }
+  writeHealth(null, [], env, NOW)
+  const rec0 = writeHealth('boom', [{ level: 'error', mod: 'beta', text: 'JSON invalide : x' }], env, NOW + 1000)
+  const rec = JSON.parse(readFileSync(join(tmp, 'health', 'sante.json'), 'utf8'))
+  assert.deepEqual(rec, rec0)
+  assert.equal(rec.mod, 'sante')
   assert.equal(rec.error, 'boom')
   assert.equal(rec.lastOk, new Date(NOW).toISOString())
-  assert.deepEqual([rec.window.runs, rec.window.cpuMs, rec.window.errors], [2, 50, 1])
+  assert.deepEqual([rec.window.runs, rec.window.errors], [2, 1])
+  assert.deepEqual(rec.findings, [{ level: 'error', mod: 'beta', text: 'JSON invalide : x' }])
+  assert.equal(writeHealth(null, [], { ...env, MODS_HEALTH: '0' }, NOW), undefined)
+})
+
+test('findingsOf lists every red and orange reason with its mod', () => {
+  const report = {
+    generated: NOW,
+    mods: [
+      { key: 'a', name: 'alpha', dir: '/m/alpha', source: 'env', exists: true, manifest: { ok: true }, hooks: { ok: true }, expected: ['alpha'], configs: [], caches: [], logs: [], fields: [] },
+      { key: 'b', name: 'beta', dir: '/m/beta', source: 'env', exists: true, manifest: { ok: true }, hooks: { ok: true }, expected: ['beta'], configs: [{ path: '/m/beta/x.json', ok: false, error: 'Unexpected token' }], caches: [], logs: [], fields: [] },
+    ],
+  }
+  const f = findingsOf(report, { commands: [{ name: 'alpha', source: 'plugin', plugin: 'alpha' }, { name: 'beta', source: 'plugin', plugin: 'beta' }], engine: '2.1.293', cfg: CFG, now: NOW })
+  assert.deepEqual(f, [{ level: 'error', mod: 'beta', text: 'JSON invalide : /m/beta/x.json (Unexpected token)' }])
+})
+
+test('the hook splitDirs (pure, logic.mjs) and lib/core/mods.mjs agree', () => {
+  for (const v of ['C:/a/mods/band;C:\\a\\mods\\ci\\','/opt/m/band:/opt/m/ci', 'D:/x/band', '', ' "C:/q/x" ; D:/y ']) assert.deepEqual(splitDirs(v), coreSplitDirs(v), v)
 })

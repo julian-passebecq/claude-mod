@@ -2,6 +2,8 @@
 // No `$`, so tests call them directly. Labels and colors come from the config (pipelines.labels / colors /
 // svg_colors); the French defaults below apply only to keys the config leaves out.
 import type { App, Diagram, DiagramLabels, GroupBy, Job, Run, RunStatus, Stats, Who, WhoFilter } from '../types'
+import { MIN_SAMPLES, estimateOf, etaOf } from '../lib/core/estimate.mjs'
+import { COLORS, SYMBOLS, axis as ganttAxis, gantt as coreGantt, legend as ganttLegend } from '../lib/core/gantt.mjs'
 
 export const DEFAULT_LABELS: Required<Omit<DiagramLabels, 'status'>> & { status: Record<RunStatus, string> } = {
   tab_routing: 'Routage',
@@ -140,7 +142,7 @@ export const statsText = (L: L, s: Stats): string =>
   `${s.running ? ` · ${s.running} ${L.status.running}` : ''} · ${s.minutes} ${L.minutes}`
 
 /** A piece of text with an optional run status (the pane colors it). */
-export type Seg = { text: string; status?: RunStatus; dim?: boolean; bold?: boolean }
+export type Seg = { text: string; status?: RunStatus; dim?: boolean; bold?: boolean; color?: string }
 
 /** app ──▶ host ──▶ [stage: job ✔ 1m02, …] ▶ [stage …] ──▶ ✔ vert 1m20 · il y a 2 h, for the lane's newest run. */
 export const laneSegs = (L: L, lane: Lane, now: number): Seg[] => {
@@ -293,13 +295,31 @@ export const clock = (iso: string | null | undefined): string => {
   return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
 }
 
+/** ms of a past successful duration list in seconds. */
+const msOf = (xs: number[] | undefined) => (xs ?? []).filter(x => Number.isFinite(x)).map(x => x * 1000)
+
+/**
+ * End time (ISO) of the run, recomputed with lib/core/estimate.mjs when the scanner sent the samples (pipeline basis:
+ * the median of the lane's last successful pipelines from the run's creation, never before now), else the scanner's.
+ */
+export const etaOfRun = (r: Run, now: number): string | null => {
+  const e = r.estimate
+  if (!e) return null
+  if (e.basis === 'pipeline' && e.durations_s && r.created) {
+    const end = etaOf(estimateOf(msOf(e.durations_s)), Date.parse(r.created), now)
+    if (end) return new Date(end.mid).toISOString()
+  }
+  return e.eta
+}
+
 /** « vert ou rouge vers 22:40 (médiane de 5 pipelines) », or why there is no estimate. */
-export const etaText = (r: Run): string => {
+export const etaText = (r: Run, now: number = Date.now()): string => {
   const e = r.estimate
   if (!e) return ''
-  if (!e.eta) return `${e.reason ?? "pas assez d'historique"} (${e.samples} run(s) connus, 3 au moins)`
+  const eta = etaOfRun(r, now)
+  if (!eta) return `${e.reason ?? "pas assez d'historique"} (${e.samples} run(s) connus, ${MIN_SAMPLES} au moins)`
   const basis = e.basis === 'jobs' ? `médiane des jobs, ${e.samples} runs au moins` : `médiane de ${e.samples} pipelines`
-  return `vert ou rouge vers ${clock(e.eta)} (${basis})`
+  return `vert ou rouge vers ${clock(eta)} (${basis})`
 }
 
 /** The command that prints the log of a red job (shown, never run by the mod). */
@@ -344,53 +364,54 @@ export const headline = (d: Diagram, who: WhoFilter): string => {
   return parts.join(', ')
 }
 
-/** One Gantt row: the job, then a bar of `width` cells (queue ░, run █, estimated tail ┄, now │), then its time. */
+/**
+ * One Gantt row: the job, then a bar of `width` cells drawn by lib/core/gantt.mjs, the renderer factory's Workflow
+ * screen uses too (░ file, █ fini, ▓ en cours, ▒ échoué, ┄ estimation, │ maintenant), then its time. A running job's
+ * estimated end comes from lib/core/estimate.mjs over the samples the scanner sent (else the scanner's own end).
+ */
 export type GanttRow = { stage: string; name: string; cells: Seg[]; text: string; red: boolean }
-export const GANTT = { queue: '░', run: '█', est: '┄', now: '│', empty: '·' }
+export const GANTT = SYMBOLS
+export const GANTT_LEGEND: string = ganttLegend()
 
-export const gantt = (r: Run, now: number, width = 28): { rows: GanttRow[]; start: number; end: number } => {
-  const jobs = r.jobs ?? []
+const ganttStatus = (j: Job): string => (j.status === 'cancelled' || j.status === 'skipped' ? 'canceled' : j.status === 'success' ? 'done' : j.status)
+
+/** Estimated end (ms) of a job: core estimate over its samples from its real start, else the scanner's end. */
+export const jobEnd = (r: Run, j: Job, now: number): number | null => {
+  const e = r.estimate?.jobs?.[j.name]
+  if (!e) return null
+  const started = j.started ? Date.parse(j.started) : NaN
+  if (j.status === 'running' && Number.isFinite(started) && e.samples_s) {
+    const end = etaOf(estimateOf(msOf(e.samples_s)), started, now)
+    if (end) return end.mid
+  }
+  return e.end ? Date.parse(e.end) : null
+}
+
+export const gantt = (r: Run, now: number, width = 28): { rows: GanttRow[]; start: number; end: number; axis: string; legend: string } => {
   const t = (s: string | null | undefined) => (s ? Date.parse(s) : NaN)
-  const est = r.estimate?.jobs ?? {}
-  const starts = jobs.flatMap(j => [t(j.created), t(j.started)]).filter(Number.isFinite)
-  const t0 = Math.min(...(starts.length ? starts : [t(r.created)]).filter(Number.isFinite), now)
-  const ends = jobs.flatMap(j => [t(j.finished), t(est[j.name]?.end)]).filter(Number.isFinite)
-  const live = r.status === 'running' || r.status === 'queued'
-  const t1 = Math.max(...ends, live ? now : t0 + 1000, t0 + 1000)
-  const col = (ms: number) => Math.min(width - 1, Math.max(0, Math.floor(((ms - t0) / (t1 - t0)) * width)))
-  const nowCol = live && now >= t0 && now <= t1 ? col(now) : -1
-  const rows: GanttRow[] = jobs.map(j => {
-    const cells: string[] = Array(width).fill(GANTT.empty)
-    const kinds: (RunStatus | undefined)[] = Array(width).fill(undefined)
-    const paint = (a: number, b: number, ch: string, k?: RunStatus) => {
-      if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return
-      for (let i = col(a); i <= col(b); i++) { cells[i] = ch; kinds[i] = k }
-    }
-    const created = t(j.created)
-    const started = t(j.started)
-    const finished = t(j.finished)
+  const fin = (x: number) => (Number.isFinite(x) ? x : undefined)
+  const jobs = (r.jobs ?? []).filter(j => Number.isFinite(t(j.created)) || Number.isFinite(t(j.started)))
+  const g = coreGantt(jobs.map(j => ({
+    label: j.name,
+    status: ganttStatus(j),
+    queuedMs: fin(t(j.created)),
+    startMs: fin(t(j.started)),
+    endMs: fin(t(j.finished)),
+    estEndMs: jobEnd(r, j, now) ?? undefined,
+  })), now, width)
+  const rows: GanttRow[] = jobs.map((j, i) => {
     const going = j.status === 'running' || j.status === 'queued'
-    if (Number.isFinite(created)) paint(created, Number.isFinite(started) ? started : going ? now : created, GANTT.queue)
-    const runStatus: RunStatus = j.allow_failure && j.status === 'failed' ? 'running' : j.status
-    if (Number.isFinite(started)) paint(started, Number.isFinite(finished) ? finished : now, GANTT.run, runStatus)
-    const e = est[j.name]
-    if (e?.end && going) paint(Math.max(now, t(e.start) || now), t(e.end), GANTT.est, 'running')
-    if (nowCol >= 0 && cells[nowCol] === GANTT.empty) cells[nowCol] = GANTT.now
-    const segs: Seg[] = []
-    for (let i = 0; i < width; i++) {
-      const ch = cells[i]!
-      const k = ch === GANTT.run || ch === GANTT.est ? kinds[i] : undefined
-      const dim = ch !== GANTT.run
-      const last = segs[segs.length - 1]
-      if (last && last.status === k && (last.dim ?? false) === dim) last.text += ch
-      else segs.push({ text: ch, status: k, dim })
-    }
+    const e = r.estimate?.jobs?.[j.name]
+    const end = jobEnd(r, j, now)
+    const cells: Seg[] = (g.rows[i]?.segs ?? []).map((sg: { text: string; kind: string }) => ({
+      text: sg.text, color: (COLORS as Record<string, string>)[sg.kind], dim: sg.kind === 'empty' || sg.kind === 'queue' || sg.kind === 'est',
+    }))
     const tail = going
-      ? (e?.end ? `fin ~${clock(e.end)} (n=${e.n})` : e ? `pas assez d'historique (n=${e.n})` : MARK[j.status])
+      ? (end ? `fin ~${clock(new Date(end).toISOString())} (n=${e?.n})` : e ? `pas assez d'historique (n=${e.n})` : MARK[j.status])
       : `${MARK[j.status]} ${fmtDur(j.duration_s)}${j.queued_s ? ` + ${fmtDur(j.queued_s)} en file` : ''}`
-    return { stage: j.stage, name: j.name, cells: segs, text: tail, red: isRed(j) }
+    return { stage: j.stage, name: j.name, cells, text: tail, red: isRed(j) }
   })
-  return { rows, start: t0, end: t1 }
+  return { rows, start: g.t0, end: g.t1, axis: ganttAxis(g, 0), legend: GANTT_LEGEND }
 }
 
 export const parseDiagram = (text: string): Diagram | undefined => {
