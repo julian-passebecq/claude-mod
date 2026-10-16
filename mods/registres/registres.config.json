@@ -1,0 +1,19 @@
+{
+  "_doc": "Registres : un seul panneau à onglets Problèmes | Tests réels | Règles | Ménage. Chaque onglet est dessiné par une copie exacte du code de son mod propriétaire (lib/<mod>/, faite par scripts/sync-libs.mjs, jamais éditée à la main) et lit les mêmes fichiers dans ~/.claude ; les réglages de chaque onglet restent ceux du propriétaire (lib/<mod>/<mod>.config.json, surchargés par ton fichier dans son data_dir). Ici : l'ordre et les noms des onglets, l'onglet par défaut, les alias. Surcharge dans ~/.claude/registres/registres.config.json (fusion profonde, les listes sont remplacées).",
+  "data_dir": "~/.claude/registres",
+  "node": "node",
+  "default_tab": "problemes",
+  "tabs": ["problemes", "tests", "regles", "menage"],
+  "hidden_tabs": [],
+  "_aliases": "Commandes courtes enregistrées par Registres seulement quand aucun autre mod ne les sert dans la session (les anciens mods gardent les leurs tant qu'ils sont chargés). alias_delay_ms : attente après le démarrage, pour voir les commandes des autres mods.",
+  "aliases": ["problemes", "tests", "regles", "menage"],
+  "alias_delay_ms": 1500,
+  "labels": {
+    "pane_title": "Registres",
+    "tabs": { "problemes": "Problèmes", "tests": "Tests réels", "regles": "Règles", "menage": "Ménage" },
+    "tab_hint": "/registres [problemes | tests | regles | menage] · close",
+    "notes": [
+      "Lecture seule : chaque onglet lit les fichiers de son mod dans ~/.claude ; son scanner (copie) ne tourne que sur ↻ ou quand ses données ont plus de refresh_min minutes. Aucun appel de modèle."
+    ]
+  }
+}
