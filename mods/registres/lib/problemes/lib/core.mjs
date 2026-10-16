@@ -505,11 +505,20 @@ export function seedFromMarkdown(text, src, rules = [], fallbackAt = 0) {
     const sec = section(b.heading)
     if (sec.skip || !sec.bullets) continue
     const r = classify({ kind: 'seed', text: b.text, tool: '', sub: false }, rules)
+    // sec.classes: [{ match, category }] tried before the global seed rules; sec.fixed: regex that marks a bullet fixed ("" = never);
+    // sec.unconfirmed: regex that marks a bullet the source itself does not confirm, tagged with sec.unconfirmed_tag in the title.
+    const own = (sec.classes ?? []).find(c => c && rx(c.match, RX)?.test(b.text))
+    const fixedRx = sec.fixed === undefined ? /\b(fixed|corrigé|caught)\b/i : rx(sec.fixed, RX)
+    const unsure = !!(sec.unconfirmed && rx(sec.unconfirmed, RX)?.test(b.text))
+    const tag = sec.unconfirmed_tag ?? 'non confirmé'
+    const label = src.label ?? src.id
     out.push({
-      ref: `${src.id}:${normText(b.heading, 24)}:${normText(b.text, 50)}`, title: oneLine(b.text, 140), symptom: oneLine(b.text, 600), cause: '', fix: '',
-      status: statusOf(/\b(fixed|corrigé|caught)\b/i.test(b.text) ? 'fixed' : sec.status ?? 'ouvert'),
-      category: sec.category || (r && r.category !== 'apps' ? r.category : '') || sec.fallback || src.category || 'autres', app: '',
-      first_seen: fallbackAt, count: 1, evidence: [{ at: fallbackAt, session: '', file: src.label ?? src.id, title: '', text: oneLine(b.heading, 200) }],
+      ref: `${src.ref_id ?? src.id}:${normText(b.heading, 24)}:${normText(b.text, 50)}`, title: oneLine(unsure ? `${tag} · ${b.text}` : b.text, 140),
+      symptom: oneLine(b.text, 600), cause: unsure ? oneLine(fill(sec.unconfirmed_cause ?? '{tag} ({file})', { tag, file: label }), 600) : '',
+      fix: oneLine(sec.fix ?? '', 600),
+      status: statusOf(fixedRx?.test(b.text) ? 'fixed' : sec.status ?? 'ouvert'),
+      category: own?.category || sec.category || (r && r.category !== 'apps' ? r.category : '') || sec.fallback || src.category || 'autres', app: '',
+      first_seen: fallbackAt, count: 1, evidence: [{ at: fallbackAt, session: '', file: label, title: unsure ? tag : '', text: oneLine(b.heading, 200) }],
     })
   }
   return out

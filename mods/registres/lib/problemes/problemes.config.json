@@ -52,7 +52,8 @@
         { "id": "workflow/rm", "label": "rm sur un chemin critique" },
         { "id": "workflow/merges", "label": "Merges non faits" },
         { "id": "workflow/outils", "label": "Outils et commandes" },
-        { "id": "workflow/claude", "label": "Erreurs de Claude" }
+        { "id": "workflow/claude", "label": "Erreurs de Claude" },
+        { "id": "workflow/succes-a-tort", "label": "Succès rapporté à tort (étape sautée)" }
       ]
     },
     {
@@ -71,6 +72,15 @@
         { "id": "app/gardes", "label": "Gardes de l'app" },
         { "id": "app/bugs", "label": "Bugs et erreurs API" },
         { "id": "app/versions", "label": "Écarts de version" }
+      ]
+    },
+    {
+      "id": "quota",
+      "label": "Quota et limites",
+      "children": [
+        { "id": "quota/sous-agents", "label": "Sous-agents et sessions parallèles" },
+        { "id": "quota/projects", "label": "Projects (threads, réveils)" },
+        { "id": "quota/limites", "label": "Limites 5 h et hebdo" }
       ]
     },
     {
@@ -130,7 +140,38 @@
   },
   "seed": {
     "_doc": "Imports (scanner/problemes_scan.mjs import) : chaque source n'est importée qu'une fois par ligne (signature seed:<id>:<réf>). kind : markdown (tableaux dont une colonne s'appelle What / Problème / Question / Defect…, et puces des sections qui ont bullets: true), incidents (JSON { incidents: [...] }), findings (JSON { findings: [...] }, seulement verdict « did not » ou statut open / ignored). path, ou git: { repo, ref, path } pour lire un fichier d'une branche sans checkout. sections : { match (regex sur le titre au-dessus), category (impose), fallback (si aucune règle seed ne correspond), status, bullets, skip, title_from (colonne prise comme titre quand le tableau n'a pas de colonne What / Problème, par ex. cause) }. Colonnes reconnues par leur début : What / Question / Defect (titre), Effect / Symptom, Cause, Fix, Still / Reste, Status, When / Time, Project, Source / Session, Y/N / Évitable (N = sujet légitime, statut accepté). optional: true : absente, la source est sautée sans erreur. Tes sources vont dans ~/.claude/problemes/problemes.config.json.",
-    "sources": []
+    "sources": [],
+    "builtin": {
+      "_doc": "Sources livrées avec le mod, ajoutées après seed.sources (objet par id : surcharge une clé, par ex. git.repo, ou enabled: false pour couper ; une source de seed.sources du même id la remplace). dir + files (regex sur le nom), ou git: { repo, ref, dir, files } : chaque fichier qui correspond est une source, datée par son nom (AAAA-MM-JJ) ; une même ligne dans deux fichiers n'est importée qu'une fois. {root} dans git.repo : le premier de collect.roots où ce dépôt existe. sections[].classes : [{ match, category }] essayés avant les règles seed ; unconfirmed : regex qui marque la puce « non confirmé » (unconfirmed_tag) dans le titre, la cause et la preuve ; fixed : regex « corrigé » (\"\" = jamais) ; fix : correctif proposé.",
+      "veille-web": {
+        "kind": "markdown",
+        "label": "claude-control main:docs/v6-research/veille-web",
+        "optional": true,
+        "git": { "repo": "{root}/claude-control", "ref": "main", "dir": "docs/v6-research", "files": "^veille-web-.*\\.md$" },
+        "category": "app/bugs",
+        "sections": [
+          {
+            "match": "pi[eè]ges",
+            "bullets": true,
+            "status": "ouvert",
+            "fixed": "",
+            "unconfirmed": "non confirm|non publi|rien de confirm|contradictoires",
+            "unconfirmed_tag": "non confirmé",
+            "unconfirmed_cause": "Rapporté par la veille web, {tag} par la source ({file}).",
+            "fix": "Vérifier sur nos propres runs avant d'en faire une règle ; noter le résultat ici (note ou set P-NNN status).",
+            "fallback": "app/bugs",
+            "classes": [
+              { "match": "\\bprojects?\\b", "category": "quota/projects" },
+              { "match": "succ[eè]s|saut[ée] son [ée]tape|skipped (its|a) step", "category": "workflow/succes-a-tort" },
+              { "match": "sous-agents?|subagents?|sessions? parall[eè]les?|concurrence|\\bagents? sur", "category": "quota/sous-agents" },
+              { "match": "r[ée]gression|\\b2\\.1\\.\\d+", "category": "app/versions" },
+              { "match": "limites?|quotas?|hebdo|weekly", "category": "quota/limites" }
+            ]
+          },
+          { "match": ".", "skip": true }
+        ]
+      }
+    }
   },
   "eta": {
     "_doc": "/problemes export et le bouton « Exporter vers eta » : le registre, masqué (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails sauf les tiens), dans le dépôt eta sous dest_dir : REGISTRE.md, ou au-delà de max_kb un REGISTRE.md index + un fichier par catégorie. Un fichier avec un secret non masquable est retenu et listé. Même flux git que le mod export-eta (copié dans lib/eta/) : worktree neuf, branche, PR, merge squash, branche supprimée, worktree retiré. repo, own_emails et motifs viennent de ~/.claude/export-eta/config.json ; une clé ici les complète.",
