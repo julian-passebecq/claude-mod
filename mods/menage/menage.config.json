@@ -1,0 +1,178 @@
+{
+  "_doc": "Réglages du mod menage (« Ménage »). Surcharge n'importe quelle clé dans ~/.claude/menage-mod/menage.config.json (fusion profonde) : c'est là que tu mets tes chemins (repos.roots). Une valeur entre <chevrons> compte comme non réglée. Chemins : ~, %VAR% et $VAR acceptés. Le mod ne supprime jamais rien : il montre la commande, toi ou un agent la lancez.",
+  "data_dir": "~/.claude/menage-mod",
+  "node": "node",
+  "refresh_min": 120,
+  "scan_timeout_s": 600,
+  "max_rows": 60,
+  "sizes": {
+    "_doc": "Tailles des dossiers. method : auto (Windows : scanner/sizes.ps1 avec pwsh, PowerShell 7, qui lit les tailles dans la liste des dossiers sans ouvrir les fichiers ; ailleurs ou si pwsh manque : parcours Node), powershell ou node. Résultats gardés ttl_min minutes dans data_dir/sizes.json ; ↻ dans le panneau recalcule tout.",
+    "method": "auto",
+    "powershell": "pwsh",
+    "concurrency": 3,
+    "ttl_min": 720
+  },
+  "repos": {
+    "_doc": "Chaque dépôt git sous roots (profondeur max_depth). base : première branche trouvée, d'abord sur le remote (origin/main tel que vu au dernier fetch : le mod ne fait jamais de fetch), puis en local. worktree_dirs : dossiers (relatifs au dépôt) où les worktrees sont créés ; un sous-dossier que git ne liste plus est « orphelin ». protected : branches jamais proposées. squash_check_max : nombre max de branches non mergées vérifiées par dépôt pour un merge par squash (contenu identique dans main). size_max_entries : au-delà, la taille d'un dossier est notée ≥. squash_check_total : plafond pour tous les dépôts ensemble (3 appels git par branche). remote_max : au-delà de ce nombre de branches distantes (fork d'un gros projet), seules celles atteignables depuis la base sont listées. concurrency : dépôts lus en parallèle ; worktree_concurrency : worktrees lus en parallèle dans un dépôt. Les worktrees sont toujours vérifiés, hors plafonds. patch_id_commits : derniers commits de la base comparés par patch-id (un squash a le diff entier de sa branche).",
+    "roots": [
+      "<PROJECTS_ROOT>"
+    ],
+    "max_depth": 2,
+    "skip_dirs": [
+      "node_modules",
+      ".git",
+      ".claude",
+      "dist",
+      "build",
+      ".venv",
+      "venv",
+      "__pycache__"
+    ],
+    "remote": "origin",
+    "base": [
+      "main",
+      "master"
+    ],
+    "protected": [
+      "main",
+      "master",
+      "develop",
+      "HEAD",
+      "gh-pages"
+    ],
+    "worktree_dirs": [
+      ".claude/worktrees",
+      ".worktrees"
+    ],
+    "remote_branches": true,
+    "squash_check_max": 40,
+    "size_max_entries": 400000,
+    "git_timeout_s": 30,
+    "squash_check_total": 600,
+    "patch_id_commits": 400,
+    "remote_max": 300,
+    "concurrency": 4,
+    "worktree_concurrency": 4
+  },
+  "mods_copies": {
+    "_doc": "Dossiers de mods sous dir : ceux que CLAUDE_CODE_PLUGIN_DIRS (settings.json → env, ou l'environnement) ne charge pas sont des copies « à vérifier ».",
+    "dir": "~/.claude/mods",
+    "settings": "~/.claude/settings.json"
+  },
+  "backups": {
+    "_doc": "Sauvegardes faites par deploy.py : les keep plus récentes sont gardées, les autres sont récupérables.",
+    "dir": "~/.claude/effort-board/_deploy_backups",
+    "keep": 5
+  },
+  "transcripts": {
+    "_doc": "Place des transcripts par projet (~/.claude/projects). Un projet dont le dossier de travail n'existe plus est « à vérifier » (historique, jamais compté comme sûr). top : lignes montrées.",
+    "dir": "~/.claude/projects",
+    "top": 15
+  },
+  "temp": {
+    "_doc": "Dossiers temporaires des sessions. Chaque entrée : path, depth (niveau des éléments listés sous path), days (plus vieux que ça, dernière modification comprise, = récupérable), label.",
+    "dirs": [
+      {
+        "path": "%TEMP%/claude",
+        "depth": 1,
+        "days": 2,
+        "label": "scratchpads des sessions (TEMP/claude)"
+      },
+      {
+        "path": "~/.claude/dev-mods",
+        "depth": 1,
+        "days": 2,
+        "label": "mods de dev par session (~/.claude/dev-mods)"
+      },
+      {
+        "path": "%APPDATA%/Claude/scratch-workspaces",
+        "depth": 3,
+        "days": 7,
+        "label": "espaces scratch de l'app (APPDATA/Claude/scratch-workspaces)"
+      }
+    ]
+  },
+  "sessions": {
+    "_doc": "Fichiers de session de l'app Desktop (lecture seule) : une session non archivée, sans activité depuis idle_hours, dont toutes les PR sont mergées ou fermées (au moins une mergée), est « archivable ». Le mod ne l'archive pas : menu de la session dans la barre latérale → Archiver.",
+    "dir": "%APPDATA%/Claude/claude-code-sessions",
+    "idle_hours": 12
+  },
+  "commands": {
+    "_doc": "Modèles des commandes affichées ; {repo} et {path} sont mis entre guillemets. Aucune n'est lancée par le mod.",
+    "worktree_remove": "git -C {repo} worktree remove {path}",
+    "worktree_prune": "git -C {repo} worktree prune",
+    "branch_delete": "git -C {repo} branch -d {branch}",
+    "branch_delete_squash": "git -C {repo} branch -D {branch}",
+    "remote_delete": "git -C {repo} push {remote} --delete {branch}",
+    "folder_delete": "rm -rf {path}"
+  },
+  "colors": {
+    "safe": "success",
+    "check": "warning",
+    "danger": "error",
+    "dim": "inactive"
+  },
+  "labels": {
+    "pane_title": "Ménage",
+    "subtitle": "lecture seule · {repos} dépôts · scanné il y a {age} · ce mod ne supprime rien : il montre la commande",
+    "first_scan": "Premier inventaire en cours (dépôts, worktrees, tailles des dossiers : jusqu'à quelques minutes).",
+    "total_sure": "Récupérable sans risque : {bytes}",
+    "total_check": "à vérifier : {bytes}",
+    "total_danger": "{n} éléments à ne pas supprimer",
+    "filter_all": "Tout",
+    "filter_safe": "Récupérable",
+    "filter_danger": "Ne pas supprimer",
+    "refresh": "↻",
+    "copy_all": "Copier les commandes sûres",
+    "copy": "Copier",
+    "copied": "copié : {n} commande(s)",
+    "copy_failed": "copie impossible : sélectionne le texte",
+    "danger_tag": "ne pas supprimer",
+    "check_tag": "à vérifier",
+    "more": "… et {n} de plus (toutes dans « Copier les commandes sûres »)",
+    "empty": "rien",
+    "sec_worktrees": "Worktrees",
+    "sec_orphans": "Dossiers de worktree que git ne liste plus",
+    "sec_branches": "Branches locales mergées",
+    "sec_remote": "Branches distantes mergées",
+    "sec_mods": "Copies de mods dans ~/.claude/mods",
+    "sec_backups": "Sauvegardes de deploy",
+    "sec_transcripts": "Transcripts par projet",
+    "sec_temp": "Dossiers temporaires des sessions",
+    "sec_sessions": "Sessions archivables (PR mergée, inactives)",
+    "dirty": "modifié : {changed} fichiers modifiés, {untracked} non suivis",
+    "clean": "propre",
+    "locked": "verrouillé (git worktree lock)",
+    "unknown": "état illisible",
+    "prunable": "dossier disparu : git le liste encore",
+    "ancestor": "mergée",
+    "empty_branch": "aucun commit en plus de main",
+    "squash": "mergée (squash : contenu identique dans main)",
+    "pr": "PR #{n} mergée",
+    "gone": "branche distante supprimée, non prouvée mergée",
+    "unmerged": "non mergée",
+    "remote_note": "supprime la branche sur le serveur",
+    "squash_note": "-d refuse une branche mergée par squash : -D, après vérification",
+    "orphan": "git ne le suit plus ; regarder dedans avant",
+    "orphan_repo": "contient un dépôt complet (.git) : ne pas supprimer sans regarder",
+    "mod_unloaded": "non chargé par CLAUDE_CODE_PLUGIN_DIRS",
+    "mod_loaded": "chargé",
+    "backup_old": "ancienne sauvegarde (on garde les {keep} plus récentes)",
+    "backups_kept": "{n} gardées · {bytes}",
+    "transcripts_gone": "dossier de travail disparu : historique, à garder ou archiver",
+    "temp_old": "inactif depuis {age}",
+    "temp_recent": "récent",
+    "session_archive": "Archiver : menu de la session dans la barre latérale → Archiver",
+    "base_missing": "pas de branche main / master : rien n'est déclaré mergé",
+    "notes": [
+      "« mergée » : atteignable depuis {base} (git branch --merged), ou fichiers changés identiques dans {base} (squash), ou PR mergée selon les fichiers de session de l'app.",
+      "{base} est la branche distante telle que vue au dernier fetch : le mod ne fait jamais de fetch.",
+      "git worktree remove sans --force refuse un worktree modifié ; git branch -d refuse une branche non mergée.",
+      "Archiver une session : pas de commande documentée hors de l'app (non vérifié) ; menu de la session dans la barre latérale."
+    ],
+    "remote_many": "{repo} : {n} branches distantes (plus de {max}) : seules celles atteignables depuis la base sont listées",
+    "worktrees_summary": "{n} worktrees · {safe} supprimables ({bytes}) · {danger} à garder dont {dirty} modifiés",
+    "transcripts_summary": "{n} projets · {bytes} au total · {gone} dossiers de travail disparus ({gone_bytes})",
+    "roots_unset": "repos.roots non réglé : mets tes dossiers dans ~/.claude/menage-mod/menage.config.json"
+  }
+}

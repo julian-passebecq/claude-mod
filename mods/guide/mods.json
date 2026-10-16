@@ -97,6 +97,15 @@
         "node --test mods/veille/tests/mail.test.mjs",
         "claude plugin test mods/veille"
       ]
+    },
+    {
+      "dir": "menage",
+      "name": "menage (Ménage)",
+      "state": "building",
+      "description": "Ce que le travail de Claude laisse traîner sur ce PC, en lecture seule : worktrees de chaque dépôt (branche, mergée ou non, propre ou modifié, âge du dernier commit, taille), dossiers de worktree que git ne liste plus, branches locales et distantes déjà mergées (y compris par squash), copies de mods non chargées, sauvegardes de deploy, transcripts par projet, dossiers temporaires des sessions, sessions Desktop archivables (PR mergée, inactives). Totaux récupérables. Pour chaque ligne la commande sûre (git worktree remove sans --force, git branch -d), jamais lancée ; en rouge « ne pas supprimer ».",
+      "data": "git en lecture seule dans chaque dépôt sous repos.roots (worktree list, status, branch --merged, for-each-ref, merge-base, diff --quiet, patch-id ; GIT_OPTIONAL_LOCKS=0, jamais de fetch), tailles des dossiers (pwsh sous Windows, cache 12 h), ~/.claude/mods et CLAUDE_CODE_PLUGIN_DIRS de settings.json, ~/.claude/effort-board/_deploy_backups, ~/.claude/projects (taille, cwd), TEMP/claude, ~/.claude/dev-mods, APPDATA/Claude/scratch-workspaces, fichiers de session de l'app (titre, isArchived, lastActivityAt, prs) ; résultat dans ~/.claude/menage-mod",
+      "note": "ne supprime rien et ne lance aucune commande : il les montre (bouton Copier). Aucun texte envoyé au modèle. « mergée » = atteignable depuis origin/main au dernier fetch, ou contenu identique / même patch-id dans main (squash), ou PR mergée selon les fichiers de session. Non vérifié : archiver une session hors de l'app (pas de commande documentée) ; format des fichiers de session de l'app (non documenté).",
+      "tests": ["node --test mods/menage/tests/logic.test.mjs", "claude plugin test mods/menage"]
     }
   ],
   "archived": [

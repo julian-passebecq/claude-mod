@@ -99,6 +99,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [metrics](#metrics)
     - [sante](#sante)
     - [veille](#veille)
+    - [menage](#menage)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -533,6 +534,16 @@ Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des co
 - **Fonctionnalités** : commandes `/veille` · affiche : panneau, bandeau · options userConfig : band « Band entry above the prompt » (on | off), défaut "on"
 - **Activer** : `<dépôt>/mods/veille` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/veille`
 - **Tests** : `node --test mods/veille/tests/logic.test.mjs` · `node --test mods/veille/tests/mail.test.mjs` · `claude plugin test mods/veille`
+
+#### menage
+
+Ménage : ce que le travail de Claude laisse traîner sur ce PC, en lecture seule. Worktrees (branche, mergée ou non, propre ou modifié, âge, taille), dossiers de worktree orphelins, branches locales et distantes déjà mergées, copies de mods, sauvegardes de deploy, transcripts par projet, dossiers temporaires, sessions archivables. Pour chaque ligne la commande sûre à lancer, jamais lancée ; en rouge « ne pas supprimer ». /menage
+
+- **État** : en construction · version 0.1.0 · ne supprime rien et ne lance aucune commande : il les montre (bouton Copier). Aucun texte envoyé au modèle. « mergée » = atteignable depuis origin/main au dernier fetch, ou contenu identique / même patch-id dans main (squash), ou PR mergée selon les fichiers de session. Non vérifié : archiver une session hors de l'app (pas de commande documentée) ; format des fichiers de session de l'app (non documenté).
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : git en lecture seule dans chaque dépôt sous repos.roots (worktree list, status, branch --merged, for-each-ref, merge-base, diff --quiet, patch-id ; GIT_OPTIONAL_LOCKS=0, jamais de fetch), tailles des dossiers (pwsh sous Windows, cache 12 h), ~/.claude/mods et CLAUDE_CODE_PLUGIN_DIRS de settings.json, ~/.claude/effort-board/_deploy_backups, ~/.claude/projects (taille, cwd), TEMP/claude, ~/.claude/dev-mods, APPDATA/Claude/scratch-workspaces, fichiers de session de l'app (titre, isArchived, lastActivityAt, prs) ; résultat dans ~/.claude/menage-mod · aucun blocage
+- **Fonctionnalités** : commandes `/menage` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/menage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/menage`
+- **Tests** : `node --test mods/menage/tests/logic.test.mjs` · `claude plugin test mods/menage`
 
 ### Archivés / rejetés
 

@@ -42,6 +42,11 @@
     "scenarios": {},
     "guide": {},
     "filetree": {},
+    "menage": {
+      "caches": ["~/.claude/menage-mod"],
+      "configs": ["~/.claude/menage-mod/menage.config.json"],
+      "error_fields": [{ "file": "~/.claude/menage-mod/menage.json", "field": "errors" }]
+    },
     "sante": { "caches": ["~/.claude/sante-mod"], "configs": ["~/.claude/sante-mod/sante.config.json"] }
   },
   "colors": { "ok": "success", "warn": "warning", "error": "error", "off": "inactive" },
