@@ -19,7 +19,7 @@ const CR = (h: number, sid: string, usd: number) => [Math.floor(NOW / 3600000) *
 const CLS = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { s1: { t: 'Lane alpha', p: 'proj-one' }, s2: { t: 'Lane beta', p: 'proj-two' } },
   rows: [CR(0, 's1', 4), CR(0, 's2', 1), CR(50, 's2', 20)] }
 
-function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[] } = {}) {
+function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string } = {}) {
   const opened: string[] = []
   const ran: unknown[] = []
   const scans: string[] = []
@@ -43,7 +43,8 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
     scans.push(detail)
     return { value: { exitCode: 0, stdout: scanFor(detail), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('session.id', () => ({ value: 'lead-cli' }))
+  on('session.id', () => ({ value: o.self ?? 'lead-cli' }))
+  on('session.version', () => ({ value: { version: o.engine ?? '2.1.302', base: o.engine ?? '2.1.302' } }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 103000, window: 1000000, percent: 10.3 }, rateLimits: [{ kind: 'five_hour', percentUsed: 21 }, { kind: 'seven_day', percentUsed: 14 }], cost: { usd: 3.2 } } }))
   on('ui.open', ($: any, e: any) => { opened.push(e.id); return { value: { isPlaced: true } } })
   on('ui.panes', () => ({ value: [{ id: 'cockpit', title: 'Cockpit', isShown: true, isFocused: false, isPlaced: true }] }))
@@ -201,4 +202,33 @@ test('/cockpit relais and /cockpit galerie open the Claude ↔ Codex and Galerie
   expect(await has(ui, /^Lead · Galaxy finalisation autonome/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'g-v-carte' })
   expect(await has(ui, /^Carte du contrôle$/)).toBe(true)
+})
+
+test('Galerie: Lanes, Séquence and Doux / dur views; « Ouvrir l’agent » on a running agent of this conversation runs $.ui.view', async ($, on) => {
+  const w = world(on, { self: 'child-cli' })
+  const views: unknown[] = []
+  on('ui.view', ($: any, e: any) => { views.push(e); return { value: {} } })
+  await $.command.run({ command: 'cockpit', args: 'galerie' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 92, rows: 120 }, props: WIDE } as any)
+  await ui.press({ plugin: 'cockpit', key: 'g-v-lanes' })
+  expect(await has(ui, /^Lanes de eta/)).toBe(true)
+  expect(await has(ui, /aucun relecteur/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'g-v-sequence' })
+  expect(await has(ui, /^Séquence · Mosaic Studio/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'g-v-concept' })
+  expect(await has(ui, /^Contrôle doux \/ dur/)).toBe(true)
+  await $.command.run({ command: 'cockpit', args: 'conv' } as any)
+  await ui.press({ plugin: 'cockpit', key: 'node-a-w1' })
+  await ui.press({ plugin: 'cockpit', key: 'agent-open' })
+  expect(views).toEqual([{ agentId: 'w1' }])
+  expect(w.scans.length > 0).toBe(true)
+})
+
+test('« Ouvrir l’agent » stays off on an engine older than 2.1.300', async ($, on) => {
+  world(on, { self: 'child-cli', engine: '2.1.293' })
+  await $.command.run({ command: 'cockpit', args: 'conv' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 92, rows: 120 }, props: WIDE } as any)
+  await ui.press({ plugin: 'cockpit', key: 'node-a-w1' })
+  expect(await has(ui, /^Agent · coder/)).toBe(true)
+  expect(await has(ui, /Ouvrir l’agent/)).toBe(false)
 })

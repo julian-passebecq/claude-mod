@@ -4,8 +4,11 @@
 //            night would burn, the lanes / packets ready to start; then Nuit active / Lancer X / Rien.
 //   Relais   Claude ↔ Codex: who opened, fixed, merged what, the hand-offs, dependencies, green rate per agent
 //            (the ci mod's dataset ~/.claude/ci-cache/interactions.json).
-//   Galerie  the Reference Gallery views the mods lacked: Équipe (lead → advisor / worker / explorer / researcher lanes,
-//            return to lead), Carte (the control layers in one compact map), Codex (approvals and cost).
+//   Galerie  the Reference Gallery views the mods lacked: Équipe (lead → advisor / worker / reviewer / explorer /
+//            researcher lanes, return to lead), Lanes (one per worktree of the project, its reviewer / adversary agents),
+//            Séquence (one conversation as a sequence diagram: lead ⇄ agents over time), Carte (the control layers in
+//            one compact map), Doux / dur (the soft-control concept map: what the model reads vs what the harness
+//            enforces), Codex (approvals and cost).
 // Plus the « Claude Control » to-dos (~/.claude/a-faire/claude-control.md) sorted by deadline, for a home card.
 // Every label, preset and threshold is in DECIDE_DEFAULTS and can be overridden in cockpit.config.json.
 
@@ -87,10 +90,12 @@ export const DECIDE_DEFAULTS = {
     },
   },
   galerie: {
-    views: ['equipe', 'carte', 'codex'],
+    views: ['equipe', 'lanes', 'sequence', 'carte', 'concept', 'codex'],
     roles: {
       advisor: ['advisor', 'architect', 'plan'],
-      worker: ['coder', 'general-purpose', 'worker', 'tester', 'debug', 'docs-writer', 'auditor'],
+      worker: ['coder', 'general-purpose', 'worker', 'tester', 'debug', 'docs-writer'],
+      // the adversary / reviewer role of the Agent-teams view: whoever checks the workers' output
+      reviewer: ['reviewer', 'review', 'verify', 'verifier', 'auditor', 'adversary', 'code-reviewer', 'critic'],
       explorer: ['explore', 'explore-fast'],
       researcher: ['research', 'researcher', 'deep-research', 'web'],
     },
@@ -98,11 +103,30 @@ export const DECIDE_DEFAULTS = {
     // unknown model: « tarif inconnu ». Sources: scenarios/versus.json (pages read 16 Oct 2026).
     codex_prices: { 'gpt-6-astra': { in: 10, out: 50 }, 'gpt-5-6-sol': { in: 4, out: 20 } },
     codex_days: 7,
+    // Lanes: conversations of the selected one's project active in the last lanes_days days, one lane per worktree;
+    // a conversation whose title matches lane_reviewer_match is itself a reviewer lane.
+    lanes_days: 3,
+    lanes_max: 8,
+    lane_reviewer_match: '\\b(verify|vérif|review|relecture|relecteur|adversa|audit)',
+    // Séquence: at most seq_agents agent lifelines (the most recent), seq_events events (the latest)
+    seq_agents: 5,
+    seq_events: 24,
+    // Doux / dur: each layer, the Carte field it counts (rules, memory, skills, agents, workflows, mods, mode, hooks, env)
+    concept: {
+      soft: [
+        { label: 'Règles (CLAUDE.md)', from: 'rules' }, { label: 'Mémoire', from: 'memory' },
+        { label: 'Skills', from: 'skills' }, { label: 'Agents (prompts)', from: 'agents' },
+      ],
+      hard: [
+        { label: 'Mode de permission', from: 'mode' }, { label: 'Hooks', from: 'hooks' }, { label: 'Réglages env', from: 'env' },
+        { label: 'Workflows (script)', from: 'workflows' }, { label: 'Mods (montrent, avertissent)', from: 'mods' },
+      ],
+    },
     labels: {
       title: 'Galerie',
-      views: { equipe: 'Équipe', carte: 'Carte', codex: 'Codex' },
+      views: { equipe: 'Équipe', lanes: 'Lanes', sequence: 'Séquence', carte: 'Carte', concept: 'Doux / dur', codex: 'Codex' },
       lead: 'Lead · {title} · {model} · {effort}',
-      lanes: { advisor: 'Conseil (advisor)', worker: 'Workers', explorer: 'Explorateurs', researcher: 'Chercheurs', other: 'Autres' },
+      lanes: { advisor: 'Conseil (advisor)', worker: 'Workers', reviewer: 'Relecteurs (adversaire)', explorer: 'Explorateurs', researcher: 'Chercheurs', other: 'Autres' },
       advisor_calls: '/advisor consulté {n} fois{at}',
       lane_empty: 'aucun',
       returned: '↩ rendu au lead {time}',
@@ -120,6 +144,33 @@ export const DECIDE_DEFAULTS = {
       codex_row: '{model} : {tokens} tokens · {cost}',
       codex_total: 'Total {days} j : {tokens} tokens · {cost}',
       price_unknown: 'tarif inconnu',
+      identity: 'Connexion',
+      wt_title: 'Lanes de {repo} : une par worktree, {days} derniers jours',
+      wt_main: 'checkout principal',
+      wt_none: 'aucune conversation de ce projet active sur {days} j',
+      wt_no_repo: 'aucune conversation sélectionnée (Cockpit › une conversation)',
+      wt_lane: '{folder}{branch}',
+      wt_conv: '{title} · {state}{agents}',
+      wt_pr: 'PR #{number} · {state} · CI {ci}',
+      wt_reviewers: 'relecture : {list}',
+      wt_no_reviewer: 'aucun relecteur (adversaire) lancé',
+      wt_is_reviewer: 'lane de relecture',
+      wt_more: '+ {n} lane(s)',
+      seq_title: 'Séquence · {title}',
+      seq_none: 'aucun agent dans cette conversation : rien à dessiner',
+      seq_lead: 'Lead',
+      seq_call: '{type} · {desc}',
+      seq_done: '{type} ↩ rendu au lead',
+      seq_failed: '{type} ✕ échec',
+      seq_advisor: '/advisor consulté',
+      seq_hidden: '+ {n} agent(s) plus anciens hors du diagramme',
+      seq_older: '+ {n} événement(s) plus anciens',
+      concept_title: 'Contrôle doux / dur (modèle ⇄ harness)',
+      concept_soft: 'Doux : le modèle les lit et peut s’en écarter',
+      concept_hard: 'Dur : le harness les applique, le modèle ne peut pas passer outre',
+      concept_flow: 'consigne → modèle (choisit) → appel d’outil → harness (permet, refuse) → effet',
+      concept_note: 'Ce qui doit tenir à coup sûr va côté dur ; ici aucun hook ne bloque sans le oui de Julian (§6).',
+      concept_default: 'défaut',
     },
   },
   controle: {
@@ -342,10 +393,13 @@ export function teamView(session, title, cfg, nowMs) {
 // ---- Galerie: Carte du contrôle --------------------------------------------------------------------------------------
 
 /** map = scanner's {rules: {title}, settings: {env, hooks}, agents: [names], skills: [names], workflows: [names], mods: n, memory: n}. */
-export function controlMap(map, cfg) {
+// identity: what $.session.identity() answered (engine 2.1.299+; a mod outside managed settings gets { deny }): its
+// `kind` (claude.ai, console, api-key…) as one more row, only when known.
+export function controlMap(map, cfg, identity) {
   const L = decideConfig(cfg).galerie.labels
   const R = L.map_rows
-  if (!map) return [{ id: 'none', label: L.map, text: L.map_none }]
+  const id = identity && typeof identity.kind === 'string' && identity.kind ? [{ id: 'identity', label: L.identity, text: identity.kind }] : []
+  if (!map) return [{ id: 'none', label: L.map, text: L.map_none }, ...id]
   const list = (xs) => (Array.isArray(xs) ? `${xs.length}${xs.length ? ' · ' + clip(xs.join(', '), 60) : ''}` : L.map_none)
   return [
     { id: 'rules', label: R.rules, text: map.rules ? clip(map.rules.title || 'CLAUDE.md', 60) : L.map_none },
@@ -355,6 +409,7 @@ export function controlMap(map, cfg) {
     { id: 'workflows', label: R.workflows, text: list(map.workflows) },
     { id: 'mods', label: R.mods, text: fin(map.mods) ? String(map.mods) : L.map_none },
     { id: 'memory', label: R.memory, text: fin(map.memory) ? `${map.memory} fichier(s)` : L.map_none },
+    ...id,
   ]
 }
 
@@ -399,6 +454,144 @@ export function codexPanel(codex, cfg) {
     requests: fill(L.codex_requests, { n: a.requests || 0, sessions: a.sessions || 0, days: codex.days || g.codex_days }),
     tone: a.requests ? 'warn' : null,
   }
+}
+
+// ---- Galerie: Lanes (Agent-teams: one lane per worktree, with its reviewer / adversary) -----------------------------
+
+/** The worktree folder of a working directory: <repo>/.claude/worktrees/<x> gives x; anything else is the main checkout. */
+export function worktreeOf(cwd) {
+  const m = /\/\.claude\/worktrees\/([^/]+)/.exec(String(cwd || '').replace(/\\/g, '/'))
+  return m ? m[1] : null
+}
+
+const subState = (x, L) => (x.status === 'done' ? `✓ ${x.last_ts ? hm(msOf(x.last_ts)) : ''}`.trim() : x.status === 'running' ? '◐' : x.status === 'failed' ? L.failed : L.stopped)
+
+/**
+ * rows: the project's conversations [{cli, title, cwd, branch, pr: {number, state, ci}|null, state, live, last (ms), subs}].
+ * One lane per worktree (the main checkout is one lane), the active ones first; each lane its conversations, its PR,
+ * and its reviewer agents (role « reviewer ») with how they ended, or that none was launched.
+ */
+export function lanesView(rows, repo, cfg, nowMs) {
+  const g = decideConfig(cfg).galerie
+  const L = g.labels
+  if (!repo) return { available: false, none: L.wt_no_repo }
+  const since = nowMs - g.lanes_days * 86400000
+  const revRx = rx(g.lane_reviewer_match)
+  const by = new Map()
+  for (const r of rows || []) {
+    if (!r || (r.last && r.last < since && !r.live)) continue
+    const key = worktreeOf(r.cwd) || ''
+    if (!by.has(key)) by.set(key, { folder: key, convs: [], last: 0, live: false, branch: '', pr: null })
+    const lane = by.get(key)
+    lane.convs.push(r)
+    lane.last = Math.max(lane.last, r.last || 0)
+    lane.live = lane.live || Boolean(r.live)
+    if (!lane.branch && r.branch) lane.branch = r.branch
+    if (!lane.pr && r.pr && r.pr.number) lane.pr = r.pr
+  }
+  const lanes = [...by.values()].sort((a, b) => (b.live - a.live) || (b.last - a.last))
+  const shown = lanes.slice(0, g.lanes_max).map((lane) => {
+    const subs = lane.convs.flatMap((c) => c.subs || [])
+    const reviewers = subs.filter((x) => roleOf(x.type, cfg) === 'reviewer')
+    const isReviewer = lane.convs.some((c) => revRx && revRx.test(String(c.title || '')))
+    const tone = lane.pr && lane.pr.ci === 'failed' ? 'bad' : lane.live ? 'running' : lane.pr && lane.pr.ci === 'success' ? 'ok' : null
+    return {
+      id: lane.folder || 'main', tone, live: lane.live, isReviewer,
+      title: fill(L.wt_lane, { folder: lane.folder || L.wt_main, branch: lane.branch ? ` · ${lane.branch}` : '' }),
+      convs: lane.convs.map((c) => fill(L.wt_conv, { title: clip(c.title || c.cli, 40), state: c.state || '?', agents: (c.subs || []).length ? ` · ${(c.subs || []).length} agent(s)` : '' })),
+      pr: lane.pr ? fill(L.wt_pr, { number: lane.pr.number, state: lane.pr.state || '?', ci: lane.pr.ci || '?' }) : '',
+      reviewers: reviewers.length ? fill(L.wt_reviewers, { list: reviewers.map((x) => `${x.type} ${subState(x, L)}`).join(', ') }) : isReviewer ? L.wt_is_reviewer : L.wt_no_reviewer,
+      reviewerTone: reviewers.some((x) => x.status === 'failed') ? 'bad' : reviewers.length || isReviewer ? 'ok' : 'warn',
+    }
+  })
+  return {
+    available: true, title: fill(L.wt_title, { repo, days: g.lanes_days }), lanes: shown,
+    none: shown.length ? '' : fill(L.wt_none, { days: g.lanes_days }), more: lanes.length > shown.length ? fill(L.wt_more, { n: lanes.length - shown.length }) : '',
+  }
+}
+
+// ---- Galerie: Séquence (one conversation as a sequence diagram) -----------------------------------------------------
+
+/**
+ * The selected conversation as a text sequence diagram: a lifeline for the lead and each agent (the seq_agents most
+ * recent), one arrow per call (lead → agent) and per return (agent ↩ lead), oldest first, the seq_events latest.
+ * width: the columns the diagram may use. Returns {available, title, header, rows: [{line, text, tone}], hidden, older}.
+ */
+export function sequenceView(session, title, cfg, nowMs, width) {
+  const g = decideConfig(cfg).galerie
+  const L = g.labels
+  if (!session) return { available: false, none: L.no_conv }
+  const all = (session.subs || []).filter((x) => msOf(x.ts)).sort((a, b) => msOf(a.ts) - msOf(b.ts))
+  if (!all.length && !session.advisor_ts) return { available: false, none: L.seq_none, title: fill(L.seq_title, { title: clip(title || session.cli, 40) }) }
+  const agents = all.slice(-Math.max(1, g.seq_agents))
+  const P = agents.length + 1
+  const lead = 6
+  const cell = Math.max(4, Math.min(18, Math.floor((Math.max(24, width || 60) - lead) / P)))
+  const center = (k) => lead + k * cell + Math.floor(cell / 2)
+  const span = agents.map((x) => ({ from: msOf(x.ts), to: x.status === 'running' ? nowMs : msOf(x.last_ts) || msOf(x.ts) }))
+  const events = []
+  agents.forEach((x, i) => {
+    events.push({ at: msOf(x.ts), k: i + 1, kind: 'call', text: fill(L.seq_call, { type: x.type, desc: clip(x.desc || x.prompt || '', 40) }).replace(/ · $/, ''), tone: null })
+    if (x.status === 'done' || x.status === 'failed') {
+      events.push({ at: msOf(x.last_ts) || msOf(x.ts), k: i + 1, kind: 'return', text: fill(x.status === 'done' ? L.seq_done : L.seq_failed, { type: x.type }), tone: x.status === 'done' ? 'ok' : 'bad' })
+    }
+  })
+  if (session.advisor_ts) events.push({ at: msOf(session.advisor_ts), k: 0, kind: 'self', text: L.seq_advisor, tone: 'dim' })
+  events.sort((a, b) => a.at - b.at || (a.kind === 'return') - (b.kind === 'return'))
+  const kept = events.slice(-Math.max(1, g.seq_events))
+  const blank = () => Array(lead + P * cell).fill(' ')
+  const header = blank()
+  ;[L.seq_lead, ...agents.map((x) => x.type)].forEach((name, k) => {
+    const n = clip(name, cell - 1)
+    const start = Math.max(lead + k * cell, Math.min(center(k) - Math.floor(n.length / 2), lead + (k + 1) * cell - n.length))
+    for (let i = 0; i < n.length; i++) header[start + i] = n[i]
+  })
+  const rows = kept.map((e) => {
+    const a = blank()
+    const t = hm(e.at)
+    for (let i = 0; i < t.length; i++) a[i] = t[i]
+    a[center(0)] = '│'
+    agents.forEach((_, i) => { const s = span[i]; if (e.at >= s.from && e.at <= s.to) a[center(i + 1)] = '│' })
+    if (e.kind === 'self') a[center(0)] = '◆'
+    else {
+      const from = center(0)
+      const to = center(e.k)
+      for (let i = from + 1; i < to; i++) a[i] = '─'
+      if (e.kind === 'call') { a[from] = '├'; a[to - 1] = '▶'; a[to] = '┐' } else { a[from] = '├'; a[from + 1] = '◀'; a[to] = '┘' }
+    }
+    return { line: a.join('').replace(/\s+$/, ''), text: `${' '.repeat(lead)}${e.text}`, tone: e.tone }
+  })
+  return {
+    available: true, title: fill(L.seq_title, { title: clip(title || session.cli, 40) }), header: header.join('').replace(/\s+$/, ''), rows,
+    hidden: all.length > agents.length ? fill(L.seq_hidden, { n: all.length - agents.length }) : '',
+    older: events.length > kept.length ? fill(L.seq_older, { n: events.length - kept.length }) : '',
+  }
+}
+
+// ---- Galerie: Doux / dur (the soft-control concept map) -------------------------------------------------------------
+
+/** One layer's figure from the Carte's map (names and counts only). */
+function layerValue(map, from, L) {
+  if (!map) return L.map_none
+  const list = (xs) => (Array.isArray(xs) ? String(xs.length) : L.map_none)
+  switch (from) {
+    case 'rules': return map.rules ? clip(map.rules.title || 'CLAUDE.md', 40) : L.map_none
+    case 'memory': return fin(map.memory) ? `${map.memory} fichier(s)` : L.map_none
+    case 'skills': case 'agents': case 'workflows': return list(map[from])
+    case 'mods': return fin(map.mods) ? String(map.mods) : L.map_none
+    case 'mode': return map.settings ? map.settings.mode || L.concept_default : L.map_none
+    case 'hooks': return map.settings ? String(map.settings.hooks) : L.map_none
+    case 'env': return map.settings ? `${map.settings.env} clé(s)` : L.map_none
+    default: return L.map_none
+  }
+}
+
+/** The concept map: the soft layers (the model reads them), the hard ones (the harness enforces them), with our counts. */
+export function conceptMap(map, cfg) {
+  const g = decideConfig(cfg).galerie
+  const L = g.labels
+  const side = (list) => (list || []).map((x, i) => ({ id: `${x.from}-${i}`, label: x.label, text: layerValue(map, x.from, L) }))
+  return { title: L.concept_title, soft: { title: L.concept_soft, rows: side(g.concept.soft) }, hard: { title: L.concept_hard, rows: side(g.concept.hard) }, flow: L.concept_flow, note: L.concept_note }
 }
 
 export { hm, clip, fill, durText }

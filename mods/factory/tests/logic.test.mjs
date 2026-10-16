@@ -317,3 +317,13 @@ test('scanner: app session fields for the strip (lead link, open PRs, pending qu
   assert.equal(d.ask_q, 'Which repo?')
   assert.equal(d.ask_ts, '2026-10-09T10:06:00Z')
 })
+
+test('engineAtLeast: the version gate for APIs newer than the oldest engine', async () => {
+  const { engineAtLeast } = await import('../hooks/logic.mjs')
+  const assert = (await import('node:assert/strict')).default
+  assert.equal(engineAtLeast('2.1.302', '2.1.300'), true)
+  assert.equal(engineAtLeast('2.1.300', '2.1.300'), true)
+  assert.equal(engineAtLeast('2.1.293', '2.1.300'), false)
+  assert.equal(engineAtLeast('2.2.0-dev', '2.1.300'), true)
+  assert.equal(engineAtLeast('', '2.1.300'), false)
+})

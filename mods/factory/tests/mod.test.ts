@@ -60,6 +60,37 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, surface, /start wave/)).toBe(true)
   })
 
+  test(`« ← Conversation » goes back to the main transcript while an agent is in view (${surface})`, async ($, on) => {
+    base(on)
+    on('session.version', () => ({ value: { version: '2.1.302', base: '2.1.302' } }))
+    const views: unknown[] = []
+    on('ui.view', ($, e) => { views.push(e); return { value: {} } })
+    await $.command.run({ command: 'factory', args: 'arbre' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 80 }, props: { ...PANE('Factory'), view: { agentId: 'a1' } } })
+    await ui.press({ plugin: 'factory', key: 'back-conv-btn' })
+    expect(views).toEqual([{}])
+  })
+
+  test(`« Ouvrir l’agent » on the running agent opens its transcript (${surface})`, async ($, on) => {
+    base(on)
+    on('session.version', () => ({ value: { version: '2.1.302', base: '2.1.302' } }))
+    const views: unknown[] = []
+    on('ui.view', ($, e) => { views.push(e); return { value: {} } })
+    await $.command.run({ command: 'factory', args: 'arbre' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 80 }, props: PANE('Factory') })
+    await ui.press({ plugin: 'factory', key: 'open-agent-a1' })
+    expect(views).toEqual([{ agentId: 'a1' }])
+  })
+
+  test(`« Ouvrir l’agent » is not drawn on an engine older than 2.1.300 (${surface})`, async ($, on) => {
+    base(on)
+    on('session.version', () => ({ value: { version: '2.1.293', base: '2.1.293' } }))
+    await $.command.run({ command: 'factory', args: 'arbre' })
+    const ui = await $.ui.mount({ plugin: 'factory', component: 'Pane', requestId: 'factory', surface, viewport: { columns: 180, rows: 80 }, props: PANE('Factory') })
+    expect(await has(ui, surface, /Review the plan|architect/)).toBe(true)
+    expect(await has(ui, surface, /Ouvrir l’agent/)).toBe(false)
+  })
+
   test(`/factory with no argument draws the dashboard with clickable conversations (${surface})`, async ($, on) => {
     base(on)
     await $.command.run({ command: 'factory', args: 'mission' })

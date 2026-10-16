@@ -31,7 +31,7 @@ function mk(el, cfg) {
     ...(o.grow ? { flexGrow: 1 } : {}),
     children: [title ? T(title, { bold: true, color: o.color }) : null, ...parts].filter(Boolean),
   })
-  const btn = (label, onPress, primary) => el.Button({ children: [label], variant: primary ? 'primary' : 'secondary', onPress })
+  const btn = (label, onPress, primary, key) => el.Button({ children: [label], variant: primary ? 'primary' : 'secondary', onPress, ...(key ? { key } : {}) })
   const link = (href, label) => (href ? (el.Link ? el.Link({ href, children: [label] }) : T(label, { dim: true })) : null)
   const famColor = (model) => family(model)
   return { T, row, col, section, btn, link, color, famColor }
@@ -226,7 +226,8 @@ function drawFocus(h, V, cfg, L, lay) {
 // ---- Arbre -----------------------------------------------------------------------------------------------------------
 
 // Running and architect nodes get a box; finished ones a compact 2-3 line entry, model and effort always visible.
-function nodeBox(h, n, cfg, L, lay, indent, inWorkflow) {
+// open: (id) => opens that agent's transcript ($.ui.view), given only for this conversation on an engine that has it.
+function nodeBox(h, n, cfg, L, lay, indent, inWorkflow, open) {
   const st = (L.agent_states || {})[n.status] || n.status
   if (n.status !== 'running' && !n.architect) {
     return h.col([
@@ -243,6 +244,7 @@ function nodeBox(h, n, cfg, L, lay, indent, inWorkflow) {
       n.explicit || inWorkflow ? null : h.T('modèle non précisé (hérité)', { color: 'warn' })]),
     h.row([h.T(`${fmtTokens(n.tokens)} tok`), h.T(fmtUsd(n.cost)), n.phase ? h.T(`phase ${n.phase}`, { dim: true }) : null]),
     n.task ? h.T(clip(n.task, lay.textMax * 2), { dim: true }) : null,
+    open && n.status === 'running' ? h.row([h.btn(L.open_agent || 'Ouvrir l’agent', () => open(n.id), true, 'open-agent-' + n.id)], { key: 'open-' + n.id }) : null,
   ], { key: 'n-' + n.id, color: n.architect ? 'architect' : stateColor(n.status), ...(indent ? { marginLeft: indent } : {}) })
 }
 
@@ -291,12 +293,14 @@ function drawTree(h, V, cfg, L, lay) {
   }
   // agents and workflows
   out.push(h.T(`│ agents (${t.running} en cours / ${t.totalAgents})`, { bold: true }))
+  const open = V.canView && V.self && V.scan && V.scan.detail && V.scan.detail.cli === V.self && V.act.openAgent ? (id) => V.act.openAgent(id) : null
+  if (V.canView && V.viewAgent && V.act.backToConv) out.push(h.row([h.btn(L.back_conv || '← Conversation', () => V.act.backToConv(), false, 'back-conv-btn')], { key: 'back-conv' }))
   const more = (v, indent) => (v.hidden ? h.T(`${' '.repeat(indent)}+ ${v.hidden} plus anciens : ${v.hiddenText}`, { dim: true }) : null)
-  for (const n of t.agentsView.shown) out.push(nodeBox(h, n, cfg, L, lay, 2))
+  for (const n of t.agentsView.shown) out.push(nodeBox(h, n, cfg, L, lay, 2, false, open))
   out.push(more(t.agentsView, 2))
   for (const w of t.workflowsView) {
     out.push(h.T(`└ ${L.workflow} ${w.name} · ${w.nodes.length} agents, ${w.running} en cours, ${fmtTokens(w.tokens)} tok, ${fmtUsd(w.cost)}`, { bold: true }))
-    for (const n of w.view.shown) out.push(nodeBox(h, n, cfg, L, lay, 4, true))
+    for (const n of w.view.shown) out.push(nodeBox(h, n, cfg, L, lay, 4, true, open))
     out.push(more(w.view, 4))
   }
   if (!t.totalAgents) out.push(h.T(`  ${L.no_agents}`, { dim: true }))

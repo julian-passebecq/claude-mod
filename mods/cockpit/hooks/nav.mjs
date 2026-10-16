@@ -4,7 +4,7 @@
 // factory's scanner (lib/factory/scanner/factory_scan.py): sessions with sid, parent (spawnedFrom), subs; detail of one
 // conversation. Every label and limit comes from cockpit.config.json.
 import { titleOf, repoOf, short, ctxPct, billByModel, sumCost, tokensOf, family, fmtTokens, fmtUsd, hhmm } from '../lib/factory/hooks/logic.mjs'
-import { sessionState, mission, effortBars } from '../lib/factory/hooks/screens.mjs'
+import { sessionState, mission, effortBars, screensConfig } from '../lib/factory/hooks/screens.mjs'
 import { rank } from '../lib/usage/lib/classement.mjs'
 
 export const LEVELS = ['mega', 'macro', 'medium', 'micro']
@@ -75,6 +75,11 @@ export const DEFAULTS = {
     agent_title: 'Agent',
     agent_log: 'Journal de l’agent',
     agent_none: 'Agent introuvable dans le dernier passage.',
+    // « Ouvrir l'agent »: $.ui.view({ agentId }) (engine 2.1.300+), only for a running agent of this conversation
+    open_agent: 'Ouvrir l’agent',
+    back_conv: '← Conversation',
+    view_old: 'Ouvrir un agent demande Claude Code 2.1.300 ou plus récent (claude update)',
+    view_denied: 'Agent non ouvert : {reason}',
     session: 'Session (5 h)',
     week_all: 'Semaine · tous modèles',
     week_fable: 'Semaine · Fable',
@@ -378,6 +383,24 @@ export function scanForRepo(scan, repo) {
   const reviews = scan.reviews && Array.isArray(scan.reviews.items)
     ? { ...scan.reviews, items: scan.reviews.items.filter((it) => repos.has(String(it.repo || '').split('/').pop())) } : scan.reviews
   return { ...scan, sessions, reviews }
+}
+
+// The Galerie's Lanes: the project's conversations with what lanesView needs (worktree from cwd, PR, state, agents).
+export function laneRows(scan, repo, cfg) {
+  if (!scan || !repo) return []
+  const states = ((screensConfig(cfg || {}).labels || {}).states) || {}
+  return projectSessions(scan, repo).map((s) => {
+    const st = sessionState(s, cfg || {}).state
+    return { cli: s.cli, title: titleOf(s), cwd: s.cwd || '', branch: s.branch || '', live: Boolean(s.live), state: states[st] || st,
+      last: tsMs(s.last_activity) || tsMs(s.mtime), subs: s.subs || [],
+      pr: s.pr && s.pr.number ? { number: s.pr.number, state: (s.ci || {}).state || '?', ci: (s.ci || {}).ci || '?' } : null }
+  })
+}
+
+// « Ouvrir l'agent »: only where the engine has $.ui.view (canView), for a running agent of this very conversation
+// (the engine answers « ended » or « elsewhere » for the others).
+export function canOpenAgent(card, self, canView) {
+  return Boolean(canView && card && self && card.conv === self && card.status === 'running')
 }
 
 // ---- micro: one agent ----------------------------------------------------------------------------------------------

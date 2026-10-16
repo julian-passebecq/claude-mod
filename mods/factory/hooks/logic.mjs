@@ -81,6 +81,16 @@ export function short(model) {
   return m.replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2')
 }
 
+// The engine's version ("2.1.302", $.session.version().version) is at least min: how a mod turns on an API newer
+// than the oldest engine it runs on (a mod may not read $.noun.event as a value to test it). Unknown: false.
+export function engineAtLeast(version, min) {
+  const a = String(version || '').split(/[.-]/).slice(0, 3).map((x) => Number(x))
+  const b = String(min || '').split('.').map((x) => Number(x))
+  if (a.length < 3 || a.some((x) => !Number.isFinite(x))) return false
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]
+  return true
+}
+
 export function repoOf(s) {
   const p = String(s.origin || s.cwd || '').replace(/\\/g, '/')
   const i = p.indexOf('/.claude/worktrees/')

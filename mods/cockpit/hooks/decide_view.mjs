@@ -2,7 +2,7 @@
 // h = view.mjs's kit (T, row, col, box, btn, lr). Pure except for the callbacks in V.act. Nothing here starts a lane:
 // « Lancer » only shows the command; « Nuit active » and « Jour » run /veille nuit and /veille jour (buttons Julian
 // clicks), « Rien » goes back to the Cockpit tab.
-import { nuitModel, relaisView, teamView, controlMap, codexPanel, decideConfig } from '../lib/decide.mjs'
+import { nuitModel, relaisView, teamView, controlMap, codexPanel, decideConfig, lanesView, sequenceView, conceptMap } from '../lib/decide.mjs'
 
 // ---- Nuit: « Bilan avant la nuit » ----------------------------------------------------------------------------------
 
@@ -53,7 +53,7 @@ export function drawRelais(h, V) {
   ].filter(Boolean)
 }
 
-// ---- Galerie: Équipe · Carte · Codex ----------------------------------------------------------------------------------
+// ---- Galerie: Équipe · Lanes · Séquence · Carte · Doux / dur · Codex ----------------------------------------------------------------------------------
 
 export function drawGalerie(h, V) {
   const g = decideConfig(V.cfg).galerie
@@ -78,9 +78,46 @@ export function drawGalerie(h, V) {
     }
     return out
   }
+  if (cur === 'lanes') {
+    const w = lanesView(V.laneRows, V.laneRepo, V.cfg, V.now)
+    if (!w.available) return [...out, h.T(w.none, { dim: true, key: 'g-wt-none' })]
+    out.push(h.T(w.title, { bold: true, key: 'g-wt-title', wrap: 'wrap' }))
+    if (w.none) out.push(h.T(w.none, { dim: true, key: 'g-wt-empty' }))
+    for (const lane of w.lanes) {
+      out.push(h.box(`${lane.live ? '● ' : ''}${lane.title}`, [
+        ...lane.convs.map((c, i) => h.T(c, { key: 'c' + i, wrap: 'truncate-end' })),
+        lane.pr ? h.T(lane.pr, { dim: true, key: 'pr', wrap: 'truncate-end' }) : null,
+        h.T(lane.reviewers, { tone: lane.reviewerTone, key: 'rev', wrap: 'wrap' }),
+      ], { key: 'g-wt-' + lane.id, tone: lane.tone || undefined }))
+    }
+    if (w.more) out.push(h.T(w.more, { dim: true, key: 'g-wt-more' }))
+    return out
+  }
+  if (cur === 'sequence') {
+    const s = sequenceView(V.teamSession, V.teamTitle, V.cfg, V.now, Math.max(30, (V.columns || 60) - 2))
+    if (!s.available) return [...out, ...(s.title ? [h.T(s.title, { bold: true, key: 'g-sq-title' })] : []), h.T(s.none, { dim: true, key: 'g-sq-none' })]
+    out.push(h.T(s.title, { bold: true, key: 'g-sq-title', wrap: 'truncate-end' }))
+    if (s.hidden) out.push(h.T(s.hidden, { dim: true, key: 'g-sq-hidden' }))
+    if (s.older) out.push(h.T(s.older, { dim: true, key: 'g-sq-older' }))
+    out.push(h.T(s.header, { bold: true, key: 'g-sq-head', wrap: 'truncate-end' }))
+    s.rows.forEach((r, i) => {
+      out.push(h.T(r.line, { key: 'g-sq-l' + i, wrap: 'truncate-end' }))
+      out.push(h.T(r.text, { key: 'g-sq-t' + i, dim: !r.tone, tone: r.tone && r.tone !== 'dim' ? r.tone : undefined, wrap: 'truncate-end' }))
+    })
+    return out
+  }
   if (cur === 'carte') {
-    const rows = controlMap(data.map, V.cfg)
+    const rows = controlMap(data.map, V.cfg, V.identity)
     out.push(h.box(L.map, rows.map((r) => h.lr(r.label, r.text, { key: 'g-m-' + r.id, bold: true })), { key: 'g-map' }))
+    return out
+  }
+  if (cur === 'concept') {
+    const c = conceptMap(data.map, V.cfg)
+    out.push(h.T(c.title, { bold: true, key: 'g-cc-title' }))
+    out.push(h.box(c.soft.title, c.soft.rows.map((r) => h.lr(r.label, r.text, { key: 'g-cs-' + r.id })), { key: 'g-cc-soft' }))
+    out.push(h.T(`   ↓ ${c.flow}`, { dim: true, key: 'g-cc-flow', wrap: 'wrap' }))
+    out.push(h.box(c.hard.title, c.hard.rows.map((r) => h.lr(r.label, r.text, { key: 'g-ch-' + r.id })), { key: 'g-cc-hard', tone: 'ok' }))
+    out.push(h.T(c.note, { dim: true, key: 'g-cc-note', wrap: 'wrap' }))
     return out
   }
   const c = codexPanel(data.codex, V.cfg)
