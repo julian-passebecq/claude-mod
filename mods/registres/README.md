@@ -1,5 +1,7 @@
 # registres (« Registres »)
 
+**One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).
+
 One side pane with four tabs: **Problèmes | Tests réels | Règles | Ménage**. It replaces four separate panes in the band's Mods bar; each tab shows exactly what its owner mod shows (`problemes`, `tests-reels`, `metrics`, `menage`), from the same files in `~/.claude`.
 
 ## Commands

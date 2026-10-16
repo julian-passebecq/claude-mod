@@ -15,7 +15,9 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
   ...extra,
 })
 
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; veille?: unknown; todo?: number } = {}) {
+// opts.julian / opts.todo: the counters the scanner computed with lib/core/veille.mjs (view.waiting); opts.config: the
+// person's own settings file (userConfig 'config') at C:/Users/me/band.json.
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown } = {}) {
   const tokens = opts.tokens ?? 164000
   mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -24,11 +26,14 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     me: { s: 'me', cwd: 'C:/code/app/.claude/worktrees/band', title: 'LANE BAND', last: NOW, ctx: 164000, compactions: [{ t: NOW - 300000, trigger: 'auto', pre: 368000, post: 17000 }], samples: [] },
     other: { s: 'other', cwd: 'C:/code/web', title: 'WEB', last: NOW, compactions: [], samples: [] },
   }
-  const view = buildView([ev(10, 'me', 7200), ev(20, 'me', 120000, { a: 'x' }), ev(30, 'other', 60000)], sessions as any, CFG, {
+  const built = buildView([ev(10, 'me', 7200), ev(20, 'me', 120000, { a: 'x' }), ev(30, 'other', 60000)], sessions as any, CFG, {
     now: NOW,
     session: 'me',
     cwd: 'C:/code/app/.claude/worktrees/band',
   })
+  const view = { ...built, waiting: { aToi: opts.todo ?? 0, julian: opts.julian ?? 0, available: true, aToiAvailable: opts.todo !== undefined } }
+  const opened: string[] = []
+  const closed: string[] = []
   const stored: Record<string, unknown> = { ...(opts.stored ? { sections: opts.stored } : {}) }
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : e.name === 'CLAUDE_EFFORT' ? 'medium' : undefined }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -37,9 +42,8 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   on('fs.read', ($: any, e: any) => {
     const p = String(e.path).replace(/\\/g, '/')
     if (p.endsWith('/band.config.json')) return { value: SHIPPED }
-    if (opts.veille && p === 'C:/Users/me/.claude/veille/state.json') return { value: JSON.stringify(opts.veille) }
+    if (opts.config && p === 'C:/Users/me/band.json') return { value: JSON.stringify(opts.config) }
     if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
-    if (opts.todo !== undefined && p === 'C:/Users/me/.claude/a-faire/summary.json') return { value: JSON.stringify({ v: 1, open: opts.todo, high: 1 }) }
     throw new Error('ENOENT')
   })
   on('fs.stat', ($: any, e: any) => {
@@ -59,10 +63,11 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     },
   }))
   on('command.register', () => ({ value: undefined }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', ($: any, e: any) => (opened.push(String(e.id)), { value: { isPlaced: true } }))
+  on('ui.close', ($: any, e: any) => (closed.push(String(e.id)), { value: undefined }))
   on('ui.status', ($: any, e: any) => (statuses.push(e.text), { value: undefined }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
-  return { runs, statuses, stored }
+  return { runs, statuses, stored, opened, closed }
 }
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 150, scroll: { offset: 0, bodyRows: 10 } }
@@ -77,7 +82,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(r.text).toMatch(/ctx 41 % \(164 k\) · compact à 92 % · reste 51 %/)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
     // line 1: the slim gauge, then one short line, then the ▸ toggle; every section folded by default
-    expect(await band.find({ type: 'Text', text: /^ctx 41 % · (compact ~\d+ min · )?120 tok\/s · sem 37 %$/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^ctx 41 % · (compact ~\d+ min · )?120 tok\/s · 1 compactage\(s\) · sem 37 %$/ })).toBeDefined()
     expect(await band.find({ type: 'Button', text: '▸' })).toBeDefined()
     expect(await band.find({ type: 'Button', text: /Cette conversation/ })).toBeUndefined()
     expect(await band.find({ type: 'Text', text: /^Mods :$/ })).toBeDefined() // the Mods row stays
@@ -92,7 +97,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`sections: ▸ unfolds one-line summaries (all closed), a section opens, the state goes to $.store (${surface})`, async ($, on) => {
+  test(`sections: ▸ unfolds « Cette conversation » only (no Usage, no Veille), it opens, the state goes to $.store (${surface})`, async ($, on) => {
     const w = world(on)
     await $.command.run({ command: 'jauge', args: '' } as any)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
@@ -100,10 +105,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await band.find({ type: 'Button', text: '▾' })).toBeDefined()
     expect(await band.find({ type: 'Button', text: '▸ Cette conversation' })).toBeDefined()
     expect(await band.find({ type: 'Text', text: 'opus 5.5 · medium · agents 1/1' })).toBeDefined()
-    expect(await band.find({ type: 'Button', text: '▸ Usage' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: 'sem 37 %' })).toBeDefined()
-    expect(await band.find({ type: 'Button', text: '▸ Veille' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: 'veille absente' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: /Usage/ })).toBeUndefined()
+    expect(await band.find({ type: 'Button', text: /▸ Veille/ })).toBeUndefined()
     expect(await band.find({ type: 'Text', text: /^agents 1 en cours/ })).toBeUndefined() // closed: summary only
     await band.press({ key: 'sec-conv' })
     expect(await band.find({ type: 'Button', text: '▾ Cette conversation' })).toBeDefined()
@@ -113,12 +116,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('line 1 starts with the red « À toi : N » from a-faire, nothing at 0; the Mods row has « À faire »', async ($, on) => {
-  world(on, { todo: 4 })
+test('line 1 carries « À toi : N » and « attend Julian : N » once each; the Mods row has the « À toi » hub', async ($, on) => {
+  world(on, { todo: 4, julian: 2 })
   await $.command.run({ command: 'jauge', args: '' } as any)
   const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
   expect(await band.find({ type: 'Text', text: 'À toi : 4' })).toBeDefined()
-  expect(await band.find({ type: 'Button', text: 'À faire' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'attend Julian : 2' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: /^À toi/ })).toBeDefined()
   await band.unmount()
 })
 
@@ -131,13 +135,13 @@ test('no « À toi » when a-faire has nothing open', async ($, on) => {
 })
 
 test('sections: the state remembered in $.store comes back at session start', async ($, on) => {
-  world(on, { stored: { expanded: true, open: ['usage'] } })
+  world(on, { stored: { expanded: true, open: ['conv', 'usage'] } })
   on('session.start', ($: any, e: any) => e)
   await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
   await $.command.run({ command: 'jauge', args: '' } as any)
   const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-  expect(await band.find({ type: 'Button', text: '▾ Usage' })).toBeDefined()
-  expect(await band.find({ type: 'Button', text: '▸ Cette conversation' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: '▾ Cette conversation' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: /Usage/ })).toBeUndefined() // a remembered old section is ignored
   await band.unmount()
 })
 
@@ -164,53 +168,89 @@ test('band off: the engine draws its own', { options: { band: 'off' } } as any, 
   await band.unmount()
 })
 
-// The Mods button bar: usage and factory are loaded (their commands are listed), ci is not.
+// The Mods button bar, preset hubs (default): cockpit is loaded, registres and reference are not; Jauge is band's own.
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`launcher: a press opens a loaded mod, a second press closes it, a missing mod is greyed (${surface})`, async ($, on) => {
-    world(on)
+  test(`launcher hubs: 6 entries, a press opens a loaded hub, a second press closes it, a missing hub is greyed with how to load it (${surface})`, async ($, on) => {
+    const w = world(on)
     const ran: string[] = []
     const toasts: string[] = []
     on('command.list', () => ({
       value: [
-        { name: 'conso', description: '', source: 'plugin', plugin: 'usage' },
-        { name: 'factory', description: '', source: 'plugin', plugin: 'factory' },
-        { name: 'ci', description: '', source: 'plugin', plugin: 'someone-else' },
+        { name: 'jauge', description: '', source: 'plugin', plugin: 'band' },
+        { name: 'cockpit', description: '', source: 'plugin', plugin: 'cockpit' },
+        { name: 'veille', description: '', source: 'plugin', plugin: 'veille' },
+        { name: 'afaire', description: '', source: 'plugin', plugin: 'a-faire' },
+        { name: 'registres', description: '', source: 'plugin', plugin: 'someone-else' },
       ],
     }))
-    on('command.run', { command: 'conso' }, ($: any, e: any) => (ran.push(`conso ${e.args ?? ''}`.trim()), {}))
+    on('command.run', { command: 'cockpit' }, ($: any, e: any) => (ran.push(`cockpit ${e.args ?? ''}`.trim()), {}))
     on('ui.toast', ($: any, e: any) => (toasts.push(String(e.text)), { value: undefined }))
     await $.command.run({ command: 'jauge', args: '' } as any)
-    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 200, rows: 40 }, props: BAND } as any)
     expect(await band.find({ type: 'Text', text: /^Mods :$/ })).toBeDefined()
-    await band.press({ key: 'mod-usage' })
-    expect(ran).toEqual(['conso'])
-    expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeDefined()
-    await band.press({ key: 'mod-usage' })
-    expect(ran).toEqual(['conso', 'conso close'])
-    expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeUndefined()
-    await band.press({ key: 'mod-ci' })
+    for (const label of ['Jauge', 'Cockpit', 'Veille', 'À toi']) expect(await band.find({ type: 'Button', text: label })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: 'Registres · non chargé : ajouter mods/registres à CLAUDE_CODE_PLUGIN_DIRS' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: 'Référence · non chargé : ajouter mods/reference à CLAUDE_CODE_PLUGIN_DIRS' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: 'Usine' })).toBeUndefined()
+    await band.press({ key: 'mod-cockpit' })
+    expect(ran).toEqual(['cockpit'])
+    expect(await band.find({ type: 'Button', text: 'Cockpit ✕' })).toBeDefined()
+    await band.press({ key: 'mod-cockpit' })
+    expect(ran).toEqual(['cockpit', 'cockpit close'])
+    await band.press({ key: 'mod-registres' })
     expect(ran.length).toBe(2)
-    expect(toasts.at(-1)).toBe('non chargé : ajouter mods/ci à CLAUDE_CODE_PLUGIN_DIRS')
+    expect(toasts.at(-1)).toBe('non chargé : ajouter mods/registres à CLAUDE_CODE_PLUGIN_DIRS')
+    // Jauge: band's own pane, opened and closed directly (no command run). /jauge above opened it, so ✕ first.
+    expect(await band.find({ type: 'Button', text: 'Jauge ✕' })).toBeDefined()
+    await band.press({ key: 'mod-band' })
+    expect(w.closed).toEqual(['jauge'])
+    const before = w.opened.length
+    await band.press({ key: 'mod-band' })
+    expect(w.opened.slice(before)).toEqual(['jauge'])
+    expect(await band.find({ type: 'Button', text: 'Jauge ✕' })).toBeDefined()
     await band.unmount()
     const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface, viewport: { columns: 160, rows: 120 }, props: PANE } as any)
-    expect(await pane.find({ type: 'Text', text: /mods\/scenarios à CLAUDE_CODE_PLUGIN_DIRS/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: '/factory' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /mods\/reference à CLAUDE_CODE_PLUGIN_DIRS/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '/cockpit' })).toBeDefined()
     await pane.unmount()
   })
 }
 
-test('launcher: the person typing /conso close keeps the button in step', async ($, on) => {
-  world(on)
+test('/jauge close closes the Jauge pane', async ($, on) => {
+  const w = world(on)
+  const r = await $.command.run({ command: 'jauge', args: 'close' } as any)
+  expect(w.closed).toContain('jauge')
+  expect(r.text).toBe('jauge: fermée')
+})
+
+test('launcher preset all (own settings file): the older buttons come back, Conso opens', { options: { config: 'C:/Users/me/band.json' } } as any, async ($, on) => {
+  world(on, { config: { launcher: { preset: 'all' } } })
+  const ran: string[] = []
   on('command.list', () => ({ value: [{ name: 'conso', description: '', source: 'plugin', plugin: 'usage' }] }))
-  on('command.run', { command: 'conso' }, () => ({}))
+  on('command.run', { command: 'conso' }, ($: any, e: any) => (ran.push(`conso ${e.args ?? ''}`.trim()), {}))
   await $.command.run({ command: 'jauge', args: '' } as any)
-  await $.command.run({ command: 'conso', args: '' } as any)
-  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 400, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Button', text: /^Usine · non chargé/ })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: /^Tests réels · non chargé/ })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: /^Registres/ })).toBeUndefined()
+  await band.press({ key: 'mod-usage' })
+  expect(ran).toEqual(['conso'])
   expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeDefined()
   await band.unmount()
-  await $.command.run({ command: 'conso', args: 'close' } as any)
+})
+
+test('launcher: the person typing /cockpit close keeps the button in step', async ($, on) => {
+  world(on)
+  on('command.list', () => ({ value: [{ name: 'cockpit', description: '', source: 'plugin', plugin: 'cockpit' }] }))
+  on('command.run', { command: 'cockpit' }, () => ({}))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Button', text: 'Cockpit ✕' })).toBeDefined()
+  await band.unmount()
+  await $.command.run({ command: 'cockpit', args: 'close' } as any)
   const again = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-  expect(await again.find({ type: 'Button', text: 'Conso ✕' })).toBeUndefined()
+  expect(await again.find({ type: 'Button', text: 'Cockpit ✕' })).toBeUndefined()
   await again.unmount()
 })
 
@@ -276,16 +316,12 @@ test('hand-off: a /handoff typed by the person is listed in the pane', async ($,
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`a red « attend Julian : N » heads the band line when the Veille has conversations waiting on Julian (${surface})`, async ($, on) => {
-    world(on, { veille: { alerts: {
-      a: { key: 'a', what: 'Attend Julian : Tell me whether the #29 merge stays', julian: true, severity: 'julian' },
-      b: { key: 'b', what: 'Attend Julian : Needs your input', julian: true, severity: 'julian' },
-      c: { key: 'c', what: 'CI rouge', severity: 'bad' },
-    } } })
+  test(`a red « attend Julian : N » on line 1 when the Veille has conversations waiting on Julian, no « À toi » at 0 (${surface})`, async ($, on) => {
+    world(on, { julian: 2 })
     await $.command.run({ command: 'jauge', args: '' } as any)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
     expect(await band.find({ type: 'Text', text: 'attend Julian : 2' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^À toi/ })).toBeUndefined()
     await band.unmount()
   })
 }
-

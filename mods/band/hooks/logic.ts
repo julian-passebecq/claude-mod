@@ -424,7 +424,12 @@ export const compactLabel = (c: Compaction, labels: Record<string, string>, idle
 
 /** args: what the press passes to the command (« fil » opens /veille fil); key: the open-state id when two buttons share a mod. */
 export type LauncherItem = { label: string; mod: string; command: string; args?: string; key?: string }
-export type Launcher = { enabled?: boolean; close_args?: string; items?: LauncherItem[] }
+/** preset hubs (default): items, the 6 hub entries; all: all_items, the 15 older buttons. */
+export type Launcher = { enabled?: boolean; close_args?: string; preset?: string; items?: LauncherItem[]; all_items?: LauncherItem[] }
+
+/** The items of the chosen preset: all -> all_items (when listed), anything else -> items. */
+export const launcherItems = (l: Launcher | undefined): LauncherItem[] =>
+  !l ? [] : l.preset === 'all' && Array.isArray(l.all_items) && l.all_items.length ? l.all_items : (l.items ?? [])
 /** One slash command as $.command.list() gives it (name, and the plugin that registered it when known). */
 export type CommandSeen = { name: string; plugin?: string }
 export type LauncherButton = LauncherItem & { loaded: boolean; open: boolean; hint?: string }
@@ -442,7 +447,7 @@ export const launcherButtons = (
   labels: Record<string, string>,
 ): LauncherButton[] => {
   if (!l || l.enabled === false) return []
-  return (l.items ?? [])
+  return launcherItems(l)
     .filter(i => i && i.label && i.mod && i.command)
     .map(i => {
       const loaded = isLoaded(i, commands)

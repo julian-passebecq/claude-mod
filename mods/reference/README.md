@@ -1,5 +1,7 @@
 # reference — Référence
 
+**One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).
+
 One side pane with five tabs: **Config | Guide | Scénarios | Santé | CI**. It replaces five separate panes in the Mods bar. Nothing here blocks or rewrites a tool call or a prompt, and nothing calls a model.
 
 | Command | What it does |

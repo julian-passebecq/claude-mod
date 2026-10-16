@@ -2,9 +2,11 @@
 // Above the prompt: this conversation's context against auto-compact and the RESUME hand-off threshold, the burn rate
 // at the scopes the settings list, and the week's rate-limit use. /jauge opens the pane: per-scope table, hottest
 // sessions, projects, 30-minute sparklines with compaction markers, and each conversation's compactions.
-// Under the band, a Mods button bar (launcher in band.config.json): a press runs the other mod's slash command, which
-// opens that mod's own pane ($.ui.open draws only the caller's panes, so a mod cannot open another's directly); a
-// second press runs /<command> close. A mod whose command is not in the session is greyed out.
+// Line 1 also carries « À toi : N » and « attend Julian : N » once each, counted by lib/core/veille.mjs in the scanner.
+// Under the band, a Mods button bar (launcher in band.config.json, preset hubs: Jauge, Cockpit, Veille, À toi,
+// Registres, Référence): a press runs the other mod's slash command, which opens that mod's own pane ($.ui.open draws
+// only the caller's panes, so a mod cannot open another's directly); a second press runs /<command> close. Jauge is
+// band's own pane, opened directly. A mod whose command is not in the session is greyed out and says how to load it.
 // Sources: $.session.usage() / session.measure for this conversation (the status line's figures), and
 // scanner/scan.mjs, an incremental tail of ~/.claude/projects/**/*.jsonl run every refresh_s. Nothing here blocks or
 // rewrites a tool call or a prompt.
@@ -29,6 +31,7 @@ import {
   handoffReason,
   hhmm,
   launcherButtons,
+  launcherItems,
   launcherPress,
   launcherKey,
   launcherTyped,
@@ -39,7 +42,7 @@ import {
   toggleOpen,
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
-import { gaugeModel, gaugeSvg, gaugeText, barSvg } from './gauge'
+import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
 import type { Gauge } from './gauge'
 import {
   sectionsCfg,
@@ -50,14 +53,7 @@ import {
   headLine,
   convSummary,
   convLines,
-  usageRows,
-  usageSummary,
-  textBar,
-  veilleSummary,
-  veilleLine,
-  julianCounter,
-  alertText,
-  todoBadge,
+  counters,
 } from './sections'
 import type { BandUi, SectionsCfg } from './sections'
 
@@ -94,8 +90,6 @@ const errorAtom = atom({ plugin: 'band', key: 'error' } as const, '')
 const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { commands: [], open: [] })
 const handoffAtom = atom({ plugin: 'band', key: 'handoff' } as const, { ran: [], show: false })
 const uiAtom = atom({ plugin: 'band', key: 'ui' } as const, { expanded: false, open: [] })
-const veilleAtom = atom({ plugin: 'band', key: 'veille' } as const, null)
-const todoAtom = atom({ plugin: 'band', key: 'todo' } as const, null)
 const STORE_KEY = 'sections'
 
 const secCfg = (c: Config): SectionsCfg => sectionsCfg((c as any).sections)
@@ -121,59 +115,6 @@ const toggleUi = async ($: EngineInterface, id: string) => {
       await $.store.set(STORE_KEY, next)
     } catch {}
   }
-}
-
-const readText = async ($: EngineInterface, p: string) => {
-  try {
-    return (await $.fs.read(p, { as: 'text' })) as string
-  } catch {
-    return undefined
-  }
-}
-
-// Veille's own files, read-only (the veille mod's watcher writes them): open alerts minus the acknowledged ones.
-const seeVeille = async ($: EngineInterface, c: Config) => {
-  const sc = secCfg(c)
-  if (!sectionList(sc).includes('veille')) return
-  let dir = ''
-  try {
-    dir = (await $.env.get('VEILLE_HOME')) ?? ''
-  } catch {}
-  dir = (dir || expandHome((sc as any).veille_home ?? '~/.claude/veille', await home($))).replace(/\\/g, '/')
-  const st = await readText($, `${dir}/state.json`)
-  let state: any = null
-  try {
-    state = st ? JSON.parse(st.replace(/^﻿/, '')) : null
-  } catch {}
-  const acks = (await readText($, `${dir}/acks.jsonl`) ?? '')
-    .split('\n')
-    .filter(Boolean)
-    .map(l => {
-      try {
-        return String(JSON.parse(l).key)
-      } catch {
-        return ''
-      }
-    })
-    .filter(Boolean)
-  await update($, veilleAtom, () => veilleSummary(state, acks))
-}
-
-// a-faire's counts (its scanner writes summary.json, counts only): the red « À toi : N » of line 1. Off with todo_home "".
-const seeTodo = async ($: EngineInterface, c: Config) => {
-  const raw = (secCfg(c) as any).todo_home
-  if (raw === '' || raw === false) return
-  let dir = ''
-  try {
-    dir = (await $.env.get('AFAIRE_HOME')) ?? ''
-  } catch {}
-  dir = (dir || expandHome(raw ?? '~/.claude/a-faire', await home($))).replace(/\\/g, '/')
-  const t = await readText($, `${dir}/summary.json`)
-  let sum: any = null
-  try {
-    sum = t ? JSON.parse(t.replace(/^﻿/, '')) : null
-  } catch {}
-  await update($, todoAtom, () => sum)
 }
 
 type Options = { config?: string; band?: string; status_line?: string }
@@ -325,6 +266,14 @@ const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) 
     return
   }
   await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), a.open) }))
+  // Jauge is band's own pane: $.command.run skips the caller's own hooks, so open or close it here.
+  if (b.mod === 'band' && b.command === 'jauge') {
+    if (a.open) {
+      await $.ui.open({ id: PANE.id, title: c.labels.pane_title ?? 'Jauge' })
+      void refresh($)
+    } else await $.ui.close({ id: PANE.id })
+    return
+  }
   if (isWorking) $.ui.toast(`${b.label} : ${c.labels.launcher_queued ?? 'queued'}`)
   $.command.run(a.run).catch(async (err: unknown) => {
     await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), !a.open) }))
@@ -439,8 +388,6 @@ const refresh = async ($: EngineInterface) => {
     await statusLine($)
     await seeCommands($)
     await seeResume($, c)
-    await seeVeille($, c)
-    await seeTodo($, c)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -476,12 +423,18 @@ export const register: Register = (on, raw) => {
     try {
       const c = await loadConfig($)
       if (c.handoff && c.handoff.enabled !== false && e.command === c.handoff.command) await noteRan($)
-      const t = launcherTyped(c.launcher?.items ?? [], e.command, e.args ?? '', c.launcher?.close_args || 'close')
+      const t = launcherTyped(launcherItems(c.launcher), e.command, e.args ?? '', c.launcher?.close_args || 'close')
       if (t) {
         await update($, launcherAtom, l => ({ ...l, open: [...l.open.filter(k => !t.close.includes(k)), ...t.open.filter(k => !l.open.includes(k))] }))
       }
     } catch {}
     return r
+  }).catch(($, e, next) => next(e))
+
+  // The Jauge pane closed by its own ✕: the Jauge button follows. Passes through.
+  on('ui.close', { id: PANE.id }, async ($, e, next) => {
+    await update($, launcherAtom, l => ({ ...l, open: l.open.filter(k => k !== 'band') }))
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
@@ -492,8 +445,12 @@ export const register: Register = (on, raw) => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'jauge' }, async ($, e) => {
-    await refresh($)
     const c = await loadConfig($)
+    if ((e.args ?? '').trim() === (c.launcher?.close_args || 'close')) {
+      await $.ui.close({ id: PANE.id })
+      return { text: 'jauge: fermée' }
+    }
+    await refresh($)
     await $.ui.open({ id: PANE.id, title: c.labels.pane_title ?? 'Jauge' })
     const v = await read($, viewAtom)
     const en = await read($, engineAtom)
@@ -531,28 +488,26 @@ export const register: Register = (on, raw) => {
       const sc = secCfg(c)
       const L = sc.labels
       const ui = (await read($, uiAtom)) as BandUi
-      const ve = await read($, veilleAtom)
       const g = gaugeOf(c, ctx, v ?? null, undefined)
       const gw = (c as any).gauge?.width ?? 120
       const scope = (((c as any).gauge?.scopes as string[] | undefined) ?? ['conv'])[0]
       const srow = v?.scopes.find(r => r.id === scope)
       const rate = srow ? (srow.rates.find(x => x.w === c.band_window_s) ?? srow.rates[0]) : undefined
-      const head = headLine({ ctxPct: g.pct, etaMin: ctx?.etaMin, tps: rate?.tps, limits: en?.limits }, L)
+      const compactions = v?.compactions.find(r => r.isThis)?.items.length
+      const head = headLine({ ctxPct: g.pct, etaMin: ctx?.etaMin, tps: rate?.tps, compactions, limits: en?.limits }, L)
       const tone = c.colors[g.level]
       const marks = g.marks.map(m => m.label).join(' · ')
-      const todo = todoBadge(await read($, todoAtom), L)
       const line1 = (
         <Box key="band-line" flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
-          {julianCounter(ve, L) ? (
-            <Text key="band-julian" bold color={c.colors.bad ?? '#f85149'}>{julianCounter(ve, L)}</Text>
-          ) : null}
           {Svg && g.hasReading ? (
             <Svg key="band-gauge" source={gaugeSvg(g, (c as any).gauge?.colors ?? {}, gw, (c as any).gauge?.mark_labels ?? 'nearest')} alt={`${g.title} · ${marks}`} />
           ) : (
             <Text key="band-gauge-t" color={tone}>{gaugeText(g, (c as any).gauge?.text_width ?? 12)}</Text>
           )}
-          {todo ? <Text key="band-todo" color={c.colors.bad} bold>{todo}</Text> : null}
           <Text key="band-head" color={tone} wrap="truncate-end">{head}</Text>
+          {counters(v?.waiting, L).map(k => (
+            <Text key={k.key} bold color={c.colors.bad ?? '#f85149'}>{k.text}</Text>
+          ))}
           <Button key="band-toggle" onPress={() => toggleUi($, 'band')}>
             {ui.expanded ? '▾' : '▸'}
           </Button>
@@ -574,7 +529,6 @@ export const register: Register = (on, raw) => {
           {isOpen(ui, id) ? null : <Text dimColor wrap="truncate-end">{summary}</Text>}
         </Box>
       )
-      const bw = sc.usage_bar_width
       const sections = sectionList(sc).map(id => {
         if (id === 'mods') return null
         if (!ui.expanded) return null
@@ -592,41 +546,7 @@ export const register: Register = (on, raw) => {
             </Box>
           )
         }
-        if (id === 'usage') {
-          const rows = usageRows(en?.limits, v?.now ?? Date.now(), L)
-          return (
-            <Box key="sec-usage" flexDirection="column">
-              {header('usage', L.usage, usageSummary(en?.limits, en?.cost, L))}
-              {isOpen(ui, 'usage') ? (
-                <Box flexDirection="column" marginLeft={2}>
-                  {rows.length === 0 ? <Text dimColor>{L.not_readable}</Text> : null}
-                  {rows.map(r => (
-                    <Box key={`ur-${r.id}`} flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
-                      <Text>{r.label.padEnd(4)}</Text>
-                      {Svg ? <Svg source={barSvg(r.pct, (c as any).gauge?.colors?.usage ?? '#2f81f7', bw)} alt={`${r.label} ${Math.round(r.pct)} %`} /> : <Text>{textBar(r.pct)}</Text>}
-                      <Text>{`${String(Math.round(r.pct)).padStart(3)} %`}</Text>
-                      {r.when ? <Text dimColor>{r.when}</Text> : null}
-                    </Box>
-                  ))}
-                </Box>
-              ) : null}
-            </Box>
-          )
-        }
-        const vs = ve ?? { available: false, open: 0, julian: 0, alerts: [] }
-        return (
-          <Box key="sec-veille" flexDirection="column">
-            {header('veille', L.veille, veilleLine(vs, L))}
-            {isOpen(ui, 'veille') ? (
-              <Box flexDirection="column" marginLeft={2}>
-                {vs.alerts.length === 0 ? <Text dimColor>{vs.available ? L.veille_none : L.veille_off}</Text> : null}
-                {vs.alerts.slice(0, 5).map((a, i) => (
-                  <Text key={`va${i}`} {...(a.julian ? { color: c.colors.warn } : a.severity === 'bad' ? { color: c.colors.bad } : {})} wrap="truncate-end">{`• ${alertText(a)}`}</Text>
-                ))}
-              </Box>
-            ) : null}
-          </Box>
-        )
+        return null
       })
       let relayC = null
       if (advice.show && c.handoff) {
@@ -651,12 +571,12 @@ export const register: Register = (on, raw) => {
             <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
             {buttons.map(b => (
               <Button
-                key={`mod-${b.mod}`}
+                key={`mod-${launcherKey(b)}`}
                 {...(b.loaded ? {} : { dimColor: true })}
                 {...(b.open ? { variant: 'primary' as const } : {})}
                 onPress={() => press($, b, isWorking)}
               >
-                {b.open ? `${b.label} ✕` : b.label}
+                {b.open ? `${b.label} ✕` : b.loaded ? b.label : `${b.label} · ${b.hint ?? ''}`}
               </Button>
             ))}
           </Box>
@@ -719,12 +639,12 @@ export const register: Register = (on, raw) => {
             <Text dimColor>{`${c.labels.launcher ?? 'Mods'} :`}</Text>
             {buttons.map(b => (
               <Button
-                key={`mod-${b.mod}`}
+                key={`mod-${launcherKey(b)}`}
                 {...(b.loaded ? {} : { dimColor: true })}
                 {...(b.open ? { variant: 'primary' as const } : {})}
                 onPress={() => press($, b, isWorking)}
               >
-                {b.open ? `${b.label} ✕` : b.label}
+                {b.open ? `${b.label} ✕` : b.loaded ? b.label : `${b.label} · ${b.hint ?? ''}`}
               </Button>
             ))}
           </Box>
@@ -916,8 +836,8 @@ export const register: Register = (on, raw) => {
       <Box flexDirection="column">
         <Text bold>{c.labels.launcher ?? 'Mods'}</Text>
         {buttons.map(b => (
-          <Box key={`ml-${b.mod}`} flexDirection="row" gap={1}>
-            <Button key={`mp-${b.mod}`} {...(b.loaded ? {} : { dimColor: true })} onPress={() => press($, b, false)}>
+          <Box key={`ml-${launcherKey(b)}`} flexDirection="row" gap={1}>
+            <Button key={`mp-${launcherKey(b)}`} {...(b.loaded ? {} : { dimColor: true })} onPress={() => press($, b, false)}>
               {b.open ? `${b.label} ✕` : b.label}
             </Button>
             <Text dimColor>{b.loaded ? `/${b.command}${b.open ? ' · ouvert' : ''}` : (b.hint ?? '')}</Text>

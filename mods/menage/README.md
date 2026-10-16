@@ -1,5 +1,7 @@
 # menage (« Ménage »)
 
+**Now shown inside Registres** (tab Ménage, `/registres menage`); `/menage` keeps working (this mod while loaded, else Registres' alias).
+
 Read-only inventory of what Claude work leaves lying on this PC: worktrees (branch, merged or not, clean or modified, age, size), orphan worktree folders, local and remote branches already merged, mod copies, deploy backups, transcripts per project, temporary folders, archivable sessions. Each row shows the exact safe command to run; the mod never runs it and never deletes anything. Rows in red are « ne pas supprimer ».
 
 **Now also a tab of Registres**: `/registres menage` (or `/menage` when this mod is not loaded) shows the same inventory in the Registres pane, drawn by a copy of `hooks/view.mjs`. This mod keeps working on its own while it is loaded.

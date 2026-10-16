@@ -1,5 +1,7 @@
 # metrics — « Les règles marchent ? »
 
+**Now shown inside Registres** (tab Règles, `/registres regles`); `/regles` keeps working (this mod while loaded, else Registres' alias).
+
 Read-only pane (`/regles`) that shows, per day and per rules version, whether the rules that steer your agents help.
 
 **Now also a tab of Registres**: `/registres regles [V5.8] [refresh]` (or `/regles` when this mod is not loaded) shows the same view in the Registres pane, drawn by a copy of `hooks/pane.mjs` (the pane's pure drawing; `hooks/register.tsx` only reads the files and hands them over). This mod keeps working on its own while it is loaded.

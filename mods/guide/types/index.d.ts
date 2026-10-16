@@ -14,6 +14,8 @@ export type CatalogEntry = {
   description?: string
   data?: string
   note?: string
+  /** where Julian finds it since the 6 hubs: « hub … » for a hub, « dans <hub> … » for an older mod */
+  inside?: string
   tests?: string[]
 }
 export type ModsCatalog = {
@@ -38,6 +40,8 @@ export type Card = {
   options: string[]
   data: string
   note: string
+  /** the hub that shows it (mods.json `inside`), '' when not said */
+  inside: string
   tests: string[]
   enable: string
 }

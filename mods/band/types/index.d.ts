@@ -84,8 +84,10 @@ export type View = {
   }
   files: number
   ms: number
-  /** where the per-line usage and the prices came from: "mods/usage/lib" (shared) or "band" (fallback) */
+  /** where the per-line usage and the prices came from: "lib/core" (shared, the mod's synced copy) or "band" (fallback) */
   lib: string
+  /** « À toi : N » and « attend Julian : N », counted once by lib/core/veille.mjs (readVeille) in the scanner */
+  waiting?: { aToi: number; julian: number; available: boolean; aToiAvailable: boolean }
 }
 
 /** This conversation's figures from the engine ($.session.usage / session.measure). */
@@ -109,16 +111,6 @@ export type EngineFigures = {
 
 /** The compact band's folding: the sections list unfolded under line 1, and which sections are open. */
 export type BandUi = { expanded: boolean; open: string[] }
-
-/** Veille's open alerts as the band reads them from veille's own files (state.json, acks.jsonl). */
-export type VeilleBand = {
-  available: boolean
-  open: number
-  julian: number
-  top?: VeilleBandAlert
-  alerts: VeilleBandAlert[]
-}
-export type VeilleBandAlert = { key: string; what?: string; title?: string; severity?: string; julian?: boolean; acked?: boolean; since?: number }
 
 /** The hand-off helper's state in this session. */
 export type HandoffState = {
@@ -149,10 +141,6 @@ declare module 'claude-code' {
       handoff: HandoffState
       /** the compact band's folding (remembered in $.store under "sections" when sections.remember is "store") */
       ui: BandUi
-      /** veille's open alerts, read from its files at each refresh while the Veille section is enabled */
-      veille: VeilleBand | null
-      /** a-faire's counts (its summary.json), read at each refresh unless todo_home is ""; only `open` is shown */
-      todo: { open?: number; [count: string]: unknown } | null
     }
   }
 }

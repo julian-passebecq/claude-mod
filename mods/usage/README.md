@@ -1,5 +1,7 @@
 # usage — « Consommation »
 
+**Now shown inside Cockpit** (cards Qui consomme and Quota, Voir → `/conso`); `/conso` keeps working.
+
 Read-only pane: what your agents burn (tokens and list-price cost equivalent) and when the plan's 5-hour and weekly windows run out. `/conso [aujourdhui|semaine|prevision|scenarios|plein|codex] [refresh]`. UI in French.
 
 ## Onglets

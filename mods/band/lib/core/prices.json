@@ -1,0 +1,24 @@
+{
+  "_doc": "List prices in USD per million tokens, used for the cost EQUIVALENT only (a Max plan bills nothing per token). Override any model in usage.config.json under \"prices\".",
+  "source": "https://claude.com/pricing",
+  "checked": "2026-10-16",
+  "notes": [
+    "cache_write_1h is not on the pricing page: 2x input, from the prompt caching docs (https://platform.claude.com/docs/en/build-with-claude/prompt-caching), non vérifié for the 5.x models",
+    "Haiku 5.5 has two tiers: \"above\" applies when one request's input side (input + cache read + cache writes) is over \"tokens\"",
+    "US-only inference (1.1x) and Opus fast mode (2x) are not applied"
+  ],
+  "families": { "fable": "claude-fable-5-1", "opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5" },
+  "default": "claude-opus-5-5",
+  "models": {
+    "claude-fable-5-1": { "in": 10, "out": 50, "cache_write_5m": 12.5, "cache_write_1h": 20, "cache_read": 0.25 },
+    "claude-opus-5-5": { "in": 4, "out": 20, "cache_write_5m": 5, "cache_write_1h": 8, "cache_read": 0.2 },
+    "claude-sonnet-5-5": { "in": 2, "out": 10, "cache_write_5m": 2.5, "cache_write_1h": 4, "cache_read": 0.1 },
+    "claude-haiku-5-5": {
+      "in": 0.1, "out": 0.5, "cache_write_5m": 0.125, "cache_write_1h": 0.2, "cache_read": 0.01,
+      "above": { "tokens": 100000, "in": 0.5, "out": 2.5, "cache_write_5m": 0.625, "cache_write_1h": 1, "cache_read": 0.05 }
+    },
+    "claude-opus-5": { "in": 5, "out": 25, "cache_write_5m": 6.25, "cache_write_1h": 10, "cache_read": 0.5 },
+    "claude-sonnet-5": { "in": 2, "out": 10, "cache_write_5m": 2.5, "cache_write_1h": 4, "cache_read": 0.2 },
+    "claude-haiku-4-5": { "in": 1, "out": 5, "cache_write_5m": 1.25, "cache_write_1h": 2, "cache_read": 0.1 }
+  }
+}

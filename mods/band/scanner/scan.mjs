@@ -11,27 +11,45 @@ import { fileURLToPath } from 'node:url'
 import { buildView, deepMerge, expandHome, repoKey } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, ownUsage, parseLines, prune } from '../hooks/parse.ts'
 import { writeHealth } from './health.mjs'
+import { readVeille } from '../lib/core/veille.mjs'
 
 const CHUNK = 8 * 1024 * 1024
 
 /**
- * The shared parser and price table of mods/usage (lib/transcripts.mjs usageOf and costOf, lib/prices.json), when the
- * usage mod sits beside this one (this repo, or both copied under ~/.claude/mods). Else band's fallback parser and the
- * `rates` of band.config.json. `shared_lib: "off"` forces the fallback.
+ * The shared parser and price table of lib/core (transcripts.mjs usageOf and costOf, prices.json), from this mod's
+ * own synced copy (mods/band/lib/core, scripts/sync-libs.mjs): no import outside the mod folder. Else band's fallback
+ * parser and the `rates` of band.config.json. `shared_lib: "off"` forces the fallback.
  */
 export async function sharedLib(cfg) {
   if (cfg.shared_lib === 'off') return undefined
   try {
-    const lib = await import(new URL('../../usage/lib/transcripts.mjs', import.meta.url).href)
-    const prices = JSON.parse(readFileSync(new URL('../../usage/lib/prices.json', import.meta.url), 'utf8'))
+    const lib = await import(new URL('../lib/core/transcripts.mjs', import.meta.url).href)
+    const prices = JSON.parse(readFileSync(new URL('../lib/core/prices.json', import.meta.url), 'utf8'))
     if (typeof lib.usageOf !== 'function' || typeof lib.costOf !== 'function') return undefined
     return {
-      name: 'mods/usage/lib',
+      name: 'lib/core',
       extract: lib.usageOf,
       price: e => lib.costOf([e.u.inp, e.u.out, e.u.cr, e.u.cw - (e.u.cw1h ?? 0), e.u.cw1h ?? 0], e.m, prices),
     }
   } catch {
     return undefined
+  }
+}
+
+/**
+ * « À toi : N » and « attend Julian : N » from lib/core/veille.mjs, the one count every view uses. sections.veille_home
+ * / todo_home move the folders (VEILLE_HOME / AFAIRE_HOME win); "" turns that counter off (0).
+ */
+export function waitingOf(cfg, env = process.env) {
+  const s = cfg?.sections ?? {}
+  const vOff = s.veille_home === '' || s.veille_home === false
+  const aOff = s.todo_home === '' || s.todo_home === false
+  const r = readVeille({ veilleHome: env.VEILLE_HOME || s.veille_home || undefined, afaireHome: env.AFAIRE_HOME || s.todo_home || undefined, env })
+  return {
+    aToi: aOff ? 0 : r.aToi,
+    julian: vOff ? 0 : r.julian,
+    available: !vOff && r.available,
+    aToiAvailable: !aOff && r.aToiAvailable,
   }
 }
 
@@ -211,7 +229,12 @@ export function scan(req, lib) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const req = loadRequest(process.argv.slice(2))
-    process.stdout.write(JSON.stringify(scan(req, await sharedLib(req.cfg))))
+    const view = scan(req, await sharedLib(req.cfg))
+    let waiting
+    try {
+      waiting = waitingOf(req.cfg)
+    } catch {}
+    process.stdout.write(JSON.stringify(waiting ? { ...view, waiting } : view))
     writeHealth('band')
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: String(err?.stack ?? err).slice(0, 800) }))

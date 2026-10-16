@@ -23,6 +23,7 @@ import {
   handoffReason,
   isLoaded,
   launcherButtons,
+  launcherItems,
   launcherPress,
   launcherKey,
   launcherTyped,
@@ -34,7 +35,7 @@ import {
   toggleOpen,
 } from '../hooks/logic.ts'
 import { classifyPath, emptyMeta, parseLines } from '../hooks/parse.ts'
-import { scan, sharedLib } from '../scanner/scan.mjs'
+import { scan, sharedLib, waitingOf } from '../scanner/scan.mjs'
 
 const CFG = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -232,9 +233,9 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
 
     // the shared parser and price table of mods/usage give the same tokens; a fresh cache reads every file again
     const lib = await sharedLib(CFG)
-    assert.equal(lib?.name, 'mods/usage/lib')
+    assert.equal(lib?.name, 'lib/core')
     const v4 = scan({ ...req, cache_file: join(dir, 'cache2.json') }, lib)
-    assert.equal(v4.lib, 'mods/usage/lib')
+    assert.equal(v4.lib, 'lib/core')
     for (const id of ['conv', 'agents', 'workflows', 'project']) {
       assert.equal(v4.scopes.find(s => s.id === id).rates[0].tokens, v3.scopes.find(s => s.id === id).rates[0].tokens, id)
     }
@@ -245,8 +246,26 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
   }
 })
 
-test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
+test('launcher: preset hubs (default) draws the 6 hubs; a hub not loaded says how to load it', () => {
   const L = CFG.launcher
+  assert.equal(L.preset, 'hubs')
+  assert.deepEqual(launcherItems(L).map(i => `${i.label}=${i.mod}:/${i.command}`), [
+    'Jauge=band:/jauge', 'Cockpit=cockpit:/cockpit', 'Veille=veille:/veille', 'À toi=a-faire:/afaire', 'Registres=registres:/registres', 'Référence=reference:/reference',
+  ])
+  const cmds = [{ name: 'jauge', plugin: 'band' }, { name: 'cockpit', plugin: 'cockpit' }, { name: 'veille', plugin: 'veille' }, { name: 'afaire', plugin: 'a-faire' }]
+  const bs = launcherButtons(L, cmds, [], CFG.labels)
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, true, true, false, false])
+  assert.equal(bs[4].hint, 'non chargé : ajouter mods/registres à CLAUDE_CODE_PLUGIN_DIRS')
+  assert.equal(bs[5].hint, 'non chargé : ajouter mods/reference à CLAUDE_CODE_PLUGIN_DIRS')
+  // an own `items` list still wins under the default preset; preset all falls back to items when all_items is absent
+  assert.deepEqual(launcherItems({ items: [{ label: 'X', mod: 'x', command: 'x' }] }).map(i => i.label), ['X'])
+  assert.deepEqual(launcherItems({ preset: 'all', items: [{ label: 'X', mod: 'x', command: 'x' }] }).map(i => i.label), ['X'])
+  assert.deepEqual(launcherItems(undefined), [])
+})
+
+test('launcher: preset all (the 15 older buttons), loaded vs not loaded, open/close toggle', () => {
+  const L = { ...CFG.launcher, preset: 'all', items: CFG.launcher.all_items }
+  assert.deepEqual(launcherItems({ ...CFG.launcher, preset: 'all' }), CFG.launcher.all_items)
   assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Fil=veille', 'Ménage=menage', 'Cockpit=cockpit', 'À faire=a-faire', 'Problèmes=problemes', 'Export eta=export-eta', 'Tests réels=tests-reels'])
   const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
   assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
@@ -396,9 +415,9 @@ test('band sections: defaults folded, order and enabled from config, toggle, rem
   const S = await import('../hooks/sections.ts')
   const shipped = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
   const c = S.sectionsCfg(shipped.sections)
-  assert.deepEqual(S.sectionList(c), ['conv', 'usage', 'veille', 'mods'])
+  assert.deepEqual(S.sectionList(c), ['conv', 'mods']) // Usage and Veille live in Cockpit and Veille now
   assert.deepEqual(S.initialUi(c), { expanded: false, open: [] }) // collapsed by default
-  assert.deepEqual(S.sectionList(S.sectionsCfg({ order: ['veille', 'nope', 'conv'], enabled: ['conv', 'veille'] })), ['veille', 'conv'])
+  assert.deepEqual(S.sectionList(S.sectionsCfg({ order: ['mods', 'veille', 'nope', 'conv'], enabled: ['conv', 'veille', 'mods'] })), ['mods', 'conv'])
   assert.deepEqual(S.initialUi(c, { expanded: true, open: ['usage'] }), { expanded: true, open: ['usage'] })
   assert.deepEqual(S.initialUi(S.sectionsCfg({ remember: 'session' }), { expanded: true, open: ['usage'] }), { expanded: false, open: [] })
   let ui = S.toggleSection(S.initialUi(c), 'band')
@@ -409,21 +428,11 @@ test('band sections: defaults folded, order and enabled from config, toggle, rem
   const limits = [{ kind: 'five_hour', percentUsed: 24.2 }, { kind: 'seven_day', percentUsed: 14 }]
   assert.equal(S.headLine({ ctxPct: 8.1, etaMin: 15.6, tps: 434.2, limits }, L), 'ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 %')
   assert.equal(S.headLine({}, L), 'ctx ?')
+  assert.equal(S.headLine({ ctxPct: 41, tps: 120, compactions: 1, limits }, L), 'ctx 41 % · 120 tok/s · 1 compactage(s) · 5 h 24 % · sem 14 %')
   const facts = { model: 'claude-opus-5-5', effort: 'medium', agents: { running: 1, total: 3, workflow: 'wf_9' }, pr: { number: 12 } }
   assert.equal(S.convSummary(facts, L), 'opus 5.5 · medium · agents 1/3 · wf wf_9 · PR #12')
   assert.equal(S.convSummary({}, L), 'modèle ?')
-  assert.equal(S.usageSummary(limits, 0.234, L), '5 h 24 % · sem 14 % · $0.23')
-  assert.equal(S.usageSummary([], undefined, L), 'non lisible')
-  const now = Date.parse('2026-10-16T16:00:00Z')
-  const rows = S.usageRows([{ kind: 'five_hour', percentUsed: 24, resetsAt: new Date(now + 136 * 60000).toISOString() }], now, L)
-  assert.deepEqual(rows.map(r => [r.label, r.when]), [['5 h', 'reset dans 2 h 16']])
-  const v = S.veilleSummary({ alerts: { a: { key: 'a', what: 'CI rouge', severity: 'warn' }, b: { key: 'b', what: 'PR à merger', julian: true }, c: { key: 'c', what: 'vu' } } }, ['c'])
-  assert.equal(v.open, 2)
-  assert.equal(S.veilleLine(v, L), '2 alerte(s) · 1 attend Julian · PR à merger')
-  assert.equal(S.veilleLine(S.veilleSummary(null, []), L), 'veille absente')
-  assert.equal(S.julianCounter(v, L), 'attend Julian : 1')
-  assert.equal(S.julianCounter(S.veilleSummary({ alerts: {} }, []), L), '')
-  for (const line of [S.headLine({ ctxPct: 8, etaMin: 16, tps: 434, limits }, L), S.convSummary(facts, L), S.usageSummary(limits, 0.23, L), S.veilleLine(v, L)]) {
+  for (const line of [S.headLine({ ctxPct: 8, etaMin: 16, tps: 434, limits }, L), S.convSummary(facts, L)]) {
     assert.ok(!line.includes('\n') && line.length <= 75, `one short line: ${line}`)
   }
   assert.equal(S.modelShort('claude-sonnet-5-5[1m]'), 'sonnet 5.5')
@@ -439,12 +448,37 @@ test('scanner view: this conversation\'s agents (running within running_s), its 
   assert.equal(v.conv.pr.number, 7)
 })
 
-test('band line 1: the red « À toi : N » from a-faire summary.json, nothing at 0 or without the file', async () => {
+test('band line 1: « À toi : N » then « attend Julian : N », once each, only when N > 0', async () => {
   const S = await import('../hooks/sections.ts')
   const L = S.sectionsCfg(CFG.sections).labels
-  assert.equal(CFG.sections.todo_home, '~/.claude/a-faire')
-  assert.equal(S.todoBadge({ open: 3, high: 1, by_cat: {} }, L), 'À toi : 3')
-  assert.equal(S.todoBadge({ open: 0 }, L), '')
-  assert.equal(S.todoBadge(null, L), '')
-  assert.equal(S.todoBadge({ open: 'x' }, L), '')
+  assert.deepEqual(S.counters({ aToi: 3, julian: 2 }, L), [{ key: 'band-todo', text: 'À toi : 3' }, { key: 'band-julian', text: 'attend Julian : 2' }])
+  assert.deepEqual(S.counters({ aToi: 0, julian: 1 }, L).map(k => k.text), ['attend Julian : 1'])
+  assert.deepEqual(S.counters(null, L), [])
+  assert.deepEqual(S.counters({ aToi: 'x', julian: -1 }, L), [])
+  assert.deepEqual(S.counters({ aToi: 2 }, { todo: 'À toi' }).map(k => k.text), ['À toi : 2'])
+})
+
+test('scanner counters come from lib/core/veille.mjs: invented veille and a-faire folders; "" turns one off', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'band-waiting-'))
+  try {
+    const vh = join(dir, 'veille')
+    const ah = join(dir, 'a-faire')
+    mkdirSync(vh, { recursive: true })
+    mkdirSync(ah, { recursive: true })
+    writeFileSync(join(vh, 'state.json'), JSON.stringify({ alerts: {
+      a: { key: 'a', what: 'Attend Julian : fixture one', julian: true, severity: 'julian' },
+      b: { key: 'b', what: 'Attend Julian : fixture two', julian: true, severity: 'julian' },
+      c: { key: 'c', what: 'CI rouge', severity: 'bad' },
+    } }))
+    writeFileSync(join(vh, 'acks.jsonl'), JSON.stringify({ key: 'b' }) + '\n')
+    writeFileSync(join(ah, 'summary.json'), JSON.stringify({ v: 2, total: 4, open: 4, high: 1 }))
+    const cfg = { sections: { veille_home: vh, todo_home: ah } }
+    assert.deepEqual(waitingOf(cfg, {}), { aToi: 4, julian: 1, available: true, aToiAvailable: true })
+    assert.deepEqual(waitingOf({ sections: { veille_home: vh, todo_home: '' } }, {}), { aToi: 0, julian: 1, available: true, aToiAvailable: false })
+    assert.deepEqual(waitingOf({ sections: { veille_home: join(dir, 'none'), todo_home: join(dir, 'none') } }, {}), { aToi: 0, julian: 0, available: false, aToiAvailable: false })
+    // VEILLE_HOME / AFAIRE_HOME win over the settings
+    assert.equal(waitingOf({ sections: { veille_home: join(dir, 'none'), todo_home: join(dir, 'none') } }, { VEILLE_HOME: vh, AFAIRE_HOME: ah }).aToi, 4)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
