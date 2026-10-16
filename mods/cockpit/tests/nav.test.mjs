@@ -9,7 +9,7 @@ import { localDay } from '../lib/factory/hooks/logic.mjs'
 import { el, renderText, widest } from '../lib/factory/scanner/textrender.mjs'
 import {
   cockpitConfig, sectionsOf, initialNav, zoomTo, select, crumbs, crumbText, convForest, treeRows, agentNodes, agentCard, scanForRepo,
-  projectsOf, usageCard, rowText, inText, convHead, projectSummary, allSummary, convSummary, sectionFor,
+  projectsOf, usageCard, rowText, inText, convHead, projectSummary, allSummary, convSummary, sectionFor, consoCard, consoSummary,
 } from '../hooks/nav.mjs'
 import { treeSvg } from '../hooks/svg.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
@@ -52,7 +52,7 @@ test('config: defaults merged with the shipped file; sections by scope, filtered
   assert.equal(c.default_level, 'medium')
   assert.equal(c.labels.levels.mega, 'Méga')
   assert.equal(c.labels.tree, 'Arbre') // a default the file does not repeat
-  assert.deepEqual(sectionsOf(CCFG), ['breadcrumb', 'conv', 'project', 'all', 'global', 'fichiers'])
+  assert.deepEqual(sectionsOf(CCFG), ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers'])
   assert.deepEqual(c.sections.open, ['conv'])
   assert.equal(c.diagram.enabled, false) // the drawn tree repeated the rows
   assert.deepEqual(sectionsOf({ sections: { order: ['all', 'nope', 'conv'], enabled: ['conv', 'all'] } }), ['all', 'conv'])
@@ -220,6 +220,37 @@ test('summaries: conversation head, project, all projects, global; a click opens
   for (const s of [convSummary(h, FCFG), projectSummary(ps[0], FCFG), allSummary(ps, FCFG)]) assert.ok(!s.includes('\n') && s.length <= 60, s)
 })
 
-test('lib/ is a byte copy of factory, band and veille (node mods/cockpit/scripts/sync-libs.mjs after changing them)', () => {
+test('lib/ is a byte copy of factory, band, veille and usage (node mods/cockpit/scripts/sync-libs.mjs after changing them)', () => {
   assert.deepEqual(stale(), [])
+})
+
+// « Qui consomme »: hand-made classement.json rows ([hour, sid, kind, model, agent, skill, mcp, in, out, cr, cw5, cw1h, msgs, active, cost]).
+const CROW = (h, sid, kind, usd) => [Math.floor(NOW / 3600000) * 3600000 - h * 3600000, sid, kind, 'claude-opus-5-5', '', '', '', 1000, 100, 5000, 0, 200, 1, 0, usd]
+const CLS = {
+  v: 1, generated: NOW, tzMin: 0, days: 31,
+  sessions: { a: { t: 'Lane alpha', p: 'proj-one' }, b: { t: 'Lane beta', p: 'proj-two' }, c: { t: 'Lane gamma', p: 'proj-one' }, d: { t: 'Lane delta', p: 'proj-two' } },
+  rows: [CROW(0, 'a', 'main', 5), CROW(0, 'a', 'subagent', 1), CROW(0, 'b', 'main', 3), CROW(2, 'c', 'main', 2), CROW(3, 'd', 'main', 1), CROW(100, 'd', 'main', 50)],
+}
+
+test('qui consomme: top 3 conversations and the top project per preset, summary, card and full-view button', () => {
+  const t = consoCard(CLS, CCFG, NOW, 'today')
+  assert.equal(t.preset.id, 'today')
+  assert.deepEqual(t.rows.map((r) => r.id), ['a', 'b', 'c'])
+  assert.equal(t.rows[0].cost, 6)
+  assert.equal(t.rows[0].pct, 50)
+  assert.deepEqual(t.project && [t.project.label, t.project.cost], ['proj-one', 8])
+  assert.deepEqual(consoCard(CLS, CCFG, NOW, '1h').rows.map((r) => r.id), ['a', 'b']) // the hour buckets touching the last hour
+  assert.equal(consoCard(CLS, CCFG, NOW, '7d').rows[0].id, 'd') // the 50 $ of 100 h ago
+  assert.equal(consoCard(null, CCFG, NOW, 'today'), null)
+  assert.equal(consoSummary(t), 'aujourd’hui $12.00 · Lane alpha 50 % · proj-one 67 %')
+  const act = { ...VIEW(null, {}).act, consoPreset: () => {}, consoFull: () => {} }
+  const text = renderText(drawCockpit(el, VIEW(initialNav(SCAN, 'lead-cli', CCFG), { ...DEFAULT_OPEN, conso: true }, { conso: t, act })), 75)
+  assert.match(text, /Qui consomme/)
+  assert.match(text, /1\. Lane alpha \(proj-one\)/)
+  assert.match(text, /projet en tête : proj-one/)
+  assert.match(text, /Classement complet/)
+  const closed = renderText(drawCockpit(el, VIEW(initialNav(SCAN, 'lead-cli', CCFG), DEFAULT_OPEN, { conso: t })), 75)
+  assert.match(closed, /▸ Qui consomme\] aujourd’hui \$12\.00/)
+  const none = renderText(drawCockpit(el, VIEW(initialNav(SCAN, 'lead-cli', CCFG), { conso: true }, { conso: null, consoPreset: 'today', act })), 75)
+  assert.match(none, /pas encore de classement/)
 })

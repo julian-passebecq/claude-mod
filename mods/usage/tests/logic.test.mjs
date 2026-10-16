@@ -15,6 +15,7 @@ import {
 import { addSample, readSamples } from '../scanner/usage_scan.mjs'
 import { T0, assistant, tree, write } from './fixture.mjs'
 import './codex.test.mjs' // the Codex tab's tests run with this file (CI runs logic.test.mjs)
+import './classement.test.mjs' // and the Classement tab's
 
 const here = new URL('..', import.meta.url)
 const prices = JSON.parse(readFileSync(new URL('lib/prices.json', here), 'utf8'))

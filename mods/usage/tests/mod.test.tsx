@@ -18,6 +18,12 @@ const CONFIG = {
     suggest_full: 'scénario Plein régime suggéré', no_full: 'Pas de Plein régime',
   },
   heat: ' ░▒▓█',
+  classement: {
+    days: 31, top: 20, buttons_top: 10, bar_width: 12, default_preset: 'today', default_group: 'conversation', links_file: '~/.claude/veille/fil.json',
+    presets: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: "aujourd'hui", since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
+    groups: [{ id: 'conversation', label: 'conversation' }, { id: 'project', label: 'projet' }, { id: 'source', label: 'Claude / Codex' }],
+    labels: { others: 'autres', new: 'nouveau', copy: "Copier l'id", open: 'Ouvrir', sub: 'sous-agents', codex_note: 'par jour entier' },
+  },
   codex: {
     enabled: 'auto', sessions_dir: '~/.codex/sessions', stale_limits_h: 24, expected_windows: [300, 10080], window_labels: { '300': 'Fenêtre 5 h', '10080': 'Semaine' },
     labels: { codex: 'Codex', claude: 'Claude', unavailable: 'non disponible', off: 'Codex désactivé', no_dir: 'non disponible : aucun dossier {dir}', no_data: 'non disponible : aucune session {dir}', no_limits: '% : non disponible', stale: 'ancienne lecture', past: 'réinitialisée', source: 'Source : {dir}' },
@@ -32,6 +38,14 @@ const AGGR = {
   sessions: { 'sess-a': { title: 'App one lane', project: 'app-one', kind: 'main', surface: 'Onglet Code (app)' } },
   rates: { 'main|opus': [0, 0, 0, 0, 0, 0, 3600, 3], 'workflow|opus': [0, 0, 0, 0, 0, 0, 3600, 3] },
 }
+// classement.json rows: [hour, sid, kind, model, agent, skill, mcp, in, out, cache read, cw5, cw1h, msgs, active, cost]
+const CR = (h: number, sid: string, kind: string, usd: number) => [NOW - h * H, sid, kind, 'claude-opus-5-5', '', '', '', 1000, 100, 5000, 0, 200, 1, 0, usd]
+const CLASSEMENT = {
+  v: 1, generated: NOW, tzMin: 0, days: 31,
+  sessions: { 'sess-a': { t: 'App one lane', p: 'app-one' }, 'sess-b': { t: 'Second lane', p: 'app-two' } },
+  rows: [CR(1, 'sess-a', 'main', 3), CR(2, 'sess-a', 'subagent', 1), CR(1, 'sess-b', 'main', 2), CR(30, 'sess-b', 'main', 1)],
+}
+const FIL = { projects: [{ convs: [{ cli: 'sess-a', sid: 'local_aaa', link: 'claude://claude.ai/epitaxy/local_aaa', children: [] }] }] }
 const SCEN = {
   models: { opus: { label: 'Opus 5.5', id: 'claude-opus-5-5' } },
   scenarios: [
@@ -59,6 +73,8 @@ function world(on: any, weekPct?: number, codex: any = CODEX) {
     if (p.endsWith('/usage-mod/aggregate.json')) return { value: JSON.stringify(AGGR) }
     if (p.endsWith('/scenarios/scenarios.json')) return { value: JSON.stringify(SCEN) }
     if (p.endsWith('/usage-mod/codex.json') && codex) return { value: JSON.stringify(codex) }
+    if (p.endsWith('/usage-mod/classement.json')) return { value: JSON.stringify(CLASSEMENT) }
+    if (p === 'C:/Users/me/.claude/veille/fil.json') return { value: JSON.stringify(FIL) }
     throw new Error('ENOENT ' + p)
   })
   on('session.usage', () => ({ value: { startedAt: NOW - H, context: {}, rateLimits: weekPct === undefined ? [] : [{ kind: 'seven_day', percentUsed: weekPct, resetsAt: new Date(NOW + 40 * H).toISOString() }, { kind: 'five_hour', percentUsed: 12, resetsAt: new Date(NOW + 3 * H).toISOString() }] } }))
@@ -145,3 +161,25 @@ test('without Codex files the tab says « non disponible » instead of guessing'
   expect(await pane.find({ type: 'Text', text: /non disponible : aucun dossier ~\/\.codex\/sessions/ })).toBeDefined()
   await pane.unmount()
 })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Classement tab ranks conversations, groups by project, copies the id and opens the app link (${surface})`, async ($, on) => {
+    const w = world(on, 10)
+    const pane = await mount($, surface)
+    await pane.press({ key: 'tab-classement' })
+    expect(await pane.find({ type: 'Text', text: /^Total aujourd'hui : 19 k tokens · 6\.00 \$ · 2 ligne\(s\)/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^ 1\. █+ App one lane \(app-one\) · 13 k · 4\.00 \$ · 67 % nouveau/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /sous-agents 50 %/ })).toBeDefined()
+    await pane.press({ key: 'cp-0' })
+    expect(w.copies).toContain('sess-a')
+    await pane.press({ key: 'op-0' })
+    expect(w.runs.some(a => a.includes('claude://claude.ai/epitaxy/local_aaa'))).toBe(true)
+    await pane.press({ key: 'g-project' })
+    expect(await pane.find({ type: 'Text', text: /^ 1\. .* app-one · 13 k/ })).toBeDefined()
+    await pane.press({ key: 'g-source' })
+    expect(await pane.find({ type: 'Text', text: /^Codex · 1\.1 M tokens · par jour entier/ })).toBeDefined()
+    await pane.press({ key: 'p-7d' })
+    expect(await pane.find({ type: 'Text', text: /^Total 7 j : 25 k tokens · 7\.00 \$/ })).toBeDefined()
+    await pane.unmount()
+  })
+}

@@ -1,5 +1,5 @@
 // usage mod ("Consommation"): read-only view of what the agents burn and when the plan's windows run out.
-// /conso [aujourdhui|semaine|prevision|scenarios|plein] [refresh] opens the pane. Tokens come from the local
+// /conso [aujourdhui|semaine|prevision|scenarios|plein|classement] [refresh] opens the pane. Tokens come from the local
 // transcripts (scanner/usage_scan.mjs, incremental, run with Node); the official 5-hour and weekly % come from
 // $.session.usage().rateLimits and the session.measure event, saved as samples to calibrate tokens per 1 %.
 // Nothing here blocks or rewrites anything: session.measure passes on untouched, the scenarios are only suggested.
@@ -8,15 +8,31 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { tokensOf } from '../lib/transcripts.mjs'
 import { CV, codexView } from '../lib/codex.mjs'
+import { bar, codexTokens, isAppLink, linksFromFil, rank, trendText } from '../lib/classement.mjs'
 import { deepMerge, expandHome, fmtPct, fmtTokens, fmtUsd, heatRow, model, outcome, promptLine, when } from './logic.mjs'
 
-const TABS = ['today', 'week', 'forecast', 'scenarios', 'full', 'codex'] as const
-const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full', codex: 'codex' }
+const TABS = ['today', 'week', 'classement', 'forecast', 'scenarios', 'full', 'codex'] as const
+const ALIASES: Record<string, string> = { aujourdhui: 'today', today: 'today', semaine: 'week', week: 'week', prevision: 'forecast', forecast: 'forecast', scenarios: 'scenarios', plein: 'full', full: 'full', codex: 'codex', classement: 'classement', qui: 'classement', ranking: 'classement' }
 const tab = atom({ plugin: 'usage', key: 'tab' } as const, 'today')
 const copied = atom({ plugin: 'usage', key: 'copied' } as const, '')
+const cPreset = atom({ plugin: 'usage', key: 'preset' } as const, '')
+const cGroup = atom({ plugin: 'usage', key: 'group' } as const, '')
 
 type Options = { status_line?: string; codex?: string }
-const S: { busy: boolean; error: string; at: number; last: any; aggr: any } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined }
+const S: { busy: boolean; error: string; at: number; last: any; aggr: any; cls: any } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined, cls: undefined }
+
+// Hands a desktop-app conversation link to the OS (same rule and call as veille's Fil). Windows: url.dll, no shell.
+async function openUrl($: EngineInterface, url: string) {
+  if (!isAppLink(url)) return false
+  let win = false
+  try { win = (await $.env.get('OS')) === 'Windows_NT' } catch {}
+  try {
+    const r = await $.process.run(win ? ['rundll32.exe', 'url.dll,FileProtocolHandler', url] : ['xdg-open', url], { timeoutMs: 10000 })
+    return r.exitCode === 0
+  } catch {
+    return false
+  }
+}
 
 const home = async ($: EngineInterface) => {
   let v: string | undefined
@@ -72,6 +88,7 @@ async function rescan($: EngineInterface, options: Options) {
     S.error = ''
     S.at = await $.clock.now()
     S.aggr = undefined
+    S.cls = undefined
   } catch (err) {
     S.error = String((err as Error)?.message ?? err).slice(0, 300)
   } finally {
@@ -81,7 +98,7 @@ async function rescan($: EngineInterface, options: Options) {
   $.ui.invalidate('ui.render')
 }
 
-async function compute($: EngineInterface, options: Options) {
+async function compute($: EngineInterface, options: Options, current = '') {
   const { root, dataDir, cfg } = await context($, options)
   const aggr = S.aggr ?? (S.aggr = await readJson($, `${dataDir}/aggregate.json`))
   const sc = await readJson($, `${root}/${cfg.scenarios_file || '../scenarios/scenarios.json'}`)
@@ -89,7 +106,9 @@ async function compute($: EngineInterface, options: Options) {
   const codexOff = cfg.codex?.enabled === 'off'
   const cx = codexOff ? { available: false, reason: 'off' } : codexView(await readJson($, `${dataDir}/codex.json`), cfg, { now, tzMin: aggr?.tzMin ?? 0 })
   const m = aggr ? model(aggr, cfg, { now, live: await liveLimits($), samples: await samples($, dataDir), scenarios: sc?.scenarios ?? [] }) : undefined
-  return { cfg, m, sc, cx, now, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
+  const cls = current === 'classement' ? S.cls ?? (S.cls = await readJson($, `${dataDir}/classement.json`)) : undefined
+  const cxRaw = current === 'classement' && !codexOff ? await readJson($, `${dataDir}/codex.json`) : undefined
+  return { cfg, m, sc, cx, cxRaw, cls, now, stale: !aggr || now - S.at > (cfg.refresh_min ?? 10) * 60000 }
 }
 
 async function refreshStatus($: EngineInterface, options: Options) {
@@ -150,14 +169,14 @@ export const register: Register = (on, raw) => {
 
   on('ui.render', { component: 'Pane', requestId: 'usage' }, async ($, e) => {
     const { Box, Text, Button, Code } = $.ui.resolve(e)
-    const { cfg, m, sc, cx, now } = await compute($, options)
+    const current = ((await read($, tab)) as string) || 'today'
+    const { cfg, m, sc, cx, cxRaw, cls, now } = await compute($, options, current)
     const l = cfg.labels ?? {}
     const cxl = cfg.codex?.labels ?? {}
     const fill = (t: string, v: Record<string, string>) => String(t ?? '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? `{${k}}`)
     const dir = String(cfg.codex?.sessions_dir ?? '~/.codex/sessions')
     const cxTokens = (v: number[]) => `${fmtTokens(v[CV.total])} tokens (entrée ${fmtTokens(v[CV.input])} dont cache ${fmtTokens(v[CV.cached])} · sortie ${fmtTokens(v[CV.output])} dont raisonnement ${fmtTokens(v[CV.reasoning])})`
     const cxOk = cx.available && cx.hasData
-    const current = ((await read($, tab)) as string) || 'today'
     const last = await read($, copied)
     const unit = m?.basis === 'tokens' ? 'tokens' : '$'
     const amount = (v: number[]) => `${fmtTokens(tokensOf(v))} tokens · ${fmtUsd(v[7])}`
@@ -177,7 +196,7 @@ export const register: Register = (on, raw) => {
         <Box flexDirection="row" gap={1} flexWrap="wrap">
           {TABS.filter(t => t !== 'codex' || cx.reason !== 'off').map(t => (
             <Button key={`tab-${t}`} {...(t !== current ? { plain: true as const } : {})} onPress={() => update($, tab, () => t)}>
-              {l.tabs?.[t] ?? t}
+              {l.tabs?.[t] ?? (t === 'classement' ? 'Classement' : t)}
             </Button>
           ))}
           <Button key="refresh" plain onPress={() => { $.clock.after(0, () => rescan($, options)) }}>↻</Button>
@@ -260,6 +279,62 @@ export const register: Register = (on, raw) => {
         </Box>
       )
     }
+    const classementPane = async () => {
+      const c = cfg.classement ?? {}
+      const cl = c.labels ?? {}
+      const presets: any[] = c.presets ?? []
+      const groups: any[] = c.groups ?? []
+      const pid = ((await read($, cPreset)) as string) || c.default_preset || 'today'
+      const gid = ((await read($, cGroup)) as string) || c.default_group || 'conversation'
+      const preset = presets.find(p => p.id === pid) ?? presets[0] ?? { id: 'today', since: 'midnight' }
+      if (!cls) return <Text>Pas encore de classement : le prochain scan écrit classement.json (↻).</Text>
+      const r = rank(cls, { now, preset, group: gid, top: c.top ?? 20, basis: m.basis, labels: cl })
+      const links: Record<string, any> = gid === 'conversation' ? linksFromFil(await readJson($, expandHome(c.links_file ?? '~/.claude/veille/fil.json', await home($)))) : {}
+      const maxShare = r.rows[0]?.share ?? 0
+      const W = c.bar_width ?? 12
+      const head = (x: any) => `${fmtTokens(tokensOf(x.v))} · ${fmtUsd(x.v[7])} · ${fmtPct(x.share * 100)} ${trendText(x, cl)}`.trim()
+      const split = gid === 'conversation' || gid === 'project'
+      const detail = (x: any) => `entrée ${fmtTokens(x.v[0])} · sortie ${fmtTokens(x.v[1])} · cache lu ${fmtTokens(x.v[2])} · cache écrit ${fmtTokens(x.v[3] + x.v[4])}${split ? ` · ${cl.sub ?? 'sous-agents'} ${fmtPct(tokensOf(x.v) ? (100 * x.sub) / tokensOf(x.v) : 0)}` : ''}`
+      const cxT = gid === 'source' ? codexTokens(cxRaw, r.window, cls.tzMin ?? 0) : undefined
+      const hours = Math.round((r.window.to - r.window.from) / 3600000)
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {presets.map(p => <Button key={`p-${p.id}`} {...(p.id !== preset.id ? { plain: true as const } : {})} onPress={() => update($, cPreset, () => p.id)}>{p.label ?? p.id}</Button>)}
+          </Box>
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {groups.map(g => <Button key={`g-${g.id}`} {...(g.id !== gid ? { plain: true as const } : {})} onPress={() => update($, cGroup, () => g.id)}>{g.label ?? g.id}</Button>)}
+          </Box>
+          <Text bold>{`Total ${preset.label ?? preset.id} : ${amount(r.total)} · ${r.n} ligne(s)${r.trend !== undefined ? ` · ${trendText({ trend: r.trend }, cl)} vs les ${hours} h d'avant` : ''}`}</Text>
+          <Box flexDirection="column">
+            {r.rows.map((x: any, i: number) => {
+              const lk = x.id ? links[x.id] : undefined
+              return (
+                <Box key={`r-${i}`} flexDirection="column">
+                  <Text>{`${String(i + 1).padStart(2)}. ${bar(x.share, maxShare, W)} ${String(x.label).slice(0, 44)}${x.project ? ` (${x.project})` : ''} · ${head(x)}`}</Text>
+                  <Text dimColor>{`    ${detail(x)}`}</Text>
+                  {x.id && i < (c.buttons_top ?? 10) ? (
+                    <Box flexDirection="row" gap={1}>
+                      <Text dimColor>{`    ${x.id}`}</Text>
+                      <Button key={`cp-${i}`} plain onPress={async press => {
+                        const res = await $.ui.copy({ text: x.id, surface: press.surface })
+                        await update($, copied, () => (res.isCopied ? `copié : ${x.id}` : 'copie impossible : sélectionne le texte'))
+                      }}>{cl.copy ?? "Copier l'id"}</Button>
+                      {lk ? <Button key={`op-${i}`} plain onPress={() => { void openUrl($, lk.link) }}>{cl.open ?? 'Ouvrir'}</Button> : null}
+                    </Box>
+                  ) : null}
+                </Box>
+              )
+            })}
+            {r.others ? <Text dimColor>{`    ${r.others.label} (${r.others.count}) · ${head(r.others)}`}</Text> : null}
+          </Box>
+          {last ? <Text dimColor>{last}</Text> : null}
+          {cxT !== undefined ? <Text>{`Codex · ${fmtTokens(cxT)} tokens · ${cl.codex_note ?? ''}`}</Text> : null}
+          {r.partialPrev ? <Text dimColor>{`Tendance vide : la fenêtre d'avant sort de l'historique gardé (${cls.days} j).`}</Text> : null}
+          <Text dimColor>{`Sous-agents et agents de Workflow comptés dans leur conversation parente. ${cl.no_tool ?? ''} Coûts : ${l.estimate}.`}</Text>
+        </Box>
+      )
+    }
     const s5 = (sc?.scenarios ?? []).find((s: any) => s.id === (cfg.plein_regime?.scenario ?? 'S5'))
     const views: Record<string, any> = {
       today: period(m.today, false),
@@ -282,6 +357,7 @@ export const register: Register = (on, raw) => {
         </Box>
       ),
       codex: codexPane(),
+      classement: current === 'classement' ? await classementPane() : null,
       full: (
         <Box flexDirection="column" gap={1}>
           <Text bold color={m.full.suggest ? 'success' : undefined}>{m.full.suggest ? l.suggest_full : l.no_full}</Text>

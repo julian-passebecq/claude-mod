@@ -5,11 +5,12 @@
 // conversation. Every label and limit comes from cockpit.config.json.
 import { titleOf, repoOf, short, ctxPct, billByModel, sumCost, tokensOf, family, fmtTokens, fmtUsd, hhmm } from '../lib/factory/hooks/logic.mjs'
 import { sessionState, mission, effortBars } from '../lib/factory/hooks/screens.mjs'
+import { rank } from '../lib/usage/lib/classement.mjs'
 
 export const LEVELS = ['mega', 'macro', 'medium', 'micro']
 // Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
-export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'global', 'fichiers']
-export const FOLDABLE = ['conv', 'project', 'all', 'global']
+export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers']
+export const FOLDABLE = ['conv', 'project', 'all', 'conso', 'global']
 
 export const DEFAULTS = {
   sections: { order: SECTIONS, enabled: SECTIONS, open: ['conv'] },
@@ -19,6 +20,10 @@ export const DEFAULTS = {
   strips_refresh_s: 60,
   diagram: { enabled: false, width: 340, row_h: 22, max_rows: 40 },
   tree: { max_convs: 30, max_agents: 20, show_done_agents: true },
+  qui_consomme: {
+    presets: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
+    default: 'today', top: 3, basis: 'cost', rescan_min: 10, data_dir: '', command: 'conso', args: 'classement',
+  },
   colors: { running: '#58a6ff', ok: '#3fb950', warn: '#d29922', bad: '#f85149', dim: '#8b949e', line: '#8b949e88', text: '#c9d1d9', selected: '#d2a8ff', usage: '#2f81f7' },
   labels: {
     title: 'Cockpit',
@@ -59,6 +64,11 @@ export const DEFAULTS = {
     sec_project: 'Ce projet',
     sec_all: 'Tous les projets',
     sec_global: 'Claude global',
+    sec_conso: 'Qui consomme',
+    conso_full: 'Classement complet',
+    conso_none: 'pas encore de classement : ouvre /conso classement (le mod usage écrit classement.json)',
+    conso_project: 'projet en tête',
+    conso_missing: 'usage non chargé : ajoute mods/usage à CLAUDE_CODE_PLUGIN_DIRS',
     step: 'étape',
     no_pr: 'pas de PR',
     machine: 'Machine',
@@ -485,6 +495,32 @@ export function projectLine(p, cfg) {
 }
 
 // Claude global: « 5 h 24 % · sem 14 % · 2 alertes »
+// « Qui consomme »: the top conversations and the top project of one preset, from the usage mod's classement.json
+// (lib/usage/lib/classement.mjs rank, the same figures as /conso classement). null without data.
+export function consoCard(data, cfg, nowMs, presetId) {
+  if (!data || !Array.isArray(data.rows)) return null
+  const q = cockpitConfig(cfg).qui_consomme
+  const preset = q.presets.find((p) => p.id === presetId) || q.presets.find((p) => p.id === q.default) || q.presets[0]
+  const basis = q.basis === 'tokens' ? 'tokens' : 'cost'
+  const convs = rank(data, { now: nowMs, preset, group: 'conversation', top: q.top, basis })
+  const proj = rank(data, { now: nowMs, preset, group: 'project', top: 1, basis })
+  const p = proj.rows[0]
+  return {
+    preset, presets: q.presets, total: { tokens: tokensOf(convs.total), cost: convs.total[7] },
+    rows: convs.rows.map((x) => ({ id: x.id, label: x.label, project: x.project, tokens: tokensOf(x.v), cost: x.v[7], pct: Math.round(100 * x.share) })),
+    project: p ? { label: p.label, tokens: tokensOf(p.v), cost: p.v[7], pct: Math.round(100 * p.share) } : null,
+    generated: data.generated || 0,
+  }
+}
+
+export function consoSummary(card) {
+  if (!card) return ''
+  const bits = [`${card.preset.label} ${fmtUsd(card.total.cost)}`]
+  if (card.rows[0]) bits.push(`${short(card.rows[0].label, 28)} ${card.rows[0].pct} %`)
+  if (card.project) bits.push(`${card.project.label} ${card.project.pct} %`)
+  return bits.join(' · ')
+}
+
 export function globalSummary(card, veille) {
   const bits = []
   if (card) for (const [w, k] of [[card.windows[0], '5 h'], [card.windows[1], 'sem']]) if (w && w.available) bits.push(`${k} ${Math.round(w.pct)} %`)
