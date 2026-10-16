@@ -8,24 +8,24 @@ import { KINDS, check, expandHome, limitsFor, merge, parseArgs, settingsFor, sni
 const shipped = JSON.parse(readFileSync(new URL('../scenarios.json', import.meta.url), 'utf8'))
 const clone = x => JSON.parse(JSON.stringify(x))
 
-test('the shipped scenarios are valid, S1-S4, every source an https URL', () => {
+test('the shipped scenarios are valid, S1-S5, every source an https URL', () => {
   const { catalog, errors, warnings } = check(merge(shipped))
   assert.deepEqual(errors, [])
   assert.deepEqual(warnings, [])
-  assert.deepEqual(catalog.scenarios.map(s => s.id), ['S1', 'S2', 'S3', 'S4'])
+  assert.deepEqual(catalog.scenarios.map(s => s.id), ['S1', 'S2', 'S3', 'S4', 'S5'])
   for (const l of catalog.limits) assert.match(catalog.sources[l.source], /^https:\/\/code\.claude\.com\/docs\//)
 })
 
-test('a user file adds S5 and replaces a shipped scenario by id', () => {
+test('a user file adds S6 and replaces a shipped scenario by id', () => {
   const user = {
     scenarios: [
-      { id: 'S5', name: 'Solo', roles: [{ role: 'lead', model: 'sonnet', effort: 'medium', unit: 'session', max_parallel: 1 }] },
+      { id: 'S6', name: 'Solo', roles: [{ role: 'lead', model: 'sonnet', effort: 'medium', unit: 'session', max_parallel: 1 }] },
       { id: 'S2', name: 'Économe bis', roles: [{ role: 'lead', model: 'haiku', effort: 'low', unit: 'session', max_parallel: 1 }] },
     ],
   }
   const { catalog, errors } = check(merge(shipped, user))
   assert.deepEqual(errors, [])
-  assert.deepEqual(catalog.scenarios.map(s => s.id), ['S1', 'S3', 'S4', 'S5', 'S2'])
+  assert.deepEqual(catalog.scenarios.map(s => s.id), ['S1', 'S3', 'S4', 'S5', 'S6', 'S2'])
   assert.equal(catalog.scenarios.find(s => s.id === 'S2').name, 'Économe bis')
 })
 
