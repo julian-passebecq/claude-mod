@@ -48,6 +48,16 @@
       "data": "$.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json",
       "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.",
       "tests": ["node --test mods/band/tests/logic.test.mjs", "claude plugin test mods/band"]
+    },
+    {
+      "dir": "../vendor/filetree",
+      "path": "vendor/filetree",
+      "name": "filetree (externe, MIT, data-goblin)",
+      "state": "stable",
+      "description": "Mod externe de Kurt Buhler (data-goblin/claude-code-filetree, MIT), copié tel quel à la release v0.2.26 : arbre des fichiers du dossier de la session dans le panneau de droite, statut git par fichier et lignes +/-, branche et avance/retard, fichiers lus (violet), écrits (orange) et commités (vert) qui scintillent, recherche, tailles, double-clic pour ouvrir. Libellés en anglais (ceux de l'auteur).",
+      "data": "dossier de travail de la session ($.fs.list), git status / diff / ls-files / rev-parse, état du mod ($.state) ; sous Windows powershell seulement pour ouvrir un fichier au double-clic",
+      "note": "externe, MIT, data-goblin (Kurt Buhler), copié à la release v0.2.26 sans changement de comportement, libellés en anglais ; contexte envoyé au modèle seulement quand tu cliques un fichier (une ligne « selected » avec son chemin, à chaque prompt tant que la sélection reste ; bouton ⊘ pour l'enlever) ; avant un git commit, un git rev-parse HEAD (≤ 5 s) retarde l'appel ; aucune option de config ajoutée par nous ; détails dans vendor/filetree/NOTICE",
+      "tests": ["claude plugin validate vendor/filetree/.claude-plugin/plugin.json", "claude plugin test vendor/filetree"]
     }
   ],
   "archived": [
