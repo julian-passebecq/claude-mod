@@ -1,0 +1,9 @@
+{
+  "name": "problemes",
+  "version": "0.1.0",
+  "description": "Problèmes : registre persistant de chaque erreur et problème du travail de Claude, compris une fois et jamais redécouvert. Collecte sans tokens (questions à Julian, fins de tour qui attendent, refus de permission, gardes de l'app et des worktrees, fins BLOCKED, Workflows en échec, CI en échec), dédoublonnée par signature ; arbre de catégories repliables (Blocages manuels, Workflow, Règles, App, CI, Par application, Mods), symptôme, cause, correctif, preuves et chronologie ; filtres ; notes écrites dans le registre local. /problemes",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": ["mod", "pane", "errors", "incidents", "register"]
+}

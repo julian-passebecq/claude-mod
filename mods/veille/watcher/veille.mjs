@@ -323,6 +323,7 @@ async function tour(cfg, why) {
       reviews_errors: (scan.reviews && scan.reviews.errors) || [], sessions: (scan.sessions || []).length, reviews: ((scan.reviews || {}).items || []).length, recent,
     })
     writeAtomic(p.heartbeat, { ...readJson(p.heartbeat, {}), last_tour: now, last_tour_ok: true, last_error: '' })
+    await problemes(cfg, tp)
     console.log(`veille: tour ${mode.name}: ${list.length} alert(s), ${rec.fresh.length} new, ${(scan.sessions || []).length} conversations, ${((scan.reviews || {}).items || []).length} PR/MR`)
     return 0
   } catch (e) {
@@ -405,6 +406,16 @@ async function aFaireFeed(tp, env, now) {
   } catch { return [] }
 }
 
+// The problemes mod's collector (zero tokens): new transcript bytes and session files into its ledger. Best effort:
+// absent from the installed copy or failing, the tour is still a success (its own health record says why).
+async function problemes(cfg, tp) {
+  const P = cfg.problemes || {}
+  const script = path.join(MODS, 'problemes', 'scanner', 'problemes_scan.mjs')
+  if (P.enabled === false || !fs.existsSync(script)) return
+  const r = await run([tp.node, script, 'collect'], { timeoutMs: (P.timeout_s || 180) * 1000 })
+  if (r.code !== 0) logEvent(cfg, { kind: 'problemes_failed', error: (r.err || r.out || '').trim().split(/\r?\n/).pop() })
+}
+
 const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
 function readAcks(cfg) {
@@ -451,6 +462,7 @@ export const BIN_FILES = [
   'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
+  'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
 ]
 // The a-faire mod's feed, copied when that mod sits beside veille (pushes « À faire par Julian » items once each).
 export const OPTIONAL_BIN = ['a-faire/lib/feed.mjs', 'a-faire/lib/collect.mjs', 'a-faire/lib/items.mjs', 'a-faire/afaire.config.json']

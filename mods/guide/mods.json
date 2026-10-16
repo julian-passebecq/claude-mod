@@ -132,6 +132,18 @@
         "claude plugin test mods/a-faire",
         "claude plugin validate mods/a-faire"
       ]
+    },
+    {
+      "dir": "problemes",
+      "name": "problemes (Problèmes)",
+      "state": "building",
+      "data": "collecteur Node sans tokens (scanner/problemes_scan.mjs collect, lancé par le panneau quand le registre a plus de 30 min, par ↻, ou par la Veille à chaque tour) : octets ajoutés aux transcripts ~/.claude/projects (sessions, sous-agents, agents de Workflow) depuis le dernier passage, fichiers de session de l'app (postTurnSummary.needs_action, sessionPermissionUpdates) ; imports une fois par ligne depuis tes registres (tableaux Markdown, incidents.json, findings.json, fichier ou git show) listés dans ~/.claude/problemes/problemes.config.json ; registre ~/.claude/problemes/register.jsonl (ajout seulement), instantané problems.json lu par le panneau",
+      "note": "Repère AskUserQuestion, fins de tour qui finissent par une question, needs_action de l'app, refus de permission, dossiers et règles accordés, gardes de l'app et des worktrees, rm sur chemin protégé, fins BLOCKED, Workflows avec agents_error, sorties gh / glab en échec ou skipped, erreurs API ; classe par règles du JSON (première qui correspond), dédoublonne par signature (règle + application ou clé), monte compte et dernière vue, rouvre un problème corrigé qui revient. « Par application » est une vue croisée. Le panneau n'écrit que « Ajouter une note » (dans le registre local) ; statut et correctif par la ligne de commande (set). Aucun texte envoyé au modèle. Non vérifié : les demandes de permission acceptées ne sont pas dans les transcripts (seuls les refus et les dossiers ou règles accordés sont comptés) ; format des fichiers de session de l'app (non documenté) ; la Veille installée n'appelle le collecteur qu'après un nouveau veille.mjs install (copie des fichiers).",
+      "tests": [
+        "node --test mods/problemes/tests/logic.test.mjs",
+        "claude plugin test mods/problemes",
+        "claude plugin validate mods/problemes"
+      ]
     }
   ],
   "archived": [

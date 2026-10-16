@@ -103,6 +103,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [menage](#menage)
     - [cockpit](#cockpit)
     - [a-faire](#a-faire)
+    - [problemes](#problemes)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -571,6 +572,16 @@ Cockpit, un seul panneau latéral en lecture seule, rangé par périmètre, chaq
 - **Fonctionnalités** : commandes `/afaire` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/a-faire` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/a-faire`
 - **Tests** : `node --test mods/a-faire/tests/logic.test.mjs` · `claude plugin test mods/a-faire` · `claude plugin validate mods/a-faire`
+
+#### problemes
+
+Problèmes : registre persistant de chaque erreur et problème du travail de Claude, compris une fois et jamais redécouvert. Collecte sans tokens (questions à Julian, fins de tour qui attendent, refus de permission, gardes de l'app et des worktrees, fins BLOCKED, Workflows en échec, CI en échec), dédoublonnée par signature ; arbre de catégories repliables (Blocages manuels, Workflow, Règles, App, CI, Par application, Mods), symptôme, cause, correctif, preuves et chronologie ; filtres ; notes écrites dans le registre local. /problemes
+
+- **État** : en construction · version 0.1.0 · Repère AskUserQuestion, fins de tour qui finissent par une question, needs_action de l'app, refus de permission, dossiers et règles accordés, gardes de l'app et des worktrees, rm sur chemin protégé, fins BLOCKED, Workflows avec agents_error, sorties gh / glab en échec ou skipped, erreurs API ; classe par règles du JSON (première qui correspond), dédoublonne par signature (règle + application ou clé), monte compte et dernière vue, rouvre un problème corrigé qui revient. « Par application » est une vue croisée. Le panneau n'écrit que « Ajouter une note » (dans le registre local) ; statut et correctif par la ligne de commande (set). Aucun texte envoyé au modèle. Non vérifié : les demandes de permission acceptées ne sont pas dans les transcripts (seuls les refus et les dossiers ou règles accordés sont comptés) ; format des fichiers de session de l'app (non documenté) ; la Veille installée n'appelle le collecteur qu'après un nouveau veille.mjs install (copie des fichiers).
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : collecteur Node sans tokens (scanner/problemes_scan.mjs collect, lancé par le panneau quand le registre a plus de 30 min, par ↻, ou par la Veille à chaque tour) : octets ajoutés aux transcripts ~/.claude/projects (sessions, sous-agents, agents de Workflow) depuis le dernier passage, fichiers de session de l'app (postTurnSummary.needs_action, sessionPermissionUpdates) ; imports une fois par ligne depuis tes registres (tableaux Markdown, incidents.json, findings.json, fichier ou git show) listés dans ~/.claude/problemes/problemes.config.json ; registre ~/.claude/problemes/register.jsonl (ajout seulement), instantané problems.json lu par le panneau · aucun blocage
+- **Fonctionnalités** : commandes `/problemes` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/problemes` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/problemes`
+- **Tests** : `node --test mods/problemes/tests/logic.test.mjs` · `claude plugin test mods/problemes` · `claude plugin validate mods/problemes`
 
 ### Archivés / rejetés
 
