@@ -244,7 +244,8 @@ test('collector: reads new bytes only, dedupes, keeps session keys, imports seed
   assert.equal(askP.count, 2)
   // Seeds, once; the optional missing source is skipped without error.
   const r1 = S.importSeeds(cfg, now + 3000)
-  assert.deepEqual(r1.map(x => [x.id, x.imported]), [['reg', 1], ['later', 0]])
+  assert.deepEqual(r1.map(x => [x.id, x.imported]), [['reg', 1], ['later', 0], ['veille-web', 0]])
+  assert.equal(r1[2].error, 'absente (optionnelle)', 'no claude-control repo under the invented roots')
   assert.equal(r1[1].error, 'absente (optionnelle)')
   assert.equal(S.importSeeds(cfg, now + 4000)[0].imported, 0)
   // Notes and status changes go to the ledger only.
@@ -258,4 +259,36 @@ test('collector: reads new bytes only, dedupes, keeps session keys, imports seed
   assert.deepEqual([p.status, p.notes[0].text], ['corrigé', 'décidé : plus de question pour les merges'])
   const ledger = readFileSync(`${dir}/register.jsonl`, 'utf8').trim().split('\n').map(l => JSON.parse(l).op)
   assert.ok(ledger.includes('note') && ledger.includes('update'))
+})
+
+test('veille-web pitfalls: the shipped builtin source reads every « Pièges » section, classes and « non confirmé » tags', async () => {
+  const S = await import('../scanner/problemes_scan.mjs')
+  const dir = `${tmp}/research`
+  mkdirSync(dir, { recursive: true })
+  const doc = d => [`# Veille web, ${d}`, '## 1. Top 10', '- Une idée forte à essayer', '## 3. Pièges rapportés',
+    '- Projects : chaque fil recharge tout (forum, non confirmé).', '- Cascade de sous-agents : limite hebdo en minutes (non confirmé).',
+    '- Workflow qui rapporte "succès" alors qu\'un agent a sauté son étape (corrigé 9.9.9).', '- Limites hebdo : quotas exacts non publiés.',
+    '- Régression 9.9.8 : un écran casse.', '## 4. À faire', '- Tester X'].join('\n')
+  writeFileSync(`${dir}/veille-web-2026-01-05.md`, doc('5 janv'))
+  writeFileSync(`${dir}/veille-web-2026-01-12.md`, doc('12 janv'))
+  writeFileSync(`${dir}/autre.md`, doc('x'))
+  const { git, ...b } = shipped.seed.builtin['veille-web']
+  assert.equal(git.repo, '{root}/claude-control', 'no private path in the shipped config')
+  const cfg = { env: {}, collect: { roots: [] }, seed: { builtin: { 'veille-web': { ...b, dir, files: git.files } } } }
+  assert.deepEqual(S.seedSources(cfg).map(s => s.id), ['veille-web'])
+  assert.deepEqual(S.seedSources({ seed: { builtin: { 'veille-web': { ...b, enabled: false } } } }), [])
+  const xs = S.expandSource(S.seedSources(cfg)[0], cfg)
+  assert.deepEqual(xs.map(x => [x.id, x.ref_id, x.date]), [
+    ['veille-web:veille-web-2026-01-05.md', 'veille-web', '2026-01-05T12:00:00'], ['veille-web:veille-web-2026-01-12.md', 'veille-web', '2026-01-12T12:00:00']])
+  const seeds = xs.flatMap(x => seedFromMarkdown(readFileSync(x.path, 'utf8'), x, RULES, Date.parse(x.date)))
+  assert.equal(seeds.length, 10, 'only the « Pièges » bullets')
+  const lines = seedLines(seeds, [], NOW)
+  const adds = lines.filter(l => l.op === 'add')
+  assert.equal(adds.length, 5, 'the same pitfall in two weekly files is imported once')
+  assert.deepEqual(adds.map(a => [a.category, a.status, a.title.startsWith('non confirmé · ')]), [
+    ['quota/projects', 'ouvert', true], ['quota/sous-agents', 'ouvert', true], ['workflow/succes-a-tort', 'ouvert', false],
+    ['quota/limites', 'ouvert', true], ['app/versions', 'ouvert', false]])
+  assert.match(adds[0].cause, /non confirmé par la source \(claude-control main:docs\/v6-research\/veille-web · veille-web-2026-01-05\.md\)/)
+  const cats = shipped.categories.flatMap(c => [c.id, ...(c.children ?? []).map(x => x.id)])
+  for (const a of adds) assert.ok(cats.includes(a.category), `${a.category} is a shipped category`)
 })

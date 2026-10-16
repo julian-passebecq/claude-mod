@@ -270,17 +270,77 @@ export function healthHits(cfg) {
 
 function readSource(src, cfg) {
   if (src.git) {
-    const repo = expand(src.git.repo, cfg.env)
+    const repo = repoOf(src.git.repo, cfg)
     return execFileSync('git', ['-C', repo, 'show', `${src.git.ref || 'HEAD'}:${src.git.path}`], { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
   }
   return fs.readFileSync(expand(src.path, cfg.env), 'utf8').replace(/^﻿/, '')
 }
 
+/** A repo path with {root}: the first of collect.roots where it is a git repo (so no private path sits in the shipped config). */
+function repoOf(repo, cfg) {
+  const r = String(repo ?? '')
+  if (!isSet(r)) throw new Error('dépôt non réglé')
+  if (!r.includes('{root}')) return expand(r, cfg.env)
+  for (const root of (cfg.collect?.roots ?? []).map(x => expand(x, cfg.env)).filter(isSet)) {
+    const c = slash(r.replaceAll('{root}', root.replace(/[\\/]+$/, '')))
+    try { execFileSync('git', ['-C', c, 'rev-parse', '--git-dir'], { windowsHide: true, stdio: 'ignore' }); return c } catch { /* not here */ }
+  }
+  throw new Error(`aucun dépôt ${r} sous collect.roots`)
+}
+
+/**
+ * A source with `dir` + `files` (regex on the file name), or git: { repo, ref, dir, files }, stands for every matching file:
+ * one concrete source per file, id `<id>:<file name>`, ref_id `<id>` (the same line in two files is imported once),
+ * date from the file name (YYYY-MM-DD) when it has one. Other sources pass through.
+ */
+export function expandSource(src, cfg) {
+  const g = src.git
+  if (!(g ? g.dir && g.files : src.dir && src.files)) return [src]
+  const re = new RegExp(g ? g.files : src.files, 'i')
+  let names
+  let repo
+  if (g) {
+    repo = repoOf(g.repo, cfg)
+    const out = execFileSync('git', ['-C', repo, 'ls-tree', '--name-only', g.ref || 'HEAD', `${g.dir.replace(/\/+$/, '')}/`], { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    names = out.split(/\r?\n/).filter(Boolean).map(p => p.split('/').pop())
+  } else names = fs.readdirSync(expand(src.dir, cfg.env))
+  return names.filter(n => re.test(n)).sort().map(n => {
+    const d = n.match(/(\d{4}-\d{2}-\d{2})/)
+    const one = { ...src, id: `${src.id}:${n}`, ref_id: src.ref_id ?? src.id, label: `${src.label ?? src.id} · ${n}`, date: src.date ?? (d ? `${d[1]}T12:00:00` : undefined) }
+    if (g) one.git = { repo, ref: g.ref, path: `${g.dir.replace(/\/+$/, '')}/${n}` }
+    else { one.path = `${slash(expand(src.dir, cfg.env)).replace(/\/+$/, '')}/${n}`; delete one.dir }
+    delete one.files
+    return one
+  })
+}
+
+/** The configured sources, then the shipped seed.builtin ones (an object by id; enabled: false or a same-id source turns one off). */
+export function seedSources(cfg) {
+  const own = (cfg.seed?.sources ?? []).filter(s => s && s.id)
+  const ids = new Set(own.map(s => s.id))
+  const builtin = Object.entries(cfg.seed?.builtin ?? {}).filter(([k, v]) => !k.startsWith('_') && v && typeof v === 'object' && v.enabled !== false && !ids.has(k))
+  return [...own, ...builtin.map(([k, v]) => ({ id: k, ...v }))]
+}
+
 export function importSeeds(cfg, now = Date.now()) {
   const rules = cfg.rules?.list ?? []
   const report = []
-  for (const src of cfg.seed?.sources ?? []) {
-    if (!src || !src.id) continue
+  const all = []
+  for (const s of seedSources(cfg)) {
+    try {
+      const xs = expandSource(s, cfg)
+      if (!xs.length) all.push({ none: s })
+      all.push(...xs)
+    } catch (e) {
+      all.push({ failed: s, error: e })
+    }
+  }
+  for (const src of all) {
+    if (src.none) { report.push({ id: src.none.id, found: 0, imported: 0, error: 'aucun fichier' }); continue }
+    if (src.failed) {
+      report.push({ id: src.failed.id, imported: 0, error: src.failed.optional ? 'absente (optionnelle)' : String(src.error.message || src.error).split('\n')[0] })
+      continue
+    }
     let text
     try { text = readSource(src, cfg) } catch (e) {
       report.push({ id: src.id, imported: 0, error: src.optional ? 'absente (optionnelle)' : String(e.message || e).split('\n')[0] })

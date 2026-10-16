@@ -18,7 +18,9 @@ Julian's persistent register of every error and problem with Claude work: questi
 - `~/.claude/mods-health/*.json` (the shared health records, `veille.json` and `sante.json` included): a record whose last run failed becomes a hit, once per failed run; `veille.json` is source **veille**, the others source **santé**;
 - Santé's report (`~/.claude/sante-mod/report.json`): plugin.json, hooks.json or config files that do not load, error lines in logs, errors listed in output files, once per message.
 
-Both are classified by the `mod-error` rule under **Mods**, one problem per mod and normalised message (`collect.health`, `health_dir`, `sante_report` in the config; `MODS_HEALTH_DIR` moves the folder).
+- the « Pièges » sections of claude-control's `docs/v6-research/veille-web-*.md` (shipped source `seed.builtin.veille-web`, read from `main` by git in the first `collect.roots` folder that holds `claude-control`; run by `import`): each pitfall goes to **Quota et limites** (sous-agents, Projects, limites), **Workflow › Succès rapporté à tort** or **App › Écarts de version**, titled « non confirmé · … » when the doc says so; the same line in two weekly files is imported once. `enabled: false` or another `git.repo` in your override changes it.
+
+Health records and Santé's report are classified by the `mod-error` rule under **Mods**, one problem per mod and normalised message (`collect.health`, `health_dir`, `sante_report` in the config; `MODS_HEALTH_DIR` moves the folder).
 
 ## Code layout
 
