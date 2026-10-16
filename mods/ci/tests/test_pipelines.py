@@ -361,5 +361,12 @@ class CollectTest(Base):
         self.assertTrue(out['stale'])
 
 
+class DefaultWhoTest(unittest.TestCase):
+    def test_claude_unless_the_config_says_otherwise(self):
+        self.assertEqual(pl.look({})['default_who'], 'claude')
+        self.assertEqual(pl.look({'pipelines': {'default_who': 'all'}})['default_who'], 'all')
+        self.assertEqual(pl.look({'pipelines': {'default_who': 'nobody'}})['default_who'], 'claude')
+
+
 if __name__ == '__main__':
     unittest.main()

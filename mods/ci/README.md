@@ -11,7 +11,9 @@ Two tabs in one side pane, **Routage** and **Diagramme**. Nothing here blocks or
 | `/ci route <repo-path\|session-id\|here\|session> <backend-id>`, `/ci clear <target>` | Write or clear a route in `~/.claude/ci-routing.json`. |
 | `/ci diagramme` | Opens **Diagramme**, the pipeline view. |
 | `/ci diagramme refresh` | Same, and reads `gh` / `glab` again now (1 to 3 minutes for about a hundred repos). |
-| `/ci diagramme claude\|codex\|inconnu\|tout` and `hote\|app\|conv` | Same, with that filter and grouping already set. |
+| `/ci diagramme claude\|codex\|inconnu\|tout` and `hote\|app\|conv` | Same, with that filter and grouping already set. The Diagramme opens on **Claude Code only** unless `pipelines.default_who` says `codex`, `all` or `unknown`; the **Codex** button is next to it. |
+| `/ci relais` | The Claude ↔ Codex summary from the last scan: per agent, PRs opened, fixed, merged, commits, CI pass rate of its PRs and of its runs; hand-offs and dependencies. |
+| `/ci relais refresh` | Runs `scanner/relais.mjs` in the background (1-3 min) and writes `~/.claude/ci-cache/interactions.json`, the file the Cockpit reads. |
 | `/ci close` | Closes the pane. |
 
 ## Diagramme
@@ -44,11 +46,28 @@ From top to bottom:
 
 Labels, colours and limits are in `ci.config.example.json` → `pipelines`. Copy it to `~/.claude/ci.config.json` and set `pipelines.roots`.
 
+## Claude ↔ Codex (`scanner/relais.mjs`)
+
+A Node scanner, read-only, that builds one row per PR/MR over the last `relais.days` days (30 by default):
+
+- **opened_by**: branch prefix (`claude/`, `worktree-agent-`, `codex/`), then a body mark (« Generated with Claude Code », Codex marks), then the author, then the first commit.
+- **fixed_by**: the agents of the commits after the first one (trailer `Co-Authored-By: Claude` / Codex, or an agent author; an unmarked commit on an agent's branch counts for that agent).
+- **merged_by**: the agent whose transcript ran `gh pr merge <n>` or `glab mr merge <n>` for that repo (`~/.claude/projects/**/*.jsonl`, `~/.codex/sessions/**/*.jsonl`, files touched in the window only; a `cd <dir>` before the command, `-R owner/repo` or a PR URL tell the repo). Otherwise « unknown », never a guess.
+- **handoffs**: agent switches along opener → commits → merger; **depends_on**: « depends on #N », « after #N », « stacked on #N », or a base branch that is another PR's head.
+- **CI**: the PR's checks (GitHub rollup, GitLab MR pipeline), and the runs per agent from the Diagramme's cache (`ci-pipelines-cache.json`).
+
+Output: `~/.claude/ci-cache/interactions.json` (`schema`, `generated`, `days`, `repos[].prs[]`, `repos[].totals`, `totals.by_agent.{claude,codex,unknown}`, `errors`). The rules are in `scanner/relais_core.mjs` (pure); `tests/relais.test.mjs` checks them on invented repos.
+
+```sh
+node mods/ci/scanner/relais.mjs --days 7 --summary   # scan and print the summary
+node mods/ci/scanner/relais.mjs --cached --summary   # print the last scan
+```
+
 ## Tests
 
 ```sh
 python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
-node --test mods/ci/tests/core.test.mjs
+node --test mods/ci/tests/core.test.mjs mods/ci/tests/relais.test.mjs
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mods/ci
 ```
 

@@ -3,7 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { parseArgs, promptNote, resolveTarget, summary } from '../hooks/view'
-import { etaText, gantt, groups, headline, isRed, logCommand, overviewSvg, parseDiagramWords, segsText, laneSegs, labelsOf } from '../hooks/diagram'
+import { effectiveWho, etaText, gantt, groups, headline, isRed, logCommand, overviewSvg, parseDiagramWords, segsText, laneSegs, labelsOf } from '../hooks/diagram'
 
 // Invented pipelines: app-one (GitHub, red lint by Claude), app-two (GitLab mirror on the local runner, running, Codex).
 const T = (min: number) => new Date(Date.parse('2026-10-16T20:00:00Z') - min * 60000).toISOString()
@@ -185,6 +185,21 @@ test('/ci diagramme answers with the headline, opens the Diagramme tab and fetch
   expect(w.runs.every(a => a[0] === 'python' && a[1] === '-I')).toBe(true)
 })
 
+test('/ci diagramme opens on Claude Code only by default; the Codex button and Tout stay one press away', async ($, on) => {
+  world(on)
+  const r = await $.command.run({ command: 'ci', args: 'diagramme' } as any)
+  expect(r.text).toMatch(/Claude Code · par/)
+  const pane = await mount($, 'terminal')
+  expect(await pane.find({ type: 'Button', text: /▸ Claude Code/ })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: /^Codex$/ })).toBeDefined()
+  await pane.press({ key: 'who-codex' })
+  expect(await pane.find({ type: 'Button', text: /▸ Codex/ })).toBeDefined()
+  await pane.unmount()
+  expect(effectiveWho('', { default_who: 'all' })).toBe('all')
+  expect(effectiveWho('', undefined)).toBe('claude')
+  expect(effectiveWho('codex', { default_who: 'all' })).toBe('codex')
+})
+
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`Diagramme pane: headline, filters as buttons, red with its log command, live ETA and Gantt (${surface})`, async ($, on) => {
     world(on)
@@ -240,4 +255,24 @@ test('diagram helpers: words, headline, red only for real failures, ETA, Gantt, 
   const svg = overviewSvg(DIAGRAM, 'all')
   expect(svg.startsWith('<svg')).toBe(true)
   expect(svg).toMatch(/GitLab runner on this PC/)
+})
+
+test('/ci relais prints the cached Claude ↔ Codex summary; refresh runs the scanner in the background', async ($, on) => {
+  const runs: string[][] = []
+  const toasts: string[] = []
+  on('process.run', ($: any, e: any) => {
+    runs.push(e.argv)
+    const text = 'Claude ↔ Codex · 2 repo(s) · 5 PR/MR sur 30 j · lu 2026-01-15T00:00:00Z\nrelais : 1'
+    return { value: { exitCode: 0, stdout: JSON.stringify({ out: 'x', text }), stderr: '' } }
+  })
+  on('ui.toast', ($: any, e: any) => (toasts.push(e.text), { value: undefined }))
+  const clock = mock.clock(on)
+  const r = await $.command.run({ command: 'ci', args: 'relais' } as any)
+  expect(r.text).toMatch(/Claude ↔ Codex · 2 repo\(s\)/)
+  expect(runs[0]!.slice(1)).toEqual([expect.stringMatching(/scanner\/relais\.mjs$/), '--summary', '--cached'])
+  const r2 = await $.command.run({ command: 'ci', args: 'relais refresh' } as any)
+  expect(r2.text).toMatch(/arrière-plan/)
+  await clock.advance(1)
+  expect(runs[1]!).not.toContain('--cached')
+  expect(toasts[0]).toMatch(/Claude ↔ Codex/)
 })
