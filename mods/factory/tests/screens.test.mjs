@@ -14,7 +14,7 @@ import {
 } from '../hooks/screens.mjs'
 import { drawPane } from '../hooks/draw.mjs'
 import { el, renderText, widest } from '../scanner/textrender.mjs'
-import { quotas as quotasExtra } from '../scanner/extras.mjs'
+import { quotas as quotasExtra, runner as runnerExtra } from '../scanner/extras.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CFG = JSON.parse(readFileSync(join(HERE, '..', 'factory.config.json'), 'utf8'))
@@ -127,11 +127,36 @@ test('quotas: usage mod figures first, live % as fallback, "non chargé" when th
   const q2 = quotas(scanA(), CFG, NOW, live, { available: true, seven_day: { pct: 41, reset: NOW + 1, forecast: 'épuisé lun' }, five_hour: { pct: 8, reset: NOW + 2, forecast: '' } })
   assert.deepEqual(q2.windows.map((w) => w.pct), [8, 41])
   assert.ok(q2.byModel.length && q2.byProject.length)
-  const absent = await quotasExtra({ now: NOW }, join(mkdtempSync(join(tmpdir(), 'nousage-')), 'usage'))
-  assert.deepEqual(absent, { available: false, reason: 'module non chargé' })
-  const real = await quotasExtra({ now: NOW, home: mkdtempSync(join(tmpdir(), 'home-')) }) // the repo's usage mod, an empty home
-  assert.equal(real.available, true)
-  assert.match(real.note, /aggregate\.json absent/)
+  // scanner/extras.mjs: lib/core/usage.mjs over the usage mod's data folder (invented fixture), no usage mod import
+  const empty = quotasExtra({ now: NOW, home: mkdtempSync(join(tmpdir(), 'home-')) })
+  assert.equal(empty.available, true)
+  assert.equal(empty.five_hour, null)
+  assert.match(empty.note, /samples\.jsonl absent/)
+  const dir = mkdtempSync(join(tmpdir(), 'usage-mod-'))
+  const H = 3600000
+  const reset5 = NOW + 2 * H
+  writeFileSync(join(dir, 'samples.jsonl'), [
+    { ts: NOW - 2 * H, five_hour: { pct: 20, reset: reset5 }, seven_day: { pct: 30, reset: NOW + 72 * H } },
+    { ts: NOW - H, five_hour: { pct: 60, reset: reset5 }, seven_day: { pct: 31, reset: NOW + 72 * H } },
+  ].map((x) => JSON.stringify(x)).join('\n'))
+  writeFileSync(join(dir, 'codex.json'), JSON.stringify({ available: true, limits: { ts: NOW, primary: { pct: 12, windowMin: 300, reset: NOW + H }, secondary: { pct: 44, windowMin: 10080, reset: NOW + 50 * H } } }))
+  const full = quotasExtra({ now: NOW }, dir)
+  assert.equal(full.five_hour.pct, 60)
+  assert.match(full.five_hour.forecast, /épuisé .* au rythme actuel/) // 40 %/h from 60 % -> 100 % one hour later, before the reset
+  assert.equal(full.seven_day.pct, 31)
+  assert.deepEqual(full.codex.windows.map((w) => [w.label, w.pct]), [['5 h', 12], ['Semaine', 44]])
+  const q3 = quotas(scanA(), CFG, NOW, [], full)
+  assert.deepEqual(q3.windows.map((w) => w.pct), [60, 31])
+})
+
+test('extras runner: lib/core/runner.mjs load from the ci cache in the Système shape', () => {
+  const f = join(mkdtempSync(join(tmpdir(), 'ci-')), 'cache.json')
+  writeFileSync(f, JSON.stringify({ generated: new Date(NOW - 60000).toISOString(), summary: { queue: { backend: 'gitlab-local', label: 'runner local', running: 3, pending: 1, concurrent: 18, runners_online: 1 } } }))
+  const r = runnerExtra({ now: NOW }, f)
+  assert.deepEqual([r.backends[0].jobs.running, r.backends[0].jobs.pending, r.backends[0].concurrent], [3, 1, 18])
+  const s = system({ at: 1, ncpu: 8 }, r)
+  assert.equal(s.runners[0].concurrent, 18)
+  assert.match(runnerExtra({ now: NOW }, join(tmpdir(), 'nope-' + NOW + '.json')).error, /pas de cache/)
 })
 
 test('système: machine sample mapped to gauges; journal filters by kind and project', () => {

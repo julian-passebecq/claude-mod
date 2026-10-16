@@ -3,6 +3,8 @@
 //   node usage_scan.mjs sample '<json>'         append one rate-limit reading to <data_dir>/samples.jsonl
 //   node usage_scan.mjs report [--json]         scan, then print today's / this week's totals and the forecast
 //   node usage_scan.mjs codex                   only the Codex part: write <data_dir>/codex.json, print one JSON line
+//   node usage_scan.mjs quotas                  5 h / week % and run-out, Claude and Codex, from lib/core/usage.mjs (the
+//                                               same reader as band and cockpit), plus the one-line text; prints one JSON line
 //   node usage_scan.mjs classement [--preset today] [--group conversation] [--top 3]
 //                                               scan, then print the ranking (« qui consomme ») as text, or --json
 // Options: --data-dir DIR, --projects DIR, --codex DIR, --codex-enabled auto|on|off (defaults from usage.config.json, ~ expanded), --now MS (tests).
@@ -20,6 +22,8 @@ import { scanCodex } from '../lib/codex-scan.mjs'
 import { CV, codexEnabled, codexView } from '../lib/codex.mjs'
 import { deepMerge, expandHome, fmtPct, fmtTokens, fmtUsd, model, outcome } from '../hooks/logic.mjs'
 import { writeHealth } from './health.mjs'
+import { readQuotas } from '../lib/core/usage.mjs'
+import { quotaLine } from '../hooks/logic.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
@@ -168,6 +172,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     } else if (cmd === 'report') report(ctx, now)
     else if (cmd === 'classement') classement(ctx, now)
     else if (cmd === 'codex') console.log(JSON.stringify(codexScan(ctx, now)))
+    else if (cmd === 'quotas') { const q = readQuotas(ctx.dataDir, now); console.log(JSON.stringify({ ...q, line: quotaLine(q) })) }
     else throw new Error(`unknown command ${cmd}`)
     writeHealth('usage')
   } catch (err) {

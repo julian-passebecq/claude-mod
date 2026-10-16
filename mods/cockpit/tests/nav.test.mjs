@@ -81,8 +81,8 @@ test('navigation: opens on this conversation\'s project at macro; select zooms i
   assert.equal(zoomTo({ level: 'mega', repo: null, conv: null, agent: null }, 'medium').level, 'mega') // no subject: stays
   nav = select(nav, { kind: 'project', id: 'app' })
   assert.deepEqual(nav, { level: 'macro', repo: 'app', conv: null, agent: null })
-  assert.deepEqual(parseArgs('macro datapass'), { level: 'macro', rest: 'datapass' })
-  assert.deepEqual(parseArgs('Galaxy'), { level: null, rest: 'Galaxy' })
+  assert.deepEqual(parseArgs('macro datapass'), { close: false, level: 'macro', tab: 'home', scope: null, rest: 'datapass' })
+  assert.deepEqual(parseArgs('Galaxy'), { close: false, level: null, tab: null, scope: null, rest: 'Galaxy' })
 })
 
 test('tree: méga lists projects with counters; macro nests sub-conversations by spawnedFrom; medium opens Workflows and agents', () => {

@@ -1,17 +1,28 @@
 {
   "name": "cockpit",
-  "version": "0.1.0",
-  "description": "Cockpit, un seul panneau latéral en lecture seule, rangé par périmètre, chaque section repliable avec un résumé d'une ligne : Cette conversation (ouverte et sélectionnée : modèle, effort, ctx, état, arbre lead › sous-conversations › Workflows › agents, étape, PR/CI), Ce projet (arbre, Focus et Pipeline), Tous les projets (une ou deux lignes par projet), Qui consomme (top 3 conversations et projet en tête sur 1 h, aujourd'hui ou 7 j, bouton vers le Classement complet de /conso), Claude global (quotas, Veille, /machine). Petit fil d'Ariane, un clic sur un nœud descend. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]",
-  "author": { "name": "Julian Passebecq" },
+  "version": "0.2.0",
+  "description": "Cockpit, le seul panneau zoomable (Méga › Projet › Conversation › Agent), en lecture seule, qui regroupe Usine (factory) et Machine. Onglet Cockpit : cartes d'une ligne avec un bouton vers le détail (Qui consomme, T'attend, À toi, CI avec Claude/Codex et charge du runner, Quota 5 h/semaine/épuisement Claude et Codex, Problèmes du jour, En cours : Workflows et pipelines avec ETA), puis les sections repliables Cette conversation, Ce projet, Tous les projets, Qui consomme, Claude global. Onglets Mission, Focus, Arbre, Pipeline, Workflow (Gantt et Vitesse), Journal (écrans de factory) et Machine (charge du PC et du runner). /cockpit [conv|projet|mega|agent|workflow|machine|close] ; /factory et /machine restent des alias quand leur mod n'est pas chargé.",
+  "author": {
+    "name": "Julian Passebecq"
+  },
   "license": "MIT",
-  "keywords": ["mod", "pane", "agents", "tree", "factory"],
+  "keywords": [
+    "mod",
+    "pane",
+    "agents",
+    "tree",
+    "factory"
+  ],
   "userConfig": {
     "start": {
       "type": "string",
       "title": "Open at start",
       "description": "on: the pane opens by itself when a session starts (on this conversation's project). off: only /cockpit opens it.",
       "default": "on",
-      "options": ["on", "off"]
+      "options": [
+        "on",
+        "off"
+      ]
     },
     "config": {
       "type": "string",

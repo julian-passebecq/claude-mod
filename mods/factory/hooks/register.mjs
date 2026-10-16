@@ -1,8 +1,9 @@
 // factory v2 - the side panel of all agents, read-only:
 //   /factory [mission|focus|arbre|workflow|pipeline|quotas|systeme|journal] [title or id]   /factory workflow [all]
 // Tabs on top, each screen stacked top to bottom and as wide as the pane (draw.mjs, native elements, no canvas).
-// Data: scanner/factory_scan.py (incremental tail reads of the transcripts, cache in the effort-board); quotas from the
-// usage mod (scanner/extras.mjs imports its logic) and $.session.usage(); Système from the machine mod's sampler. Each
+// Data: scanner/factory_scan.py (incremental tail reads of the transcripts, cache in the effort-board); quotas and runner
+// load from lib/core (usage.mjs, runner.mjs) through scanner/extras.mjs, plus $.session.usage(); Système's PC sample from
+// the machine mod's sampler. These screens now also live inside Cockpit (/cockpit). Each
 // source runs only while the pane is open and its tab is showing. Nothing here blocks, rewrites or adds to a prompt.
 import { deepMerge, pickSession, scanArgs } from './logic.mjs'
 import { waitingConfig, waitingRows, waitingArgs, toAnnounce, notifyText, holdsLease, fill } from './waiting.mjs'
@@ -139,7 +140,8 @@ async function sampleMachine($) {
     const now = await $.clock.now()
     if (now - M.runnerAt > sc.system_refresh_s * 6000) {
       M.runnerAt = now
-      const rr = await $.process.run([py, '-I', script, 'runner'], { timeoutMs: 30000 })
+      // runner load: lib/core/runner.mjs through scanner/extras.mjs (the ci mod's cache), the same figures as band and cockpit
+      const rr = await $.process.run([(CFG && CFG.node) || 'node', root($) + '/scanner/extras.mjs', 'runner'], { stdin: JSON.stringify({ now, home: await homeDir($) }), timeoutMs: 30000 })
       M.runner = rr.exitCode === 0 ? JSON.parse(rr.stdout) : { error: 'runner : lecture impossible' }
     }
   } catch (err) {

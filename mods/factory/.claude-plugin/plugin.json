@@ -1,7 +1,7 @@
 {
   "name": "factory",
-  "version": "0.6.0",
-  "description": "Factory v2, side panel of all your agents, read-only, French labels, stacked top to bottom to the pane's width: Mission (counters, one card per project, model share vs targets, conversation list), Focus (Ça t'attend with notifications, fleet pulse, live timeline, progress today), Arbre (a conversation's lead, sub-conversations, Workflows and agents with model and effort, architect on call, bill, guards, log, status line), Workflow (running and recent workflows: phases timeline, agents, estimates and ETA from past runs, Gantt, Vitesse, stuck or failed agents, parallel limits; /factory workflow [all]), Pipeline, Quotas, Système, Journal. /factory [onglet]",
+  "version": "0.7.0",
+  "description": "Maintenant dans Cockpit (/cockpit mission|focus|arbre|pipeline|workflow|journal) : ce mod reste utilisable seul, et quand il n'est pas chargé Cockpit répond à /factory. Factory v2, side panel of all your agents, read-only, French labels, stacked top to bottom to the pane's width: Mission (counters, one card per project, model share vs targets, conversation list), Focus (Ça t'attend with notifications, fleet pulse, live timeline, progress today), Arbre (a conversation's lead, sub-conversations, Workflows and agents with model and effort, architect on call, bill, guards, log, status line), Workflow (running and recent workflows: phases timeline, agents, estimates and ETA from past runs, Gantt, Vitesse, stuck or failed agents, parallel limits; /factory workflow [all]), Pipeline, Quotas (lib/core/usage.mjs, Claude et Codex), Système (runner via lib/core/runner.mjs), Journal ; Gantt et estimations de lib/core (même rendu que le Diagramme du mod ci). /factory [onglet]",
   "author": {
     "name": "Julian Passebecq"
   }

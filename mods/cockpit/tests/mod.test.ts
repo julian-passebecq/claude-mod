@@ -1,6 +1,6 @@
 // Hook tests for cockpit with the Claude Code test kit: claude plugin test mods/cockpit
 // Fixture scan only (no real data). The scanner, band's scanner and the files are answered by hooks beneath the mod.
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const day = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const NOW = Date.parse('2026-10-16T16:00:00Z')
@@ -19,11 +19,15 @@ const CR = (h: number, sid: string, usd: number) => [Math.floor(NOW / 3600000) *
 const CLS = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { s1: { t: 'Lane alpha', p: 'proj-one' }, s2: { t: 'Lane beta', p: 'proj-two' } },
   rows: [CR(0, 's1', 4), CR(0, 's2', 1), CR(50, 's2', 20)] }
 
-function world(on: any) {
+function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[] } = {}) {
   const opened: string[] = []
   const ran: unknown[] = []
   const scans: string[] = []
-  on('clock.now', () => ({ value: NOW }))
+  const argvs: string[][] = []
+  const registered: string[] = []
+  if (o.clock !== false) on('clock.now', () => ({ value: NOW }))
+  on('command.list', () => ({ value: (o.commands ?? [{ name: 'cockpit', plugin: 'cockpit' }]).map((c) => ({ description: '', source: 'plugin', ...c })) }))
+  on('command.register', ($: any, e: any) => { registered.push(e.name); return { value: { command: e.name } } })
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   const P = (e: any) => String(e.path).replace(/\\/g, '/') // the kit hands Windows paths with backslashes
   on('fs.exists', ($: any, e: any) => ({ value: /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/classement\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
@@ -33,6 +37,7 @@ function world(on: any) {
     : JSON.stringify({ context_window: 400000, rates: { opus: { in: 4, out: 20, cache_read: 0.4, cache_write_5m: 5, cache_write_1h: 8 } }, thresholds: { handoff_tokens: 250000 } }) }))
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
+    argvs.push(argv)
     const i = argv.indexOf('--detail')
     const detail = i >= 0 ? argv[i + 1] : ''
     scans.push(detail)
@@ -44,7 +49,7 @@ function world(on: any) {
   on('ui.panes', () => ({ value: [{ id: 'cockpit', title: 'Cockpit', isShown: true, isFocused: false, isPlaced: true }] }))
   on('command.run', ($: any, e: any) => { ran.push(e); return { value: {} } })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
-  return { opened, ran, scans }
+  return { opened, ran, scans, argvs, registered }
 }
 
 const PANE = { title: 'Cockpit', isFocused: true, bodyColumns: 75, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} }
@@ -110,5 +115,48 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ plugin: 'cockpit', key: 'conso-full' })
     expect(JSON.stringify(w.ran)).toContain('"command":"conso"')
     expect(JSON.stringify(w.ran)).toContain('classement')
+  })
+}
+
+test('/factory and /machine: aliases of cockpit only when their own mod is not loaded', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const w = world(on, { clock: false })
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/eta', surface: 'desktop', isInteractive: true } as any)
+  await clock.advance(5000)
+  expect(w.registered).toContain('factory')
+  expect(w.registered).toContain('machine')
+  await $.command.run({ command: 'factory', args: 'workflow all' } as any)
+  expect(w.opened).toContain('cockpit')
+  expect(w.argvs.some((a) => a.some((x) => /workflow_scan\.py$/.test(x)) && a.includes('--all'))).toBe(true)
+  expect(JSON.stringify(w.ran)).not.toContain('"command":"factory"')
+})
+
+test('/factory with the factory mod loaded: cockpit registers nothing and passes the command on', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const w = world(on, { clock: false, commands: [{ name: 'cockpit', plugin: 'cockpit' }, { name: 'factory', plugin: 'factory' }, { name: 'machine', plugin: 'machine' }] })
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/eta', surface: 'desktop', isInteractive: true } as any)
+  await clock.advance(5000)
+  expect(w.registered).not.toContain('factory')
+  expect(w.registered).not.toContain('machine')
+  await $.command.run({ command: 'factory', args: 'mission' } as any)
+  expect(JSON.stringify(w.ran)).toContain('"command":"factory"')
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`cards: the CI card's button runs /ci diagramme when /reference is not loaded; tabs switch in the same pane (${surface})`, async ($, on) => {
+    const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'ci', plugin: 'ci' }] })
+    await $.command.run({ command: 'cockpit', args: '' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 120 }, props: PANE } as any)
+    expect(await has(ui, /^Problèmes du jour$/)).toBe(true)
+    expect(await has(ui, /^En cours$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'card-btn-ci' })
+    expect(JSON.stringify(w.ran)).toContain('"command":"ci","args":"diagramme"')
+    await ui.press({ plugin: 'cockpit', key: 'tab-mission' })
+    expect(await has(ui, /^▸ Ce projet/)).toBe(false) // another tab: the scoped sections are gone
+    expect(await has(ui, /Quotas|Système/)).toBe(false)
+    await ui.press({ plugin: 'cockpit', key: 'tab-home' })
+    expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true)
   })
 }

@@ -1,12 +1,13 @@
 // factory « Workflow » screen and the pane around every screen, native elements only (Box, Text, Button).
 // drawFactoryPane is drawPane (draw.mjs) plus a « Workflow » tab: the top bar is drawn here and the other screens come
 // from draw.mjs's drawScreen, so draw.mjs, screens.mjs and factory.config.json (byte-copied by cockpit) stay as they are.
-// Pure except for `el` and the callbacks in V.act. View models: workflow.mjs.
+// Pure except for `el` and the callbacks in V.act. View models: workflow.mjs; the Gantt bars, axis and legend are
+// lib/core/gantt.mjs's (the ci mod's Diagramme draws with the same renderer).
 import { hhmm, short, family } from './logic.mjs'
 import { screensConfig, tabsOf, layout, clip } from './screens.mjs'
 import { drawScreen } from './draw.mjs'
 import {
-  workflowConfig, workflowScreen, gantt, axis, fill, frTokens, frUsd, frDur, clock,
+  workflowConfig, workflowScreen, gantt, axis, ganttLegend, fill, frTokens, frUsd, frDur, clock,
 } from './workflow.mjs'
 
 function mk(el, cfg) {
@@ -67,6 +68,16 @@ export function drawFactoryPane(el, V) {
   if (V.error) top.push(h.T(`scanner : ${V.error}`, { color: 'bad' }))
   if (!V.scan) return h.col([...top, h.T(L.scanning, { dim: true })])
   return h.col([...top, ...drawScreen(el, V, tab)])
+}
+
+// The Workflow screen's body without factory's tab bar, for a mod that composes it in its own pane (cockpit).
+export function drawWorkflowBody(el, V) {
+  const cfg = V.cfg || {}
+  const h = mk(el, cfg)
+  const out = []
+  if (V.wfError) out.push(h.T(`workflow_scan : ${V.wfError}`, { color: 'bad' }))
+  if (!V.wf) return [...out, h.T(workflowConfig(cfg).labels.scanning, { dim: true })]
+  return [...out, ...drawWorkflow(h, V, cfg, layout(V.columns, cfg))]
 }
 
 const STATUS_COLOR = { running: 'running', done: 'done', completed: 'done', failed: 'failed', killed: 'warn', interrupted: 'warn', skipped: 'dim', waiting: 'dim', tail: 'running', now: 'warn', empty: 'dim' }
@@ -229,6 +240,6 @@ function ganttLines(h, W, v, now, width, cfg) {
       ], { key: `g-${grp.index}-${i}`, flexWrap: 'nowrap', gap: 0 }))
     }
   }
-  out.push(h.T(`█ fini  ▓ en cours  ┄ ${W.labels.est_tail}  ▒ échoué  │ ${W.labels.now}`, { dim: true }))
+  out.push(h.T(ganttLegend({ est: W.labels.est_tail, now: W.labels.now }), { dim: true })) // lib/core/gantt.mjs, same as ci's Diagramme
   return out
 }

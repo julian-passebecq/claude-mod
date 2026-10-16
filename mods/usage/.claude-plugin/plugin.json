@@ -1,7 +1,7 @@
 {
   "name": "usage",
-  "version": "0.3.0",
-  "description": "Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Onglet Classement : qui consomme le plus sur 1 h, 4 h, aujourd'hui, 2 j, 7 j ou 30 j, par conversation, projet, modèle, type d'agent, fonction ou Claude/Codex, avec tendance et part. Onglet Codex : tokens Codex du jour et de la semaine par modèle et % de limite lus dans ~/.codex/sessions. Lecture seule. /conso",
+  "version": "0.4.0",
+  "description": "Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Onglet Classement : qui consomme le plus sur 1 h, 4 h, aujourd'hui, 2 j, 7 j ou 30 j, par conversation, projet, modèle, type d'agent, fonction ou Claude/Codex, avec tendance et part. Onglet Codex : tokens Codex du jour et de la semaine par modèle et % de limite lus dans ~/.codex/sessions. Ligne Quotas en tête et dans la réponse de /conso : 5 h et semaine de Claude et de Codex, date d'épuisement, lues par lib/core/usage.mjs comme band et Cockpit (mêmes chiffres). Lecture seule. /conso",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

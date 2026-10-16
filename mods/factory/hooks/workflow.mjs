@@ -4,6 +4,9 @@
 // runs (median, range, sample size) with an ETA clock time, a complexity badge, a Gantt and one plain French sentence.
 // Every label, threshold and limit comes from workflow.config.json / factory.config.json → `workflow`.
 import { billByModel, sumCost, tokensOf, family, short, costOf } from './logic.mjs'
+// One estimate rule and one Gantt for Workflows (here) and pipelines (ci mod): byte copies of lib/core (scripts/sync-libs.mjs).
+import { quantiles, remaining } from '../lib/core/estimate.mjs'
+import { gantt as coreGantt, axis as coreAxis, legend as coreLegend } from '../lib/core/gantt.mjs'
 
 export const WORKFLOW_DEFAULTS = {
   tab_after: 'arbre',
@@ -158,16 +161,8 @@ export function clock(ms) {
 
 // ---- estimator -------------------------------------------------------------------------------------------------------
 
-export function quantiles(xs) {
-  const v = (xs || []).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
-  if (!v.length) return { n: 0, median: 0, p25: 0, p75: 0 }
-  const q = (p) => {
-    const i = (v.length - 1) * p
-    const lo = Math.floor(i)
-    return v[lo] + (v[Math.min(v.length - 1, lo + 1)] - v[lo]) * (i - lo)
-  }
-  return { n: v.length, median: q(0.5), p25: q(0.25), p75: q(0.75) }
-}
+// quantiles: lib/core/estimate.mjs (same linear interpolation), re-exported for the tests and the cockpit copy.
+export { quantiles }
 
 const roleOf = (label) => (String(label || '').includes(':') ? String(label).split(':')[0].trim().toLowerCase() : '')
 
@@ -219,14 +214,13 @@ export function estimator(history, cfg) {
 // Remaining work of one running agent from its estimate: {lo, mid, hi} ms, tokens and $, overrun when past p75.
 export function remainingOf(est, elapsedMs, tokensNow, costNow = 0) {
   if (!est) return null
-  const d = est.dur
   const t = est.tok
   const u = est.usd || { p25: 0, median: 0, p75: 0 }
-  const overrun = elapsedMs > d.p75
-  const ms = { lo: Math.max(0, d.p25 - elapsedMs), mid: Math.max(0, d.median - elapsedMs), hi: Math.max(0, d.p75 - elapsedMs) }
+  const r = remaining({ enough: true, ...est.dur }, elapsedMs) // lib/core/estimate.mjs: {lo, mid, hi}, overrun past p75
+  const ms = { lo: r.lo, mid: r.mid, hi: r.hi }
   const tok = { lo: Math.max(0, t.p25 - tokensNow), mid: Math.max(0, t.median - tokensNow), hi: Math.max(0, t.p75 - tokensNow) }
   const usd = { lo: Math.max(0, u.p25 - costNow), mid: Math.max(0, u.median - costNow), hi: Math.max(0, u.p75 - costNow) }
-  return { ms, tok, usd, overrun, n: est.n, level: est.level }
+  return { ms, tok, usd, overrun: r.overrun, n: est.n, level: est.level }
 }
 
 // ---- one run -----------------------------------------------------------------------------------------------------------
@@ -508,40 +502,33 @@ export function gantt(view, nowMs, width, cfg) {
     ev.sort((a, b) => a.ts - b.ts || (a.kind === 'now' ? 1 : -1))
     return { mode: 'vertical', rows: ev.map((e) => ({ ...e, time: clock(e.ts) })) }
   }
-  const col = (t) => Math.max(0, Math.min(barW - 1, Math.floor(((t - t0) / (t1 - t0)) * (barW - 1))))
-  const nowCol = view.live ? col(nowMs) : -1
-  const groups = view.phases.filter((p) => p.agents.some((a) => a.start)).map((p) => ({
-    title: p.title, index: p.index,
-    rows: p.agents.filter((a) => a.start).map((a) => {
-      const cells = new Array(barW).fill('empty')
-      const s = col(a.start)
-      const e = col(a.end || (a.status === 'running' ? nowMs : a.start))
-      for (let i = s; i <= e; i++) cells[i] = a.status
-      const te = tailEnd(a)
-      if (te) for (let i = e + 1; i <= col(te); i++) cells[i] = 'tail'
-      if (nowCol >= 0 && cells[nowCol] === 'empty') cells[nowCol] = 'now'
-      return { label: a.label, status: a.status, cells: runs(cells) }
-    }),
-  }))
-  return { mode: 'horizontal', labelW, barW, nowCol, from: clock(t0), to: clock(t1), groups }
+  // horizontal: ONE renderer with the ci mod's Diagramme (lib/core/gantt.mjs), one span for every phase
+  const flat = []
+  for (const p of view.phases) for (const a of p.agents) if (a.start) flat.push({ p, a })
+  const g = coreGantt(flat.map(({ a }) => ({
+    label: a.label, status: coreStatus(a.status), startMs: a.start, endMs: a.status === 'running' ? null : a.end || a.start,
+    estEndMs: tailEnd(a),
+  })), nowMs, barW)
+  const groups = []
+  flat.forEach(({ p, a }, i) => {
+    let grp = groups.find((x) => x.index === p.index)
+    if (!grp) groups.push((grp = { title: p.title, index: p.index, rows: [] }))
+    const r = g.rows[i]
+    grp.rows.push({ label: a.label, status: a.status, cells: r.segs.map((sg) => ({ kind: KIND[sg.kind] || sg.kind, text: sg.text })) })
+  })
+  return { mode: 'horizontal', labelW, barW, nowCol: g.nowCol, from: clock(g.t0), to: clock(g.t1), t0: g.t0, t1: g.t1, groups }
 }
 
-const CH = { done: '█', running: '▓', failed: '▒', skipped: '·', tail: '┄', now: '│', empty: ' ' }
+// agent status -> lib/core/gantt status; core segment kind -> this screen's kind (colours of workflow_draw.mjs)
+const coreStatus = (s) => (s === 'running' ? 'running' : s === 'failed' || s === 'killed' || s === 'interrupted' ? 'failed' : 'success')
+const KIND = { est: 'tail', queue: 'skipped' }
 
-function runs(cells) {
-  const out = []
-  for (const c of cells) {
-    const last = out[out.length - 1]
-    if (last && last.kind === c) last.text += CH[c]
-    else out.push({ kind: c, text: CH[c] })
-  }
-  return out
-}
+/** The legend under the bars: lib/core/gantt.mjs legend, the same words as ci's Diagramme. */
+export const ganttLegend = (labels) => coreLegend(labels)
 
 export function axis(g) {
   if (g.mode !== 'horizontal') return ''
-  const pad = Math.max(1, g.barW - g.from.length - g.to.length)
-  return ' '.repeat(g.labelW + 1) + g.from + ' '.repeat(pad) + g.to
+  return coreAxis({ t0: g.t0, t1: g.t1, width: g.barW }, g.labelW + 1, clock)
 }
 
 // ---- command arguments -----------------------------------------------------------------------------------------------

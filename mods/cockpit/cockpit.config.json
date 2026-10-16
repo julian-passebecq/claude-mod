@@ -6,6 +6,32 @@
     "enabled": ["breadcrumb", "conv", "project", "all", "conso", "global", "fichiers"],
     "open": ["conv"]
   },
+  "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them.",
+  "tabs": {
+    "order": ["home", "mission", "focus", "arbre", "pipeline", "workflow", "journal", "machine"],
+    "enabled": ["home", "mission", "focus", "arbre", "pipeline", "workflow", "journal", "machine"],
+    "labels": { "home": "Cockpit", "mission": "Mission", "focus": "Focus", "arbre": "Arbre", "pipeline": "Pipeline", "workflow": "Workflow", "journal": "Journal", "machine": "Machine" }
+  },
+  "_cards": "Summary cards under the breadcrumb, one line each and a « Voir » button. buttons: per card, the targets tried in order; the first command loaded in this session ($.command.list()) runs, a {tab} target opens one of cockpit's own tabs. Data: scanner/cards.mjs (Node) over lib/core (usage, veille, runner, estimate), the ci mod's pipelines cache and the problemes register (read-only). max_encours: lines of « En cours ».",
+  "cards": {
+    "order": ["conso", "attend", "atoi", "ci", "quota", "problemes", "encours"],
+    "enabled": ["conso", "attend", "atoi", "ci", "quota", "problemes", "encours"],
+    "max_encours": 4,
+    "buttons": {
+      "conso": [{ "command": "conso", "args": "classement" }],
+      "attend": [{ "command": "veille", "args": "fil" }],
+      "atoi": [{ "command": "afaire" }],
+      "ci": [{ "command": "reference", "args": "ci diagramme" }, { "command": "ci", "args": "diagramme" }],
+      "quota": [{ "command": "conso" }],
+      "problemes": [{ "command": "registres", "args": "problemes" }, { "command": "problemes" }],
+      "encours": [{ "tab": "workflow" }]
+    }
+  },
+  "_aliases": "Old commands kept for habits: after delay_s seconds (other mods register their commands at session start), each name absent from $.command.list() is registered as an alias of /cockpit (/factory [onglet] -> that tab, quotas -> Cockpit, systeme -> Machine; /machine -> Machine). A name that a loaded mod has is left to it.",
+  "aliases": { "enabled": true, "delay_s": 4, "names": ["factory", "machine"] },
+  "_machine": "Machine tab: seconds between PC samples (only while it shows); gpu_every: one GPU read every N samples.",
+  "machine_refresh_s": 10,
+  "gpu_every": 6,
   "_default_level": "where the selection starts: medium (default: this conversation selected, its Workflows and agents open), macro (its project) or mega.",
   "default_level": "medium",
   "_auto_open": "true: the pane opens by itself when a session starts (also needs userConfig start = on). It sits in the same right column as filetree, as a second tab: the desktop shows one pane at a time, the others as tabs.",

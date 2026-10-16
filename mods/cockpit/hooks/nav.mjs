@@ -8,12 +8,19 @@ import { sessionState, mission, effortBars } from '../lib/factory/hooks/screens.
 import { rank } from '../lib/usage/lib/classement.mjs'
 
 export const LEVELS = ['mega', 'macro', 'medium', 'micro']
+// Tabs of the one pane: « Cockpit » (cards + the scoped sections), then factory's screens (synced copies in
+// lib/factory) and Machine. factory's Quotas and Système are not here: the Quota card and Machine replace them.
+export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine']
 // Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
 export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers']
 export const FOLDABLE = ['conv', 'project', 'all', 'conso', 'global']
 
 export const DEFAULTS = {
   sections: { order: SECTIONS, enabled: SECTIONS, open: ['conv'] },
+  tabs: { order: TABS, enabled: TABS, labels: { home: 'Cockpit', mission: 'Mission', focus: 'Focus', arbre: 'Arbre', pipeline: 'Pipeline', workflow: 'Workflow', journal: 'Journal', machine: 'Machine' } },
+  machine_refresh_s: 10,
+  gpu_every: 6,
+  aliases: { enabled: true, delay_s: 4, names: ['factory', 'machine'] },
   default_level: 'medium',
   auto_open: true,
   refresh_s: 20,
@@ -72,7 +79,8 @@ export const DEFAULTS = {
     step: 'étape',
     no_pr: 'pas de PR',
     machine: 'Machine',
-    machine_button: '/machine',
+    machine_button: 'Onglet Machine',
+    card_open: 'Voir',
     states: { working: 'en cours', julian: 'attend Julian', blocked: 'bloquée', done: 'terminée', idle: 'au repos', archived: 'archivée' },
     today: 'aujourd’hui',
     show_done: '+ {n} terminé(s)',
@@ -529,6 +537,52 @@ export function globalSummary(card, veille) {
     bits.push(n ? `${n} alerte(s)` : 'aucune alerte')
   }
   return bits.join(' · ')
+}
+
+// The tabs shown, in order: `order` filtered by `enabled`; unknown ids dropped; « home » always first.
+export function tabsOf(cfg) {
+  const c = cockpitConfig(cfg).tabs
+  const ids = c.order.filter((t) => TABS.includes(t) && (t === 'home' || c.enabled.includes(t)))
+  return (ids.includes('home') ? ids : ['home', ...ids]).map((id) => ({ id, label: (c.labels || {})[id] || id }))
+}
+
+const TAB_WORDS = {
+  home: 'home', accueil: 'home', cartes: 'home', cockpit: 'home',
+  mission: 'mission', focus: 'focus', arbre: 'arbre', tree: 'arbre', pipeline: 'pipeline', journal: 'journal',
+  workflow: 'workflow', workflows: 'workflow', wf: 'workflow',
+  machine: 'machine', systeme: 'machine', 'système': 'machine', system: 'machine',
+}
+const LEVEL_WORDS = { mega: 'mega', 'méga': 'mega', macro: 'macro', projet: 'macro', project: 'macro', medium: 'medium', conversation: 'medium', conv: 'medium', micro: 'micro', agent: 'micro' }
+const SCOPE_WORDS = { all: 'all', tout: 'all', toutes: 'all', conv: 'conversation', conversation: 'conversation' }
+
+/**
+ * "/cockpit [level|tab] [rest]" -> {level, tab, scope, rest, close}. A level opens the « Cockpit » tab at that zoom;
+ * a tab word opens that tab (« workflow all » = every Workflow of the PC); the rest names a project or a conversation.
+ */
+export function parseArgs(args) {
+  const words = String(args || '').trim().split(/\s+/).filter(Boolean)
+  const w0 = (words[0] || '').toLowerCase()
+  if (w0 === 'close' || w0 === 'fermer') return { close: true, level: null, tab: null, scope: null, rest: '' }
+  const level = LEVEL_WORDS[w0] || null
+  const tab = level ? 'home' : TAB_WORDS[w0] || null
+  let rest = words.slice(level || tab ? 1 : 0)
+  let scope = null
+  if (tab === 'workflow' && rest[0] && SCOPE_WORDS[rest[0].toLowerCase()]) { scope = SCOPE_WORDS[rest[0].toLowerCase()]; rest = rest.slice(1) }
+  return { close: false, level, tab, scope, rest: rest.join(' ') }
+}
+
+/**
+ * The old commands, kept as aliases while their mod is not loaded: /factory [tab] [...] and /machine [...] as cockpit
+ * args. factory's quotas tab -> home (the Quota card), systeme -> machine.
+ */
+export function aliasArgs(name, args) {
+  const q = String(args || '').trim()
+  if (name === 'machine') return /^close$/i.test(q) ? 'close' : 'machine'
+  const [w, ...more] = q.split(/\s+/).filter(Boolean)
+  const lw = (w || '').toLowerCase()
+  if (!lw) return 'mission'
+  if (lw === 'quotas') return 'home'
+  return [lw === 'systeme' || lw === 'système' ? 'machine' : lw, ...more].join(' ')
 }
 
 // Which section a click opens: a project its « Ce projet », a conversation, workflow or agent « Cette conversation ».

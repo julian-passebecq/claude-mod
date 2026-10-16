@@ -1,25 +1,36 @@
-// cockpit - one side pane, top to bottom by scope, every section foldable with a one-line summary while closed:
-// Cette conversation (open, selected) › Ce projet › Tous les projets › Claude global. A small breadcrumb
-// (Méga › Projet › Conversation › Agent) zooms; a click on a node drills down and opens the section that shows it.
-//   /cockpit [mega|macro|medium|micro] [projet ou conversation] | close
-// Opens by itself at session start (like filetree; userConfig `start`) on this conversation. Read-only: it runs
-// factory's scanner (copied in lib/) and reads veille's files; it never blocks, rewrites or adds to a prompt. Refresh
-// only while the pane is the one shown.
+// cockpit - the one zoomable side pane (méga › projet › conversation › agent), read-only, with tabs:
+//   Cockpit  summary cards (Qui consomme, T'attend, À toi, CI, Quota, Problèmes du jour, En cours), each a button to
+//            its detail, then the scoped sections (Cette conversation › Ce projet › Tous les projets › Qui consomme ›
+//            Claude global), every section foldable with a one-line summary while closed
+//   Mission · Focus · Arbre · Pipeline · Workflow · Journal   factory's screens (synced copies in lib/factory)
+//   Machine  this PC's load (machine.py copy) and the runner load (lib/core/runner.mjs)
+//   /cockpit [conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine] [projet ou conversation] | close
+// /factory and /machine keep working: while their own mod is loaded it answers; when it is not, cockpit registers the
+// name as an alias (checked against $.command.list(), as band does to grey a button). Card buttons run the detail's
+// command ($.command.run; a mod cannot open another mod's pane). Opens by itself at session start (userConfig `start`).
+// Read-only: scanners (factory's, workflow's, machine's copies, scanner/cards.mjs over lib/core); nothing blocks,
+// rewrites or adds to a prompt, nothing calls a model. Refresh only while the pane is the one shown.
 import { deepMerge, scanArgs, pickSession, repoOf } from '../lib/factory/hooks/logic.mjs'
-import { waitingArgs } from '../lib/factory/hooks/waiting.mjs'
+import { waitingArgs, waitingRows } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
+import { workflowConfig, workflowArgs, workflowScreen } from '../lib/factory/hooks/workflow.mjs'
 import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
-import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard } from './nav.mjs'
+import { cardsOf, pickTarget, workflowsLive, runnerBackends, cardsConfig } from '../lib/cards.mjs'
+import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabsOf } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
 
 const PANE = 'cockpit'
 let options = {}
 let CFG = null // cockpit.config.json (+ user file)
-let FCFG = null // factory.config.json (lib copy, + ~/.claude/effort-board/factory.config.json)
+let FCFG = null // factory.config.json + workflow.config.json (lib copies, + ~/.claude/effort-board/factory.config.json)
+const ALIASES = new Set() // old command names this session serves (their own mod is not loaded)
 const D = {
   scan: null, nav: null, self: null, busy: false, error: '', at: 0, open: false, filter: 'all', strips: null,
   usage: null, usageRaw: null, veille: null, columns: 0, conso: null, consoData: null, consoPreset: '', consoScan: false,
+  tab: 'home', jfilter: 'all', jproject: '', cardsRaw: null, cardsError: '', cardsAt: 0,
+  wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {}, wfAll: null,
+  machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '' },
 }
 
 const norm = (p) => String(p || '').replace(/\\/g, '/')
@@ -54,7 +65,8 @@ async function loadConfig($) {
   const userPath = (options.config || '').trim() ? expand(options.config.trim(), home) : (await board($)) + '/cockpit.config.json'
   CFG = deepMerge(base, (await readJson($, userPath)) || {})
   const fbase = (await readJson($, root($) + '/lib/factory/factory.config.json')) || {}
-  FCFG = deepMerge(fbase, (await readJson($, (await board($)) + '/factory.config.json')) || {})
+  const wf = await readJson($, root($) + '/lib/factory/workflow.config.json')
+  FCFG = deepMerge(deepMerge(fbase, wf ? { workflow: wf } : {}), (await readJson($, (await board($)) + '/factory.config.json')) || {})
   if (!D.strips) D.strips = Object.fromEntries(cockpitConfig(CFG).sections.open.map((k) => [k, true]))
   return CFG
 }
@@ -86,6 +98,87 @@ async function rescan($) {
   $.ui.invalidate('ui.render')
 }
 
+// factory's Workflow scanner (copy). scope: the tab's choice; the « En cours » card always reads every Workflow.
+async function scanWorkflows($, scope) {
+  const cfg = FCFG || {}
+  const argv = [cfg.python || 'python', ...workflowArgs(cfg, {
+    script: root($) + '/lib/factory/scanner/workflow_scan.py', cache: `${await board($)}/cockpit_workflow_${scope === 'all' ? 'all' : 'conv'}.json`, scope, session: D.self || '',
+  })]
+  const r = await $.process.run(argv, { timeoutMs: 180000 })
+  if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `workflow_scan exit ${r.exitCode}`)
+  return JSON.parse(r.stdout)
+}
+
+async function rescanWorkflow($) {
+  if (D.wfBusy) return
+  D.wfBusy = true
+  $.ui.invalidate('ui.render')
+  try {
+    if (!CFG) await loadConfig($)
+    const scope = D.wfScope || workflowConfig(FCFG).scope
+    D.wf = await scanWorkflows($, scope)
+    if (scope === 'all') D.wfAll = D.wf
+    D.wfError = ''
+    D.wfAt = await $.clock.now()
+  } catch (err) {
+    D.wfError = String(err && err.message ? err.message : err).slice(0, 300)
+  } finally {
+    D.wfBusy = false
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// The cards' data: scanner/cards.mjs (Node, lib/core) and every Workflow of the PC for « En cours ».
+async function loadCards($) {
+  const now = await $.clock.now()
+  try {
+    const r = await $.process.run([(CFG && CFG.node) || 'node', root($) + '/scanner/cards.mjs'], { stdin: JSON.stringify({ now, home: await homeDir($) }), timeoutMs: 60000 })
+    if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `cards exit ${r.exitCode}`)
+    D.cardsRaw = JSON.parse(r.stdout)
+    D.cardsError = ''
+  } catch (err) {
+    D.cardsError = String(err && err.message ? err.message : err).slice(0, 200)
+  }
+  try { D.wfAll = await scanWorkflows($, 'all') } catch { /* the card says « rien ne tourne » */ }
+  D.cardsAt = now
+  D.machine.runner = runnerBackends(D.cardsRaw && D.cardsRaw.runner)
+  $.ui.invalidate('ui.render')
+}
+
+// The pure card list from what is in memory (drawn at every render).
+function cards(now) {
+  const raw = D.cardsRaw || {}
+  const wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null
+  let waiting = 0
+  try { waiting = D.scan ? waitingRows(D.scan, FCFG || {}, D.at || now).rows.length : 0 } catch { waiting = 0 }
+  return cardsOf({
+    conso: D.conso, veille: raw.veille || null, waiting, quotas: raw.quotas || null, runnerText: raw.runnerText || '',
+    ci: raw.ci || null, problemes: raw.problemes || null, workflows: workflowsLive(wfScreen), pipelines: raw.pipelines || [],
+  }, CFG || {}, now)
+}
+
+// PC load through the machine mod's sampler (copy in lib/machine); the runner load comes with the cards (lib/core).
+async function sampleMachine($) {
+  const c = cockpitConfig(CFG || {})
+  const M = D.machine
+  const py = (FCFG && FCFG.python) || 'python'
+  try {
+    const gpu = M.tick % Math.max(1, c.gpu_every) === 0
+    M.tick += 1
+    const r = await $.process.run([py, '-I', root($) + '/lib/machine/scanner/machine.py', 'sample'], { stdin: JSON.stringify({ prev: M.prev, gpu, top_n: 5 }), timeoutMs: 20000 })
+    if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `machine exit ${r.exitCode}`)
+    const s = JSON.parse(r.stdout)
+    M.prev = s.raw
+    if (!gpu && M.sample && M.sample.gpu) s.gpu = M.sample.gpu
+    M.sample = s
+    M.error = ''
+  } catch (err) {
+    M.error = String(err && err.message ? err.message : err).slice(0, 200)
+  }
+  if (!M.runner) await loadCards($).catch(() => undefined)
+  $.ui.invalidate('ui.render')
+}
+
 // « Claude global »: the usage card from the engine's figures ($.session.usage, cheap) and veille's files. The context
 // gauge lives in band, above the prompt (where Julian looks), not here.
 async function refreshStrips($) {
@@ -95,6 +188,7 @@ async function refreshStrips($) {
   D.usage = usageCard(D.usageRaw, me, FCFG || {}, now)
   await loadConso($, now).catch(() => undefined)
   await loadVeille($)
+  if (D.tab === 'home') await loadCards($).catch(() => undefined)
   $.ui.invalidate('ui.render')
 }
 
@@ -136,6 +230,14 @@ async function loadVeille($) {
   D.veille = state || heartbeat ? viewModel(cfg, state, heartbeat, acks, await $.clock.now()) : null
 }
 
+// What the tab on screen needs, now.
+async function refreshTab($) {
+  if (D.tab === 'workflow') return rescanWorkflow($)
+  if (D.tab === 'machine') return sampleMachine($)
+  await rescan($)
+  if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
+}
+
 // Shown = open, placed, and the tab on screen (another pane, e.g. filetree, may be the one shown).
 async function shown($) {
   if (!D.open) return false
@@ -149,9 +251,30 @@ async function shown($) {
 
 // ---- actions ---------------------------------------------------------------------------------------------------------
 
+// A card's button: the first target loaded in this session ($.command.list(), local), or one of cockpit's own tabs.
+async function runTarget($, candidates) {
+  let names = []
+  try { names = ((await $.command.list()) || []).map((c) => c.name) } catch { names = [] }
+  const t = pickTarget(candidates, names)
+  if (t && t.tab) { setTab($, t.tab); return }
+  if (!t) {
+    const first = (candidates || []).find((c) => c.command)
+    $.ui.toast(cardsConfig(CFG).labels.not_loaded.replace('{command}', first ? '/' + first.command : '?'))
+    return
+  }
+  void $.command.run(t.args ? { command: t.command, args: t.args } : { command: t.command }).catch(() => $.ui.toast(`/${t.command} : échec`))
+}
+
+function setTab($, tab) {
+  D.tab = tabsOf(CFG).some((t) => t.id === tab) ? tab : 'home'
+  $.ui.invalidate('ui.render')
+  void refreshTab($)
+}
+
 function actions($) {
   const redraw = () => $.ui.invalidate('ui.render')
   return {
+    tab: (id) => setTab($, id),
     crumb: (level) => { D.nav = zoomTo(D.nav, level); redraw() },
     select: (node) => {
       const before = D.nav && D.nav.conv
@@ -161,13 +284,26 @@ function actions($) {
       redraw()
       if (D.nav.conv && D.nav.conv !== before && !(D.scan && D.scan.detail && D.scan.detail.cli === D.nav.conv)) void rescan($)
     },
-    refresh: () => { void rescan($).then(() => refreshStrips($)) },
+    refresh: () => { void refreshTab($) },
     filter: (k) => { D.filter = k; redraw() },
+    jfilter: (k) => { D.jfilter = k; redraw() },
+    jproject: (p) => { D.jproject = p; redraw() },
+    pick: () => { D.tab = 'home'; D.strips = { ...(D.strips || {}), all: true }; redraw() },
+    go: (cli) => {
+      const s = D.scan && findSession(D.scan, cli)
+      D.nav = select(D.nav || { level: 'mega' }, { kind: 'conv', id: cli, repo: s ? repoOf(s) : undefined })
+      D.tab = 'arbre'
+      redraw()
+      void rescan($)
+    },
+    wfScope: (k) => { D.wfScope = k; redraw(); void rescanWorkflow($) },
+    wfToggle: (key, open) => { D.wfOpen = { ...D.wfOpen, [key]: open }; redraw() },
     toggle: (id) => {
       D.strips = { ...(D.strips || {}), [id]: !(D.strips || {})[id] }
       redraw()
       if ((id === 'global' || id === 'conso') && D.strips[id]) void refreshStrips($)
     },
+    card: (card) => { void runTarget($, card.button) },
     files: () => { void $.command.run({ command: 'filetree' }).catch(() => $.ui.toast('filetree non chargé : ajoute vendor/filetree à CLAUDE_CODE_PLUGIN_DIRS')) },
     consoPreset: (id) => {
       D.consoPreset = id
@@ -177,24 +313,65 @@ function actions($) {
       const q = cockpitConfig(CFG).qui_consomme
       void $.command.run({ command: q.command, args: q.args }).catch(() => $.ui.toast(cockpitConfig(CFG).labels.conso_missing))
     },
-    machine: () => { void $.command.run({ command: 'machine' }).catch(() => $.ui.toast('machine non chargé : ajoute mods/machine à CLAUDE_CODE_PLUGIN_DIRS')) },
+    machine: () => setTab($, 'machine'),
   }
 }
 
 async function openPane($, focus) {
   D.open = true
   const title = (cockpitConfig(CFG).labels || {}).title || 'Cockpit'
-  const r = await $.ui.open(focus ? { id: PANE, title, focus: true } : { id: PANE, title })
-  return r
+  return $.ui.open(focus ? { id: PANE, title, focus: true } : { id: PANE, title })
 }
 
-// "/cockpit macro datapass" -> { level: 'macro', rest: 'datapass' }
-export function parseArgs(args) {
-  const words = String(args || '').trim().split(/\s+/).filter(Boolean)
-  const alias = { mega: 'mega', 'méga': 'mega', macro: 'macro', projet: 'macro', medium: 'medium', conversation: 'medium', conv: 'medium', micro: 'micro', agent: 'micro' }
-  const lv = words.length ? alias[words[0].toLowerCase()] : null
-  return { level: lv || null, rest: (lv ? words.slice(1) : words).join(' ') }
+// /cockpit <args> (also the /factory and /machine aliases, mapped by aliasArgs).
+async function runCockpit($, args) {
+  await loadConfig($)
+  try { D.self = (await $.session.id()) || D.self } catch { /* keep */ }
+  const p = parseArgs(args)
+  if (p.close) { D.open = false; await $.ui.close({ id: PANE }); return {} }
+  await openPane($, true)
+  if (!D.scan) await rescan($)
+  if (!D.nav && D.scan) D.nav = initialNav(D.scan, D.self, CFG)
+  if (p.rest && D.scan) {
+    const s = pickSession(D.scan.sessions, p.rest)
+    const repo = !s && (D.scan.sessions || []).map(repoOf).find((r) => r.toLowerCase().includes(p.rest.toLowerCase()))
+    if (s) D.nav = select(D.nav, { kind: 'conv', id: s.cli, repo: repoOf(s) })
+    else if (repo) D.nav = select(D.nav, { kind: 'project', id: repo })
+  }
+  if (p.level && D.nav) D.nav = zoomTo(D.nav, p.level) // a level whose subject is unknown (micro without an agent) stays put
+  if ((p.level || p.rest) && D.nav && (!p.tab || p.tab === 'home')) {
+    const sec = { mega: 'all', macro: 'project', medium: 'conv', micro: 'conv' }[D.nav.level]
+    if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
+  }
+  if (p.scope) D.wfScope = p.scope
+  D.tab = p.tab && tabsOf(CFG).some((t) => t.id === p.tab) ? p.tab : p.level || p.rest ? (D.tab === 'arbre' ? 'arbre' : 'home') : D.tab
+  if (D.tab === 'home') { await rescan($); await refreshStrips($).catch(() => undefined) } else await refreshTab($)
+  return {}
 }
+
+// The old names (/factory, /machine) as aliases, only when no loaded command has them already: the same check band
+// makes to grey a button ($.command.list(), local). Registering a name again would replace the other mod's command.
+async function registerAliases($) {
+  const a = cockpitConfig(CFG || {}).aliases
+  if (!a.enabled) return
+  let names = []
+  try { names = ((await $.command.list()) || []).map((c) => c.name) } catch { return }
+  for (const name of a.names) {
+    if (names.includes(name) || ALIASES.has(name)) continue
+    try {
+      await $.command.register({ name, immediate: true, description: `Alias de /cockpit : ${name === 'machine' ? 'onglet Machine (charge du PC et du runner)' : 'écrans de Factory (Mission, Focus, Arbre, Pipeline, Workflow, Journal)'}, maintenant dans Cockpit`,
+        argumentHint: name === 'machine' ? '| close' : '[mission|focus|arbre|pipeline|workflow [all]|journal|systeme] [titre ou id] | close' })
+      ALIASES.add(name)
+    } catch { /* refused: nothing */ }
+  }
+}
+
+async function aliasHook($, e, next, name) {
+  if (!ALIASES.has(name)) return next(e)
+  return runCockpit($, aliasArgs(name, e.args))
+}
+
+export { parseArgs }
 
 export function register(on, opts) {
   options = opts || {}
@@ -203,11 +380,13 @@ export function register(on, opts) {
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     try {
-      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : Méga › Projet › Conversation › Agent, arbre cliquable et détail (/cockpit [niveau] [projet ou conversation])',
-        argumentHint: '[mega|macro|medium|micro] [projet ou conversation] | close' })
+      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : cartes (conso, t’attend, à toi, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory et Machine',
+        argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
-    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s ? rescan($) : undefined)) })
-    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? refreshStrips($) : undefined)) })
+    $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
+    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' ? rescan($) : undefined)) })
+    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : refreshStrips($)) : undefined)) })
+    $.clock.every(Math.max(3, c.machine_refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab === 'machine' ? sampleMachine($) : undefined)) })
     if (c.auto_open && options.start !== 'off') {
       void (async () => {
         await openPane($, false).catch(() => undefined)
@@ -218,30 +397,9 @@ export function register(on, opts) {
     return next(e)
   })
 
-  on('command.run', { command: 'cockpit' }, async ($, e) => {
-    await loadConfig($)
-    try { D.self = (await $.session.id()) || D.self } catch { /* keep */ }
-    const q = String(e.args || '').trim()
-    if (q.toLowerCase() === 'close') { D.open = false; await $.ui.close({ id: PANE }); return {} }
-    await openPane($, true)
-    const { level, rest } = parseArgs(q)
-    if (!D.scan) await rescan($)
-    if (!D.nav && D.scan) D.nav = initialNav(D.scan, D.self, CFG)
-    if (rest && D.scan) {
-      const s = pickSession(D.scan.sessions, rest)
-      const repo = !s && (D.scan.sessions || []).map(repoOf).find((r) => r.toLowerCase().includes(rest.toLowerCase()))
-      if (s) D.nav = select(D.nav, { kind: 'conv', id: s.cli, repo: repoOf(s) })
-      else if (repo) D.nav = select(D.nav, { kind: 'project', id: repo })
-    }
-    if (level && D.nav) D.nav = zoomTo(D.nav, level) // a level whose subject is unknown (micro without an agent) stays put
-    if ((level || rest) && D.nav) {
-      const sec = { mega: 'all', macro: 'project', medium: 'conv', micro: 'conv' }[D.nav.level]
-      if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
-    }
-    await rescan($)
-    await refreshStrips($).catch(() => undefined)
-    return {}
-  })
+  on('command.run', { command: 'cockpit' }, async ($, e) => runCockpit($, e.args))
+  on('command.run', { command: 'factory' }, async ($, e, next) => aliasHook($, e, next, 'factory')).catch(($, e, next) => next(e))
+  on('command.run', { command: 'machine' }, async ($, e, next) => aliasHook($, e, next, 'machine')).catch(($, e, next) => next(e))
 
   on('ui.close', { id: PANE }, async ($, e, next) => { D.open = false; return next(e) }).catch(($, e, next) => next(e))
 
@@ -249,10 +407,13 @@ export function register(on, opts) {
     const el = $.ui.resolve(e)
     D.open = true
     D.columns = Number(e.props && e.props.bodyColumns) || 0
+    const now = D.cardsAt || D.at || 0
     return drawCockpit(el, {
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
       busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
-      conso: D.conso, consoPreset: D.consoPreset,
+      conso: D.conso, consoPreset: D.consoPreset, tab: D.tab, jfilter: D.jfilter, jproject: D.jproject,
+      cards: D.tab === 'home' ? cards(now || D.at) : [], cardsError: D.cardsError, cardsAt: D.cardsAt,
+      wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
     })
   })
 }

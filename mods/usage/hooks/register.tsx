@@ -19,7 +19,7 @@ const cPreset = atom({ plugin: 'usage', key: 'preset' } as const, '')
 const cGroup = atom({ plugin: 'usage', key: 'group' } as const, '')
 
 type Options = { status_line?: string; codex?: string }
-const S: { busy: boolean; error: string; at: number; last: any; aggr: any; cls: any } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined, cls: undefined }
+const S: { busy: boolean; error: string; at: number; last: any; aggr: any; cls: any; quotas: string } = { busy: false, error: '', at: 0, last: undefined, aggr: undefined, cls: undefined, quotas: '' }
 
 // Hands a desktop-app conversation link to the OS (same rule and call as veille's Fil). Windows: url.dll, no shell.
 async function openUrl($: EngineInterface, url: string) {
@@ -87,6 +87,7 @@ async function rescan($: EngineInterface, options: Options) {
     if (r.exitCode !== 0) throw new Error((r.stderr || '').trim().split('\n').pop() || `scanner exit ${r.exitCode}`)
     S.error = ''
     S.at = await $.clock.now()
+    await loadQuotas($, options)
     S.aggr = undefined
     S.cls = undefined
   } catch (err) {
@@ -96,6 +97,15 @@ async function rescan($: EngineInterface, options: Options) {
   }
   await refreshStatus($, options)
   $.ui.invalidate('ui.render')
+}
+
+/** The 5 h / week line of lib/core/usage.mjs (scanner/usage_scan.mjs quotas): the numbers band and cockpit print. */
+async function loadQuotas($: EngineInterface, options: Options) {
+  try {
+    const { root, cfg } = await context($, options)
+    const r = await $.process.run([cfg.node || 'node', `${root}/scanner/usage_scan.mjs`, 'quotas'], { timeoutMs: 30000 })
+    if (r.exitCode === 0) S.quotas = String(JSON.parse(r.stdout).line || '')
+  } catch {}
 }
 
 async function compute($: EngineInterface, options: Options, current = '') {
@@ -140,6 +150,7 @@ export const register: Register = (on, raw) => {
     const want = words.map(w => ALIASES[w.normalize('NFD').replace(/[̀-ͯ']/g, '')]).find(Boolean)
     if (want) await update($, tab, () => want)
     const { cfg, m, cx, stale } = await compute($, options)
+    if (!S.quotas) await loadQuotas($, options)
     if (stale || words.includes('refresh')) $.clock.after(0, () => rescan($, options))
     await $.ui.open({ id: 'usage', title: cfg.labels?.pane_title ?? 'usage' })
     const l = cfg.labels ?? {}
@@ -147,7 +158,7 @@ export const register: Register = (on, raw) => {
     const week = m.week ? `${l.week_label} ${fmtPct(m.week.reading.pct)} · ${outcome(m.week.current, m.tz, l)} ${l.pace_now}` : l.no_reading
     const cxl = cfg.codex?.labels ?? {}
     const codex = cx.reason === 'off' ? '' : ` · ${cxl.codex ?? 'Codex'} ${cx.available && cx.hasData ? `${fmtTokens(cx.today.total[CV.total])} tokens${cx.windows[0] ? ` · ${cx.windows[0].label} ${fmtPct(cx.windows[0].pct)}` : ''}` : cxl.unavailable ?? 'non disponible'}`
-    return { text: `conso: aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · ${fmtUsd(m.today.total[7])} · ${week}${codex}` }
+    return { text: `conso: aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · ${fmtUsd(m.today.total[7])} · ${week}${codex}${S.quotas ? `\nquotas : ${S.quotas}` : ''}` }
   })
 
   // Observe only: save a sample when a rate-limit window moved, refresh the status line. The event passes on unchanged.
@@ -190,6 +201,7 @@ export const register: Register = (on, raw) => {
       <Box flexDirection="column">
         <Text dimColor>{`${cfg.plan_label ?? cfg.plan} · lecture seule · coûts : ${l.estimate}${S.busy ? ' · scan en cours…' : ''}`}</Text>
         {S.error ? <Text color="error">{`scan: ${S.error}`}</Text> : null}
+        {S.quotas ? <Text key="quotas">{`${l.quotas_label ?? 'Quotas'} : ${S.quotas}`}</Text> : null}
         {m && cx.reason !== 'off' ? (
           <Text>{`${cxl.claude ?? 'Claude'} aujourd'hui ${fmtTokens(tokensOf(m.today.total))} tokens · 7 j ${fmtTokens(tokensOf(m.weekView.total))}  |  ${cxl.codex ?? 'Codex'} ${cxOk ? `aujourd'hui ${fmtTokens(cx.today.total[CV.total])} tokens · 7 j ${fmtTokens(cx.week.total[CV.total])}${cx.windows.map((w: any) => ` · ${w.label} ${fmtPct(w.pct)}`).join('')}` : cxl.unavailable ?? 'non disponible'}`}</Text>
         ) : null}
