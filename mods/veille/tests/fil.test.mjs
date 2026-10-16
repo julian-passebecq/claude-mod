@@ -14,7 +14,15 @@ import { filText } from '../hooks/fil-view.mjs'
 import { BIN_FILES } from '../watcher/veille.mjs'
 import { FAKE_TOKEN, MIN, appJson, sessions } from './fixtures/fil.mjs'
 
-const NOW = Date.now()
+// A fixed "now": the latest local noon already past. The fixtures sit within 26 h of it, so « aujourd'hui » (same local day)
+// never straddles midnight whatever the clock or the timezone (TZ) the tests run in; every mtime stays in the past.
+function lastLocalNoon(real = Date.now()) {
+  const d = new Date(real)
+  d.setHours(12, 0, 0, 0)
+  if (d.getTime() > real) d.setDate(d.getDate() - 1)
+  return d.getTime()
+}
+const NOW = lastLocalNoon(process.env.FIL_TEST_REAL_NOW ? Date.parse(process.env.FIL_TEST_REAL_NOW) : Date.now())
 const CFG = JSON.parse(fs.readFileSync(new URL('../veille.config.json', import.meta.url), 'utf8'))
 
 // Lays the fixtures out as the desktop app and Claude Code do, with each transcript's mtime set.
