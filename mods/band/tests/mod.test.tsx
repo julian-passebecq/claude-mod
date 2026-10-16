@@ -15,7 +15,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
   ...extra,
 })
 
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; veille?: unknown } = {}) {
   const tokens = opts.tokens ?? 164000
   mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -37,6 +37,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   on('fs.read', ($: any, e: any) => {
     const p = String(e.path).replace(/\\/g, '/')
     if (p.endsWith('/band.config.json')) return { value: SHIPPED }
+    if (opts.veille && p === 'C:/Users/me/.claude/veille/state.json') return { value: JSON.stringify(opts.veille) }
     if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
     throw new Error('ENOENT')
   })
@@ -255,3 +256,18 @@ test('hand-off: a /handoff typed by the person is listed in the pane', async ($,
   expect(await pane.find({ type: 'Text', text: /\/handoff lancé$/ })).toBeDefined()
   await pane.unmount()
 })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a red « attend Julian : N » heads the band line when the Veille has conversations waiting on Julian (${surface})`, async ($, on) => {
+    world(on, { veille: { alerts: {
+      a: { key: 'a', what: 'Attend Julian : Tell me whether the #29 merge stays', julian: true, severity: 'julian' },
+      b: { key: 'b', what: 'Attend Julian : Needs your input', julian: true, severity: 'julian' },
+      c: { key: 'c', what: 'CI rouge', severity: 'bad' },
+    } } })
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+    expect(await band.find({ type: 'Text', text: 'attend Julian : 2' })).toBeDefined()
+    await band.unmount()
+  })
+}
+

@@ -8,6 +8,7 @@
 //   node veille.mjs coordinator <session-id> [cwd]   the conversation woken for actions the script cannot do
 //   node veille.mjs install [--launcher wscript|conhost] | uninstall
 //   node veille.mjs test-mail
+//   node veille.mjs fil               rebuild the Fil digest (fil.json) now, from files only
 // State in ~/.claude/veille/. Only `fire`/`tour` write state.json and heartbeat.json; `mode`, `coordinator`,
 // `install` write config.json; `ack` writes acks.jsonl. Tokens stay with gh and glab: never read, printed or stored.
 import { spawn, spawnSync } from 'node:child_process'
@@ -17,10 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   deepMerge, modeName, modeOf, may, tourDue, gapOf, alertsOf, reconcile, plan, markSent, budgetLeft, pruneSpent,
-  mergeCandidates, ownerOf, ghEligible, glEligible, wakeDecision, brief, prText, scrub, fill, watcherState, MODES,
+  mergeCandidates, ownerOf, ghEligible, glEligible, wakeDecision, brief, prText, scrub, fill, watcherState, MODES, due,
 } from '../lib/core.mjs'
 import { compose, digest, sendMail, smtpProblem } from '../lib/mail.mjs'
 import { age } from '../../factory/hooks/waiting.mjs'
+import { julianAlerts } from '../lib/fil.mjs'
+import { writeFil } from './fil.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MOD = path.resolve(HERE, '..')
@@ -46,7 +49,7 @@ const P = (cfg) => {
   return {
     home: h, config: path.join(h, 'config.json'), state: path.join(h, 'state.json'), heartbeat: path.join(h, 'heartbeat.json'),
     events: path.join(h, 'events.jsonl'), acks: path.join(h, 'acks.jsonl'), lock: path.join(h, 'lock'), cache: path.join(h, 'scan_cache.json'),
-    smtp: path.join(h, 'smtp.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
+    smtp: path.join(h, 'smtp.json'), fil: path.join(h, 'fil.json'), paths: path.join(h, 'paths.json'), bin: path.join(h, 'bin'), wakes: path.join(h, 'wakes'),
   }
 }
 
@@ -227,6 +230,10 @@ async function tour(cfg, why) {
     if (r.code !== 0) throw new Error(`scanner: ${(r.err || '').trim().split('\n').pop() || 'exit ' + r.code}`)
     const scan = JSON.parse(r.out)
 
+    // The Fil (every conversation's last message) and its « attend Julian » rows: one per conversation and question.
+    let filRows = []
+    try { filRows = julianAlerts(writeFil(cfg, p.fil)) } catch (e) { events.push(logEvent(cfg, { kind: 'fil_failed', error: String(e && e.message || e).slice(0, 200) })) }
+    const filClis = new Set(filRows.map((a) => a.cli).filter(Boolean))
     const extra = []
     for (const g of (hb.gaps || []).filter((g) => now - g.to < 24 * 3600000)) {
       extra.push({ key: `missed:${g.from}`, kind: 'missed', what: `veille arrêtée de ${hm(g.from)} à ${hm(g.to)} (${age(g.to - g.from)} sans tour)`, title: 'veille', since: g.from })
@@ -241,7 +248,8 @@ async function tour(cfg, why) {
       const hist = ((state.wakes || {})[a.key] || []).filter((x) => now - x < (W.max_per_row_window_h || 12) * 3600000)
       if (hist.length >= (W.max_per_row || 2)) extra.push({ key: `exhausted:${a.key}`, kind: 'exhausted', what: `réveillé ${hist.length} fois sans effet : ${a.what}`, title: a.title, cli: a.cli, sid: a.sid, link: a.link, session_link: a.session_link, since: Math.min(...hist) })
     }
-    const alerts = alertsOf(scan, cfg, now, extra)
+    // factory's own Julian rows for a conversation the Fil already covers would notify twice: the Fil row wins
+    const alerts = alertsOf(scan, cfg, now, [...extra, ...filRows]).filter((a) => !(FACTORY_JULIAN.includes(a.kind) && filClis.has(a.cli)))
     const acks = readAcks(cfg)
     const rec = reconcile(state, alerts, acks, now, (cfg.alerts || {}).keep_resolved)
     const list = Object.values(rec.alerts)
@@ -324,6 +332,64 @@ async function tour(cfg, why) {
   }
 }
 
+const FACTORY_JULIAN = ['ask', 'needs', 'awaiting']
+
+// Between two tours (every fire, even in légère): rebuild the Fil and announce at once what newly waits on Julian
+// (Windows notification, and the e-mail when smtp.json exists). Only the Fil's alerts are touched here; the tour
+// reconciles everything else. Once per conversation and per question: the key carries a hash of the question.
+async function julianPass(cfg) {
+  const p = P(cfg)
+  if (!takeLock(cfg)) return 0
+  const now = Date.now()
+  const state = readJson(p.state, {}) || {}
+  const smtp = readJson(p.smtp, null)
+  const secrets = smtp && smtp.password ? [smtp.password] : []
+  const events = []
+  try {
+    const sev = (cfg.alerts || {}).severity || {}
+    const rows = julianAlerts(writeFil(cfg, p.fil)).map((a) => ({ ...a, severity: sev[a.kind] || 'julian', julian: true }))
+    const all = state.alerts || {}
+    const isFil = (a) => String((a && a.kind) || '').startsWith('fil_')
+    const others = Object.fromEntries(Object.entries(all).filter(([, a]) => !isFil(a)))
+    const rec = reconcile({ alerts: Object.fromEntries(Object.entries(all).filter(([, a]) => isFil(a))) }, rows, readAcks(cfg), now, 0)
+    // a conversation factory's rows already announced (same conversation, still open) is not announced again
+    const known = new Set(Object.values(others).filter((a) => a.julian && FACTORY_JULIAN.includes(a.kind)).map((a) => a.cli))
+    const fresh = rec.fresh.map((a) => rec.alerts[a.key]).filter((a) => !a.acked && !known.has(a.cli))
+    for (const a of rec.fresh) events.push(logEvent(cfg, { kind: 'alert', key: a.key, severity: a.severity, what: a.what, title: a.title, link: a.link }))
+    let sent = state.sent || {}
+    let mailState = state.mail
+    if (fresh.length && (may(cfg, 'notify') || may(cfg, 'notify_julian'))) {
+      for (const a of fresh.slice(0, 3)) if (await toast(cfg, 'Veille · attend Julian', `${a.title ? a.title + ' : ' : ''}${a.what.replace(/^Attend Julian : /, '')}`)) events.push(logEvent(cfg, { kind: 'notified', key: a.key }))
+      if (fresh.length > 3) await toast(cfg, 'Veille', `${fresh.length - 3} autres conversations t'attendent (/veille fil)`)
+    }
+    const toMail = may(cfg, 'mail') ? fresh.filter((a) => due(sent, 'mail', a.key, now, (cfg.mail || {}).repeat_h || 6)) : []
+    if (toMail.length) {
+      const problem = smtpProblem(smtp)
+      if (problem) { mailState = 'not_configured'; events.push(logEvent(cfg, { kind: 'mail_skipped', reason: `e-mail non configuré (${problem})`, keys: toMail.map((a) => a.key) })) }
+      else {
+        try {
+          const inco = toMail.some((a) => a.kind === 'fil_incoherence')
+          const subject = inco ? fill((cfg.mail || {}).incoherence_subject || '[Veille] incohérence entre consignes', { n: toMail.length }) : fill(cfg.mail.subject, { n: toMail.length })
+          await sendMail(smtp, compose({ from: smtp.from, to: smtp.to, subject, text: digest(toMail, now, age) }))
+          sent = markSent(sent, 'mail', toMail.map((a) => a.key), now)
+          mailState = 'sent'
+          events.push(logEvent(cfg, { kind: 'mailed', keys: toMail.map((a) => a.key) }, secrets))
+        } catch (e) { mailState = 'error'; events.push(logEvent(cfg, { kind: 'mail_failed', error: scrub(e.message, secrets) }, secrets)) }
+      }
+    }
+    if (rec.fresh.length || rec.gone.length || events.length) {
+      writeAtomic(p.state, { ...state, alerts: { ...others, ...rec.alerts }, sent, mail: mailState, recent: [...events, ...(state.recent || [])].slice(0, (cfg.pane || {}).events || 25) })
+    }
+    console.log(`veille: fil: ${rows.length} conversation(s) attendent Julian, ${fresh.length} nouvelle(s)`)
+    return 0
+  } catch (e) {
+    console.error(`veille: fil failed: ${scrub(String(e && e.message || e), secrets).slice(0, 300)}`)
+    return 1
+  } finally {
+    dropLock(cfg)
+  }
+}
+
 const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
 function readAcks(cfg) {
@@ -344,6 +410,7 @@ async function fire(cfg) {
   if (gap) logEvent(cfg, { kind: 'missed', from: gap.from, to: gap.to, reason: 'la tâche n’a pas tourné pendant plus de deux intervalles' })
   const mode = modeOf(cfg)
   if (tourDue(mode, hb.last_tour, now) || (gap && mode.interval_min)) return tour(cfg, gap ? 'gap' : 'due')
+  if (mode.interval_min) return julianPass(cfg)
   return 0
 }
 
@@ -365,7 +432,7 @@ function copyTree(files, dest) {
 }
 
 export const BIN_FILES = [
-  'veille/watcher/veille.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
+  'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
   'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'factory/hooks/waiting.mjs', 'factory/hooks/logic.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
 ]
@@ -518,8 +585,14 @@ export async function main(argv) {
     case 'install': return install(cfg, rest.includes('--launcher') ? rest[rest.indexOf('--launcher') + 1] : null)
     case 'uninstall': return uninstall(cfg)
     case 'test-mail': return testMail(cfg)
+    case 'fil': {
+      const f = writeFil(cfg, P(cfg).fil)
+      console.log(`veille: fil: ${f.total} conversation(s), ${f.projects.length} projet(s), ${f.julian} attend(ent) Julian, ${f.duration_ms} ms`)
+      return 0
+    }
+    case 'julian': return julianPass(cfg)
     default:
-      console.log('usage: node veille.mjs fire|tour|status|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
+      console.log('usage: node veille.mjs fire|tour|status|fil|julian|mode <x>|ack <key|all>|coordinator <id> [cwd]|install [--launcher wscript|conhost]|uninstall|test-mail')
       return cmd ? 1 : 0
   }
 }

@@ -422,7 +422,8 @@ export const compactLabel = (c: Compaction, labels: Record<string, string>, idle
 
 // ---------- launcher (the Mods button bar) ----------
 
-export type LauncherItem = { label: string; mod: string; command: string }
+/** args: what the press passes to the command (« fil » opens /veille fil); key: the open-state id when two buttons share a mod. */
+export type LauncherItem = { label: string; mod: string; command: string; args?: string; key?: string }
 export type Launcher = { enabled?: boolean; close_args?: string; items?: LauncherItem[] }
 /** One slash command as $.command.list() gives it (name, and the plugin that registered it when known). */
 export type CommandSeen = { name: string; plugin?: string }
@@ -448,7 +449,7 @@ export const launcherButtons = (
       return {
         ...i,
         loaded,
-        open: loaded && open.includes(i.mod),
+        open: loaded && open.includes(launcherKey(i)),
         ...(loaded ? {} : { hint: (labels.launcher_missing ?? 'not loaded: add mods/{mod} to CLAUDE_CODE_PLUGIN_DIRS').replace('{mod}', i.mod) }),
       }
     })
@@ -457,7 +458,21 @@ export const launcherButtons = (
 /** What a press does: a mod not loaded explains itself; else open (/<command>) or, when open, close (/<command> <close_args>). */
 export const launcherPress = (b: LauncherButton, closeArgs = 'close'): LauncherAction => {
   if (!b.loaded) return { toast: b.hint ?? b.mod }
-  return b.open ? { run: { command: b.command, args: closeArgs }, open: false } : { run: { command: b.command }, open: true }
+  return b.open ? { run: { command: b.command, args: closeArgs }, open: false } : { run: { command: b.command, ...(b.args ? { args: b.args } : {}) }, open: true }
+}
+
+/** The open-state id of a button: its key, else its mod. */
+export const launcherKey = (i: LauncherItem) => i.key || i.mod
+
+/** What a typed /<command> <args> does to the buttons: closing closes every button of that command; else the button
+ * whose args match opens (the one without args when none matches), and the other buttons of that command close. */
+export const launcherTyped = (items: readonly LauncherItem[], command: string, args: string, closeArgs = 'close') => {
+  const mine = items.filter(i => i && i.command === command)
+  if (!mine.length) return null
+  const a = (args ?? '').trim()
+  if (a === closeArgs) return { open: [] as string[], close: mine.map(launcherKey) }
+  const hit = mine.find(i => (i.args ?? '') && a.split(/\s+/)[0] === i.args) ?? mine.find(i => !i.args)
+  return { open: hit ? [launcherKey(hit)] : [], close: mine.filter(i => i !== hit).map(launcherKey) }
 }
 
 /** The open list after a press on `mod`. */

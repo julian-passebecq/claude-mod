@@ -48,12 +48,13 @@ export function viewModel(cfg, state, heartbeat, acks, nowMs) {
 // One line above the prompt: mode, last tour, how many wait on Julian. Tone bad when the watcher stopped.
 export function bandLine(vm, cfg) {
   const L = cfg.labels || {}
-  const parts = [{ text: `${L.band || 'Veille'} : ${vm.mode.label || vm.mode.name}`, tone: vm.mode.name === 'rien' ? 'dim' : undefined }]
+  // the red « attend Julian : N » counter comes first, so it is never cut off the end of the line
+  const parts = vm.julian ? [{ text: String(L.julian_counter || 'attend Julian : {n}').replace('{n}', vm.julian), tone: 'julian' }] : []
+  parts.push({ text: `${L.band || 'Veille'} : ${vm.mode.label || vm.mode.name}`, tone: vm.mode.name === 'rien' ? 'dim' : undefined })
   if (vm.mode.name !== 'rien') {
     if (vm.watcher.tone === 'bad') parts.push({ text: vm.watcher.text, tone: 'bad' })
     else if (vm.watcher.tone === 'ok') parts.push({ text: vm.watcher.text.split(' · ')[0].replace(/^[^:]+: /, 'tour '), tone: 'dim' })
   }
-  if (vm.julian) parts.push({ text: `${vm.julian} attend(ent) Julian`, tone: 'julian' })
   return parts
 }
 

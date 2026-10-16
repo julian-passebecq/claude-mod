@@ -13,10 +13,20 @@ const STATE = JSON.stringify({
   recent: [{ at: NOW - 3 * MIN, kind: 'merge_skipped', pr: 'x#7', reason: 'tête stable depuis moins de 30 min' }],
 })
 
+// A tiny Fil digest (what the watcher writes to ~/.claude/veille/fil.json): one project, a lead and its sub-conversation.
+const conv = (o) => ({ sid: 'local_x', cli: 'c-x', title: 'T', state: 'repos', model: 'claude-opus-5-5', effort: 'medium', archived: false, parent: null,
+  parent_title: '', last_at: NOW - 10 * MIN, msg_at: NOW - 10 * MIN, link: 'claude://claude.ai/epitaxy/local_x', preview: '', from_wrap: false,
+  recap: '', ask: '', signal: '', actions: [], text: '', truncated: false, prs: [], children: [], ...o })
+const FIL = JSON.stringify({ v: 1, generated: NOW - 2 * MIN, total: 2, julian: 1, projects: [{ name: 'alpha', last: NOW - 5 * MIN, total: 2, hidden: 0,
+  counts: { en_cours: 0, attend: 1, bloquee: 0, terminee: 1, repos: 0 },
+  convs: [conv({ sid: 'local_lead', title: 'Alpha lead', state: 'terminee', preview: 'The feature is merged.', text: '## Done\n\nAll merged.',
+    children: [conv({ sid: 'local_kid', title: 'Alpha lane', state: 'attend', signal: 'question', ask: 'Tell me whether the #29 merge stays', last_at: NOW - 5 * MIN, msg_at: NOW - 5 * MIN,
+      preview: 'PR #29 is green.', parent: 'local_lead' })] })] }] })
+
 function base(on, heartbeat = { last_fire: NOW - 2 * MIN, last_tour: NOW - 3 * MIN }) {
   mock.clock(on, { now: NOW })
   const files: Record<string, string> = {
-    'veille/config.json': USER, 'veille/state.json': STATE, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
+    'veille/config.json': USER, 'veille/state.json': STATE, 'veille/fil.json': FIL, 'veille/heartbeat.json': JSON.stringify(heartbeat), 'veille/acks.jsonl': '',
   }
   const hit = (p: string) => Object.keys(files).find((k) => p.replace(/\\/g, '/').endsWith('.claude/' + k))
   on('env.get', ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
@@ -66,3 +76,25 @@ test('/veille mode active runs the watcher command', async ($, on) => {
   const r = await $.command.run({ command: 'veille', args: 'mode active' })
   expect(JSON.stringify(r)).toContain('mode active')
 })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`/veille fil draws the Fil: red counter, filters, project summary, lead and sub-conversation, ask, open link (${surface})`, async ($, on) => {
+    base(on)
+    await $.command.run({ command: 'veille', args: 'fil' })
+    const ui = await $.ui.mount({ plugin: 'veille', component: 'Pane', requestId: 'veille', surface, viewport: { columns: 140, rows: 80 }, props: PANE })
+    expect(await has(ui, /^Fil$/)).toBe(true)
+    expect(await has(ui, /attend Julian : 1/)).toBe(true)
+    expect(await has(ui, /^Attend Julian$/)).toBe(true)
+    expect(await has(ui, /Terminées aujourd'hui/)).toBe(true)
+    expect(await has(ui, /2 conv · 1 attend Julian · dernière activité/)).toBe(true)
+    expect(await has(ui, /Alpha lead/)).toBe(true)
+    expect(await has(ui, /Alpha lane/)).toBe(true)
+    expect(await has(ui, /Tell me whether the #29 merge stays/)).toBe(true)
+    await ui.press({ key: 'fil-conv-local_kid' })
+    expect(await has(ui, /Copier l'id/)).toBe(true)
+    expect(await has(ui, /non vérifiée/)).toBe(true)
+    await ui.press({ key: 'fil-open-local_kid' })
+    expect(await has(ui, /lien envoyé à l’app : claude:\/\/claude\.ai\/epitaxy\/local_x/)).toBe(true)
+  })
+}
+

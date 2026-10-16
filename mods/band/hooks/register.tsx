@@ -30,6 +30,8 @@ import {
   hhmm,
   launcherButtons,
   launcherPress,
+  launcherKey,
+  launcherTyped,
   markerLine,
   recentHandoffs,
   resumeCandidates,
@@ -53,6 +55,7 @@ import {
   textBar,
   veilleSummary,
   veilleLine,
+  julianCounter,
   alertText,
 } from './sections'
 import type { BandUi, SectionsCfg } from './sections'
@@ -302,10 +305,10 @@ const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) 
     $.ui.toast(a.toast)
     return
   }
-  await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, b.mod, a.open) }))
+  await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), a.open) }))
   if (isWorking) $.ui.toast(`${b.label} : ${c.labels.launcher_queued ?? 'queued'}`)
   $.command.run(a.run).catch(async (err: unknown) => {
-    await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, b.mod, !a.open) }))
+    await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), !a.open) }))
     $.ui.toast(`/${b.command} : ${String(err).slice(0, 160)}`)
   })
 }
@@ -453,10 +456,9 @@ export const register: Register = (on, raw) => {
     try {
       const c = await loadConfig($)
       if (c.handoff && c.handoff.enabled !== false && e.command === c.handoff.command) await noteRan($)
-      const item = c.launcher?.items?.find(i => i.command === e.command)
-      if (item) {
-        const closing = (e.args ?? '').trim() === (c.launcher?.close_args || 'close')
-        await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, item.mod, !closing) }))
+      const t = launcherTyped(c.launcher?.items ?? [], e.command, e.args ?? '', c.launcher?.close_args || 'close')
+      if (t) {
+        await update($, launcherAtom, l => ({ ...l, open: [...l.open.filter(k => !t.close.includes(k)), ...t.open.filter(k => !l.open.includes(k))] }))
       }
     } catch {}
     return r
@@ -520,6 +522,9 @@ export const register: Register = (on, raw) => {
       const marks = g.marks.map(m => m.label).join(' · ')
       const line1 = (
         <Box key="band-line" flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
+          {julianCounter(ve, L) ? (
+            <Text key="band-julian" bold color={c.colors.bad ?? '#f85149'}>{julianCounter(ve, L)}</Text>
+          ) : null}
           {Svg && g.hasReading ? (
             <Svg key="band-gauge" source={gaugeSvg(g, (c as any).gauge?.colors ?? {}, gw, (c as any).gauge?.mark_labels ?? 'nearest')} alt={`${g.title} · ${marks}`} />
           ) : (

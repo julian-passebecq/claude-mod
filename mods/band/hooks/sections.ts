@@ -42,6 +42,7 @@ export const DEF_SECTION_LABELS: Record<string, string> = {
   reset_at: 'reset',
   alerts: 'alerte(s)',
   julian: 'attend Julian',
+  julian_counter: 'attend Julian : {n}',
   veille_none: 'aucune alerte',
   veille_off: 'veille absente',
   not_readable: 'non lisible',
@@ -213,6 +214,10 @@ export const veilleSummary = (state: any, acks: string[]): VeilleSum => {
     .sort((a, b) => Number(Boolean(b.julian)) - Number(Boolean(a.julian)) || (RANK[a.severity ?? ''] ?? 9) - (RANK[b.severity ?? ''] ?? 9) || (a.since ?? 0) - (b.since ?? 0))
   return { available: true, open: alerts.length, julian: alerts.filter(a => a.julian).length, top: alerts[0], alerts }
 }
+
+/** The red counter at the head of the band line: « attend Julian : N », empty when nothing waits on Julian. */
+export const julianCounter = (v: VeilleSum | null | undefined, labels: Record<string, string> = DEF_SECTION_LABELS) =>
+  v && v.available && v.julian ? ({ ...DEF_SECTION_LABELS, ...labels }.julian_counter ?? 'attend Julian : {n}').replace('{n}', String(v.julian)) : ''
 
 export const alertText = (a: VeilleAlert) => `${a.what || a.key}${a.title ? ` · ${a.title}` : ''}`
 
