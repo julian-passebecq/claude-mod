@@ -25,18 +25,17 @@
     "labels": { "ctx": "ctx", "compact_in": "compactage dans", "week": "semaine", "handoff_mark": "relais", "compact_mark": "compact", "no_reading": "pas encore de mesure" }
   },
   "sections": {
-    "_doc": "Foldable sections under line 1 (style compact). order/enabled: which and in which order (conv = Cette conversation: model · effort, agents running/seen, current Workflow, PR; usage = session 5 h and week bars, this session's $; veille = veille's open alerts, top one; mods = the Mods button row, always unfolded). expanded/open: the state when nothing is remembered (all folded by default). remember: store (kept across sessions in the mod's own $.store) or session. running_s: an agent counts as running when it wrote within this many seconds.",
-    "order": ["conv", "usage", "veille", "mods"],
-    "enabled": ["conv", "usage", "veille", "mods"],
+    "_doc": "Foldable sections under line 1 (style compact). order/enabled: which and in which order (conv = Cette conversation: model · effort, agents running/seen, current Workflow, PR; mods = the Mods button row, always unfolded). The 5 h and week figures stay on line 1; their details live in Cockpit (Quota card) and the open alerts in Veille. expanded/open: the state when nothing is remembered (all folded by default). remember: store (kept across sessions in the mod's own $.store) or session. running_s: an agent counts as running when it wrote within this many seconds.",
+    "order": ["conv", "mods"],
+    "enabled": ["conv", "mods"],
     "open": [],
     "expanded": false,
     "remember": "store",
     "running_s": 120,
-    "usage_bar_width": 120,
+    "_counters": "« À toi : N » (a-faire's summary.json) and « attend Julian : N » (veille's open alerts marked julian), counted ONCE by lib/core/veille.mjs in the scanner and shown once on line 1, red, when N > 0. veille_home / todo_home move the folders (VEILLE_HOME / AFAIRE_HOME win); \"\" turns that counter off.",
     "veille_home": "~/.claude/veille",
-    "_todo_home": "a-faire mod's folder: its summary.json (counts only) gives the red « À toi : N » at the start of line 1 when N > 0. \"\" turns it off.",
     "todo_home": "~/.claude/a-faire",
-    "labels": { "conv": "Cette conversation", "usage": "Usage", "veille": "Veille", "five": "5 h", "week": "sem", "compact": "compact", "todo": "À toi" }
+    "labels": { "conv": "Cette conversation", "five": "5 h", "week": "sem", "compact": "compact", "compactions": "compactage(s)", "todo": "À toi : {n}", "julian_counter": "attend Julian : {n}" }
   },
   "band": {
     "_items": "in order: ctx, compact, relay, idle, rates, week. rates draws one entry per scope listed in scopes.",
@@ -49,10 +48,19 @@
     "scopes": ["conv", "all"]
   },
   "launcher": {
-    "_doc": "Mods button bar in the band. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash, args = what a press passes (optional: « fil » opens /veille fil), key = the open-state id when two buttons share a mod (optional). A press runs /<command> (the mod opens its own pane); a second press, or its ✕, runs /<command> <close_args>. A mod whose command is not in this session greys out. Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
+    "_doc": "Mods button bar in the band. preset: hubs (default) = the 6 entries of items (Jauge, Cockpit, Veille, À toi, Registres, Référence), every older mod shown inside one of them; all = the 15 older buttons of all_items. Your own items (userConfig 'config') replace the list as before. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash, args = what a press passes (optional), key = the open-state id when two buttons share a mod (optional). A press runs /<command> (the mod opens its own pane; band's own Jauge opens directly); a second press, or its ✕, runs /<command> <close_args>. A mod whose command is not in this session greys out and says « non chargé : ajouter mods/<x> à CLAUDE_CODE_PLUGIN_DIRS ». Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
     "enabled": true,
+    "preset": "hubs",
     "close_args": "close",
     "items": [
+      { "label": "Jauge", "mod": "band", "command": "jauge" },
+      { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" },
+      { "label": "Veille", "mod": "veille", "command": "veille" },
+      { "label": "À toi", "mod": "a-faire", "command": "afaire" },
+      { "label": "Registres", "mod": "registres", "command": "registres" },
+      { "label": "Référence", "mod": "reference", "command": "reference" }
+    ],
+    "all_items": [
       { "label": "Usine", "mod": "factory", "command": "factory" },
       { "label": "Conso", "mod": "usage", "command": "conso" },
       { "label": "Scénarios", "mod": "scenarios", "command": "scenarios" },
@@ -143,9 +151,9 @@
     "handoff_ran": "/handoff lancé",
     "handoff_written": "RESUME écrit"
   },
-  "_shared_lib": "auto: per-line usage and prices from mods/usage/lib (its parser and prices.json) when that mod sits beside this one; off: band's own parser and the rates below.",
+  "_shared_lib": "auto: per-line usage and prices from lib/core (transcripts.mjs and prices.json, copied into mods/band/lib/core by scripts/sync-libs.mjs); off: band's own parser and the rates below.",
   "shared_lib": "auto",
-  "rates_source": "Fallback only (shared_lib off or mods/usage absent): USD per million tokens, list prices as in mods/factory/factory.config.json (claude.com/pricing). Cache writes priced at the 5-minute rate.",
+  "rates_source": "Fallback only (shared_lib off or lib/core copy unreadable): USD per million tokens, list prices as in mods/factory/factory.config.json (claude.com/pricing). Cache writes priced at the 5-minute rate.",
   "rates": {
     "claude-fable-5-1": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5 },
     "claude-opus-5-5": { "in": 4, "out": 20, "cache_read": 0.4, "cache_write_5m": 5 },

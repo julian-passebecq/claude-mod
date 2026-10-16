@@ -1,5 +1,7 @@
 # tests-reels (« Tests réels »)
 
+**Now shown inside Registres** (tab Tests réels, `/registres tests`); `/tests` keeps working (this mod while loaded, else Registres' alias).
+
 The registry of **real (non-CI) tests** per application: live runs on a test tenant, Cloudflare Access / Workers checks, Power BI Desktop / SSAS / Docker runs on this PC, UI automation, manual checks. So the team remembers what was tested, how, in which test environment and with which test account, and never loses it again.
 
 **Now also a tab of Registres**: `/registres tests` (or `/tests` when this mod is not loaded) shows the same registry in the Registres pane, drawn by a copy of `hooks/view.mjs` (the pane's pure drawing; `hooks/register.tsx` only reads the files and hands them over). Same masking rules there. This mod keeps working on its own while it is loaded.

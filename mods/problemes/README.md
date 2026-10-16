@@ -1,5 +1,7 @@
 # problemes (« Problèmes »)
 
+**Now shown inside Registres** (tab Problèmes, `/registres problemes`) and Cockpit's « Problèmes du jour » card; `/problemes` keeps working (this mod while loaded, else Registres' alias).
+
 Julian's persistent register of every error and problem with Claude work: questions to Julian, end-of-turn waits, permission refusals, worktree and app guards, failed Workflows and CI, API errors, and the errors of the mods themselves (Santé and Veille). Problems are grouped by category and by application, deduped by signature, with symptom, cause, fix, evidence, timeline and notes.
 
 **Now also a tab of Registres**: `/registres problemes` (or `/problemes` when this mod is not loaded) shows the same register in the Registres pane, drawn by a copy of `hooks/view.mjs`. This mod keeps working on its own while it is loaded.

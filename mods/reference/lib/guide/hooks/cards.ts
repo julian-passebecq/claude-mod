@@ -70,6 +70,7 @@ export function card(entry: CatalogEntry, catalog: ModsCatalog, manifest?: strin
     options,
     data: entry.data ?? '',
     note: entry.note ?? '',
+    inside: entry.inside ?? '',
     tests: entry.tests ?? [],
     enable: found ? `ajoute <dépôt>/${path} à CLAUDE_CODE_PLUGIN_DIRS, ou lance claude --plugin-dir ${path}` : 'pas encore dans le dépôt',
   }
@@ -82,6 +83,7 @@ export function cardMarkdown(c: Card): string {
     '',
     `${c.description || '(pas de description)'}`,
     '',
+    ...(c.inside ? [`- **Où** : ${c.inside}`] : []),
     `- **État** : ${c.state}${c.version ? ` · version ${c.version}` : ''}${c.note ? ` · ${c.note}` : ''}`,
     `- **Fonctionnement** : ${c.found ? `événements ${c.events.map(e => `\`${e}\``).join(', ') || 'aucun'}` : 'pas encore écrit'} · lit : ${c.data || '—'} · ${c.found ? (c.blocks ? '⚠ peut refuser un appel' : 'aucun blocage') : 'sans blocage prévu'}`,
     `- **Fonctionnalités** : commandes ${c.commands.map(x => `\`${x}\``).join(', ') || 'aucune'} · affiche : ${c.draws.join(', ') || 'rien'} · options userConfig : ${c.options.length ? c.options.join(' ; ') : 'aucune'}`,

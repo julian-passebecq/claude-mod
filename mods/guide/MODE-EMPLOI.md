@@ -87,22 +87,32 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
   - [Limites](#limites)
     - [Temps et tailles](#temps-et-tailles)
 - [Nos mods](#nos-mods)
+  - [Les 6 entrées de la barre Mods](#les-6-entrées-de-la-barre-mods)
+    - [Entrée Jauge](#entrée-jauge)
+    - [Entrée Cockpit](#entrée-cockpit)
+    - [Entrée Veille](#entrée-veille)
+    - [Entrée À toi](#entrée-à-toi)
+    - [Entrée Registres](#entrée-registres)
+    - [Entrée Référence](#entrée-référence)
+    - [Anciennes commandes](#anciennes-commandes)
   - [Fiches](#fiches)
+    - [band](#band)
+    - [cockpit](#cockpit)
+    - [veille](#veille)
+    - [a-faire](#a-faire)
+    - [registres](#registres)
+    - [reference](#reference)
     - [factory](#factory)
     - [control](#control)
     - [ci](#ci)
     - [scenarios](#scenarios)
     - [usage](#usage)
     - [guide](#guide)
-    - [band](#band)
     - [filetree](#filetree)
     - [machine](#machine)
     - [metrics](#metrics)
     - [sante](#sante)
-    - [veille](#veille)
     - [menage](#menage)
-    - [cockpit](#cockpit)
-    - [a-faire](#a-faire)
     - [problemes](#problemes)
     - [export-eta](#export-eta)
     - [tests-reels](#tests-reels)
@@ -222,7 +232,7 @@ Ce que l'on voit : panneaux, commandes, petits messages.
 
 #### Ouvrir le panneau d'un autre mod
 
-Un mod n'ouvre ni ne ferme le panneau d'un autre : `$.ui.open` et `$.ui.close` n'agissent que sur les panneaux du mod qui appelle, et `$.ui.panes()` ne liste que les siens. Il peut en revanche lancer la commande slash de l'autre avec `$.command.run({ command, args })`, « comme si la personne l'avait tapée » ; elle attend la fin du tour en cours. C'est ce que fait la barre Mods de la Jauge : `/conso` ouvre, `/conso close` ferme. ([api](https://code.claude.com/docs/en/plugins/mods/api), [interface](https://code.claude.com/docs/en/plugins/mods/interface))
+Un mod n'ouvre ni ne ferme le panneau d'un autre : `$.ui.open` et `$.ui.close` n'agissent que sur les panneaux du mod qui appelle, et `$.ui.panes()` ne liste que les siens. Il peut en revanche lancer la commande slash de l'autre avec `$.command.run({ command, args })`, « comme si la personne l'avait tapée » ; elle attend la fin du tour en cours. C'est ce que fait la barre Mods de la Jauge : `/cockpit` ouvre, `/cockpit close` ferme. ([api](https://code.claude.com/docs/en/plugins/mods/api), [interface](https://code.claude.com/docs/en/plugins/mods/interface))
 
 #### Plusieurs panneaux dans une colonne
 
@@ -420,16 +430,115 @@ Un hook a 10 s (50 ms pour `prompt.edit`), un `.catch` 1 s ; un hook qui plante 
 
 ## Nos mods
 
-Une fiche par mod de ce dépôt. Dans le panneau, les fiches sont lues en direct depuis le `plugin.json` et le module de chaque mod ; ici, elles sont régénérées par `node mods/guide/scripts/build.mjs`. État, données lues et tests viennent de `mods/guide/mods.json`.
+Une fiche par mod de ce dépôt. Dans le panneau, les fiches sont lues en direct depuis le `plugin.json` et le module de chaque mod ; ici, elles sont régénérées par `node mods/guide/scripts/build.mjs`. État, où le trouver, données lues et tests viennent de `mods/guide/mods.json`.
+
+### Les 6 entrées de la barre Mods
+
+Depuis le 16 oct, la barre « Mods : » sous la Jauge n'a plus que six boutons, un par entrée ; chaque ancien mod est montré dans l'une d'elles (ligne « Où » de sa fiche). Un bouton grisé dit ce qu'il manque : « non chargé : ajouter mods/<x> à CLAUDE_CODE_PLUGIN_DIRS ». `launcher.preset: "all"` dans ton fichier de réglages de band remet les 15 anciens boutons.
+
+#### Entrée Jauge
+
+`/jauge`, le mod `band`. Au-dessus du prompt, une seule ligne : barre du contexte, « ctx · compact ~N min · tok/s · N compactage(s) · 5 h · sem », puis « À toi : N » et « attend Julian : N », une seule fois chacun, en rouge quand N > 0 (le même compte partout : `lib/core/veille.mjs`). Le ▸ déplie « Cette conversation » (modèle, effort, agents, Workflow, PR). Le panneau /jauge garde le détail : débit par périmètre, sessions les plus actives, compactages, passation (RESUME).
+
+#### Entrée Cockpit
+
+`/cockpit`. Une vue zoomable méga › projet › conversation › agent, avec des cartes d'une ligne et un bouton Voir chacune : Qui consomme, T'attend, À toi, CI (pipelines, rouges, charge du runner), Quota (5 h, semaine, date d'épuisement), Problèmes du jour, En cours (Workflows et pipelines en phrase simple avec leur heure de fin estimée). Onglets de l'Usine (Mission, Focus, Arbre, Pipeline, Workflow, Journal) et Machine (charge du PC et du runner).
+
+#### Entrée Veille
+
+`/veille`. Onglets Alertes (mode du veilleur, alertes avec Ack), Fil (dernier message de chaque conversation), À archiver (conversations terminées à archiver en un lot), Export eta (le lot prêt et le bouton « Exporter vers eta »).
+
+#### Entrée À toi
+
+`/afaire` (alias `/a-toi`). Tout ce qui attend une action de toi seul : configuration, décisions, connexions et 2FA, secrets à ranger, tests manuels, questions des conversations ; Fait et Plus tard.
+
+#### Entrée Registres
+
+`/registres`. Onglets Problèmes (registre des problèmes, erreurs de Santé et de Veille comprises), Tests réels, Règles (« les règles marchent ? »), Ménage (worktrees, branches, copies à nettoyer, commandes montrées jamais lancées).
+
+#### Entrée Référence
+
+`/reference`. Onglets Config (toute la config de Claude Code, secrets masqués), Guide (ce mode d'emploi), Scénarios (modèle et effort par rôle ; « Appliquer ce scénario » écrit le choix dans un fichier local et montre l'écart, sans jamais modifier les réglages), Santé (mods chargés, erreurs, CPU), CI (routage et Diagramme).
+
+#### Anciennes commandes
+
+Elles marchent toujours. Tant qu'un ancien mod est chargé, sa commande et son panneau répondent comme avant (`/factory`, `/machine`, `/conso`, `/problemes`, `/tests`, `/regles`, `/menage`, `/control`, `/config-claude`, `/mods-guide`, `/scenarios`, `/sante`, `/ci`, `/export-eta`). Une fois ce mod retiré de `CLAUDE_CODE_PLUGIN_DIRS`, la même commande devient un alias de l'onglet de son entrée (Registres, Référence ou Veille enregistrent l'alias seulement quand personne d'autre ne sert ce nom). Pour la barre à 6 entrées, il suffit de charger `mods/band`, `mods/cockpit`, `mods/veille`, `mods/a-faire`, `mods/registres` et `mods/reference`.
 
 <!-- mods:start -->
 ### Fiches
 
+#### band
+
+Jauge : bandeau au-dessus du prompt, en lecture seule. Une seule ligne toujours visible : barre fine du contexte (repères relais 250 K et auto-compact, seul le plus proche nommé, vert → orange → rouge) puis « ctx 8 % · compact ~16 min · 434 tok/s · 1 compactage(s) · 5 h 24 % · sem 14 % », « À toi : N » et « attend Julian : N » une seule fois chacun (lib/core/veille.mjs), et un ▸ qui déplie « Cette conversation ». Ligne orange « Passation conseillée » (Préparer RESUME, Ouvrir RESUME, rien ne se lance seul) et barre Mods à 6 entrées : Jauge, Cockpit, Veille, À toi, Registres, Référence (preset all : les 15 anciens boutons). /jauge
+
+- **Où** : hub « Jauge » de la barre Mods (/jauge) : la Jauge elle-même, au-dessus du prompt, avec la barre des 6 hubs
+- **État** : en construction · version 0.3.0 · Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Le bouton Jauge ouvre le panneau du mod lui-même (un $.command.run de sa propre commande ne passe pas par ses hooks). Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée. Effort lu dans CLAUDE_EFFORT (non vérifié pour un mod) ; « agents en cours » = agents qui ont écrit dans les 120 dernières secondes ; état des sections gardé par $.store, non vérifié à la main dans Desktop.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+) avec le parseur et les prix de lib/core (copie synchronisée dans mods/band/lib/core), cache ~/.claude/band/scan-cache.json ; compteurs : ~/.claude/veille (state.json, acks.jsonl) et ~/.claude/a-faire/summary.json par lib/core/veille.mjs · aucun blocage
+- **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut, toasts · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
+- **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
+- **Tests** : `node --test mods/band/tests/logic.test.mjs` · `node --test mods/band/tests/health.test.mjs` · `claude plugin test mods/band`
+
+#### cockpit
+
+Cockpit, le seul panneau zoomable (Méga › Projet › Conversation › Agent), en lecture seule, qui regroupe Usine (factory) et Machine. Onglet Cockpit : cartes d'une ligne avec un bouton vers le détail (Qui consomme, T'attend, À toi, CI avec Claude/Codex et charge du runner, Quota 5 h/semaine/épuisement Claude et Codex, Problèmes du jour, En cours : Workflows et pipelines avec ETA), puis les sections repliables Cette conversation, Ce projet, Tous les projets, Qui consomme, Claude global. Onglets Mission, Focus, Arbre, Pipeline, Workflow (Gantt et Vitesse), Journal (écrans de factory) et Machine (charge du PC et du runner). /cockpit [conv|projet|mega|agent|workflow|machine|close] ; /factory et /machine restent des alias quand leur mod n'est pas chargé.
+
+- **Où** : hub « Cockpit » de la barre Mods (/cockpit) : cartes Qui consomme, T’attend, À toi, CI, Quota, Problèmes du jour, En cours ; onglets de Usine et Machine
+- **État** : en construction · version 0.2.0 · Un seul panneau rangé par périmètre, de haut en bas : Cette conversation (ouverte, sélectionnée au démarrage ; agents et Workflows terminés repliés derrière un bouton « + N terminé(s) »), Ce projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt ; Focus + Pipeline de factory), Tous les projets (deux lignes par projet), Claude global (quotas, Veille, bouton /machine). Fermée, chaque section tient sur une ligne de résumé. Un clic sur un nœud descend (Agent : modèle, effort, tokens, coût, journal) et ouvre la section qui le montre ; le fil d'Ariane remonte. Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour les quotas de « Claude global » ; les fichiers de veille (~/.claude/veille). La jauge de contexte n'est plus dans le cockpit : elle est dans band, au-dessus du prompt. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché. ; classement.json du mod usage pour « Qui consomme » (lance le scanner incrémental de usage s'il a plus de 10 min et que la section est ouverte) · aucun blocage
+- **Fonctionnalités** : commandes `/cockpit` · affiche : panneau, toasts · options userConfig : start « Open at start » (on | off), défaut "on" ; config « Settings file », défaut ""
+- **Activer** : `<dépôt>/mods/cockpit` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/cockpit`
+- **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
+
+#### veille
+
+Veille : un panneau, quatre onglets. Alertes : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes (gravité, depuis quand, conversation ou PR, lien, Ack), dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations. À archiver : les conversations finies, listées pour la conversation VEILLE. Export eta : le lot de conversations terminées d'export-eta et son bouton « Exporter vers eta ». « Attend Julian » : notification Windows et e-mail tout de suite, un seul compteur (la règle de lib/core/veille.mjs). Erreurs du veilleur dans ~/.claude/mods-health/veille.json. /veille [alertes|fil|archiver|export|mode <x>|ack <clé>|coordinateur|tour|close] ; /export-eta en alias quand le mod export-eta n'est pas chargé.
+
+- **Où** : hub « Veille » de la barre Mods (/veille) : onglets Alertes, Fil, À archiver, Export eta
+- **État** : en construction · version 0.3.0 · réveil d'une conversation par claude -p --resume <id> (documenté ; vérifié ici sur une session jetable : même transcript, même modèle ; non vérifié : effort, mode de permission différent du défaut, affichage dans l'app Desktop) ; désactivé par défaut (wake.enabled false). Push téléphone : aucun moyen documenté pour un script (PushNotification est un outil de Claude) ; option push.claude (claude -p, coûte des tokens, non vérifié) désactivée ; l'e-mail arrive sur le téléphone par l'app mail. Fil : « Ouvrir la conversation » passe claude://claude.ai/epitaxy/<id> au système (gestionnaire claude: de l'app, route epitaxy vue dans l'app 2.42304) car un Link de panneau n'ouvre que https: ; arrivée sur la session non vérifiée, « Copier l'id » en secours. « Attend Julian » à chaque passage de la tâche (5 min, même en légère) : AskUserQuestion en attente, wrap_up avec ask ou blocked, needs_action, question en fin de dernier message (heuristique), carte d'approbation probable (non vérifié), incohérence entre consignes (mots clés FR/EN) ; notification Windows, e-mail si smtp.json, compteur rouge « attend Julian : N ».
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : mêmes sources que « Ça t'attend » du mod factory (son scanner et waiting.mjs importés, pas copiés) : fichiers de session de l'app, transcripts, gh search / glab api (jetons gardés par gh et glab, jamais lus) ; état dans ~/.claude/veille (state.json, heartbeat.json, events.jsonl, acks.jsonl, config.json) ; smtp.json créé par toi ; Fil : fichiers de session de l'app (titre, modèle, effort, spawnedFrom, postTurnSummary, PR) et la fin de chaque transcript (dernier texte, wrap_up, AskUserQuestion en attente), écrit par la tâche dans ~/.claude/veille/fil.json ; marques « lu » dans $.store · aucun blocage
+- **Fonctionnalités** : commandes `/veille`, `/export-eta` · affiche : panneau, bandeau · options userConfig : band « Band entry above the prompt » (on | off), défaut "off"
+- **Activer** : `<dépôt>/mods/veille` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/veille`
+- **Tests** : `node --test mods/veille/tests/logic.test.mjs` · `node --test mods/veille/tests/mail.test.mjs` · `node --test mods/veille/tests/fil.test.mjs` · `claude plugin test mods/veille`
+
+#### a-faire
+
+À toi : tout ce qui attend une action que seul toi peux faire, pour que rien ne se perde. Configuration (smtp.json de la veille, mods installés pas chargés lus par lib/core/mods.mjs, tâche ClaudeVeille), décisions (DECISIONS-PENDING, PR qui attendent ton accord, questions.md), connexions et 2FA, secrets de tests réels à ranger, tests manuels (manual-checks.md), questions des conversations (alertes « attend Julian » de la veille). Pour chacune : pourquoi elle bloque, les étapes exactes avec Copier, depuis quand, la source ; Fait (revérifie quand c'est possible), Plus tard (1 jour). summary.json { total, high, updatedAt } pour le compteur « À toi : N ». Lecture seule, sans tokens. /afaire (alias /a-toi)
+
+- **Où** : hub « À toi » de la barre Mods (/afaire, alias /a-toi)
+- **État** : en construction · version 0.2.0 · lecture seule sauf son propre état (Fait, Plus tard) ; aucune source n'est modifiée, aucune commande montrée n'est lancée, aucun texte envoyé au modèle. Fait sur une ligne mesurée (smtp.json, mods, tâche, secrets) revérifie et refuse tant que la cause est là. Non vérifié : format de ~/.claude/tests-reels/registry.json (le mod tests-reels est en construction : un tableau ou {items|secrets|entries} dont status/state/category contient « ranger »). La copie installée de la veille (~/.claude/veille/bin) ne prend le flux qu'après node veille.mjs install.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : ~/.claude/effort-board/manual-checks.md et questions.md, les fichiers de décisions listés dans sources.decisions.files, gh search prs --author @me (titre, corps, étiquettes ; cache 30 min, jetons gardés par gh), ~/.claude/veille (state.json, acks.jsonl, heartbeat.json, smtp.json : présence et champs, jamais le mot de passe), schtasks /Query ClaudeVeille, CLAUDE_CODE_PLUGIN_DIRS de ~/.claude/settings.json et les dossiers de mods à côté, ~/.claude/tests-reels/registry.json (comptes « à ranger ») ; écrit seulement ~/.claude/a-faire (state.json, items.json, summary.json, notified.json, prs-cache.json) · aucun blocage
+- **Fonctionnalités** : commandes `/afaire`, `/a-toi` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/a-faire` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/a-faire`
+- **Tests** : `node --test mods/a-faire/tests/logic.test.mjs` · `claude plugin test mods/a-faire` · `claude plugin validate mods/a-faire`
+
+#### registres
+
+Registres : un seul panneau à onglets Problèmes | Tests réels | Règles | Ménage, en lecture seule. Chaque onglet est dessiné par une copie exacte du code de son mod (lib/, synchronisée par scripts/sync-libs.mjs) sur les mêmes fichiers dans ~/.claude ; son scanner ne tourne que sur ↻ ou quand les données sont plus vieilles que refresh_min. /registres [problemes|tests|regles|menage] ; alias /problemes, /tests, /regles, /menage quand les anciens mods ne sont pas chargés.
+
+- **Où** : hub « Registres » de la barre Mods (/registres) : onglets Problèmes, Tests réels, Règles, Ménage
+- **État** : en construction · version 0.1.0 · un seul panneau à onglets Problèmes | Tests réels | Règles | Ménage ; /problemes, /tests, /regles, /menage enregistrés comme alias seulement quand aucun autre mod ne sert ce nom (les anciens mods chargés gardent leurs commandes). Erreurs de Santé et de Veille versées au registre Problèmes (catégorie Mods). Aucun texte envoyé au modèle.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : les dossiers des mods d'origine (~/.claude/problemes, ~/.claude/tests-reels, ~/.claude/metrics-mod, ~/.claude/menage-mod) ; chaque onglet dessiné par une copie exacte du code de son mod (lib/, scripts/sync-libs.mjs), son scanner lancé seulement sur ↻ ou quand les données ont plus de refresh_min · aucun blocage
+- **Fonctionnalités** : commandes `/registres` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/registres` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/registres`
+- **Tests** : `node --test mods/registres/tests/*.test.mjs` · `claude plugin test mods/registres` · `claude plugin validate mods/registres`
+
+#### reference
+
+Référence : un seul panneau en lecture seule, onglets Config (toute la config de Claude Code, secrets masqués), Guide (mode d'emploi des mods), Scénarios (modèle et effort par rôle, « Appliquer ce scénario » note le choix dans ~/.claude/scenarios/applied.json et montre l'écart, sans jamais toucher settings ni agents), Santé (mods chargés, erreurs, CPU), CI (routage et Diagramme avec Gantt et ETA). Les anciennes commandes /config-claude, /control, /mods-guide, /scenarios, /sante, /ci restent quand leur mod n'est pas chargé. /reference
+
+- **Où** : hub « Référence » de la barre Mods (/reference) : onglets Config, Guide, Scénarios, Santé, CI
+- **État** : en construction · version 0.1.0 · un seul panneau à onglets Config | Guide | Scénarios | Santé | CI ; chaque onglet dessiné par une copie exacte du code de son mod. « Appliquer ce scénario » note le modèle et l'effort par rôle et montre l'écart avec settings.json et les agents, sans jamais les modifier. /config-claude, /control, /mods-guide, /scenarios, /sante, /ci enregistrés comme alias seulement quand leur mod n'est pas chargé.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : les caches des mods d'origine : config-claude.json de control (secrets masqués avant écriture), MODE-EMPLOI.md et mods.json du guide (copies), scenarios.json, ~/.claude/sante-mod/report.json, ~/.claude/ci-pipelines-cache.json ; « Appliquer ce scénario » écrit seulement ~/.claude/scenarios/applied.json · aucun blocage
+- **Fonctionnalités** : commandes `/reference` · affiche : panneau · options userConfig : config « Settings file », défaut ""
+- **Activer** : `<dépôt>/mods/reference` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/reference`
+- **Tests** : `node --test mods/reference/tests/*.test.mjs` · `claude plugin test mods/reference` · `claude plugin validate mods/reference`
+
 #### factory
 
-Factory v2, side panel of all your agents, read-only, French labels, stacked top to bottom to the pane's width: Mission (counters, one card per project, model share vs targets, conversation list), Focus (Ça t'attend with notifications, fleet pulse, live timeline, progress today), Arbre (a conversation's lead, sub-conversations, Workflows and agents with model and effort, architect on call, bill, guards, log, status line), Pipeline, Quotas, Système, Journal. /factory [onglet]
+Maintenant dans Cockpit (/cockpit mission|focus|arbre|pipeline|workflow|journal) : ce mod reste utilisable seul, et quand il n'est pas chargé Cockpit répond à /factory. Factory v2, side panel of all your agents, read-only, French labels, stacked top to bottom to the pane's width: Mission (counters, one card per project, model share vs targets, conversation list), Focus (Ça t'attend with notifications, fleet pulse, live timeline, progress today), Arbre (a conversation's lead, sub-conversations, Workflows and agents with model and effort, architect on call, bill, guards, log, status line), Workflow (running and recent workflows: phases timeline, agents, estimates and ETA from past runs, Gantt, Vitesse, stuck or failed agents, parallel limits; /factory workflow [all]), Pipeline, Quotas (lib/core/usage.mjs, Claude et Codex), Système (runner via lib/core/runner.mjs), Journal ; Gantt et estimations de lib/core (même rendu que le Diagramme du mod ci). /factory [onglet]
 
-- **État** : stable · version 0.5.0 · v2 : sept écrans en onglets (Mission, Focus, Arbre, Pipeline, Quotas, Système, Journal), empilés de haut en bas à la largeur du panneau, sans dessin à taille fixe ni zoom. « Ça t'attend » est dans Focus (PR/MR verte non mergée, question ou action qui attend Julian, lane à l'arrêt sur une PR rouge, en conflit ou skipped, sous-conversations de chaque lead), une notification native par nouvelle ligne ($.ui.notify, sinon un toast). Quotas et Système affichent « module non chargé » sans les mods usage et machine. Étape du Pipeline déduite des sessions, PR et CI (non vérifié) ; effort d'un agent de Workflow lu dans son propre transcript (non vérifié) ; sous-conversation reliée par spawnedFrom (non vérifié) ; $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; lien de session claude://… non vérifié
+- **Où** : dans Cockpit (onglets Mission, Focus, Arbre, Pipeline, Workflow, Journal) ; /factory reste une commande
+- **État** : stable · version 0.7.0 · v2 : sept écrans en onglets (Mission, Focus, Arbre, Pipeline, Quotas, Système, Journal), empilés de haut en bas à la largeur du panneau, sans dessin à taille fixe ni zoom. « Ça t'attend » est dans Focus (PR/MR verte non mergée, question ou action qui attend Julian, lane à l'arrêt sur une PR rouge, en conflit ou skipped, sous-conversations de chaque lead), une notification native par nouvelle ligne ($.ui.notify, sinon un toast). Quotas et Système affichent « module non chargé » sans les mods usage et machine. Étape du Pipeline déduite des sessions, PR et CI (non vérifié) ; effort d'un agent de Workflow lu dans son propre transcript (non vérifié) ; sous-conversation reliée par spawnedFrom (non vérifié) ; $.ui.notify est dans les types du build 2.1.299, pas encore sur les pages de doc ; lien de session claude://… non vérifié
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : transcripts (~/.claude/projects), fichiers de session de l'app (postTurnSummary, spawnedFrom, prs), gh search / glab api pour tes PR et MR ouvertes et leur CI (jetons gardés par gh et glab, jamais lus) ; onglet Quotas : logique et fichiers du mod usage (~/.claude/usage-mod) et $.session.usage() ; onglet Système : échantillonneur du mod machine · aucun blocage
 - **Fonctionnalités** : commandes `/factory` · affiche : panneau, toasts · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/factory` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/factory`
@@ -439,6 +548,7 @@ Factory v2, side panel of all your agents, read-only, French labels, stacked top
 
 Claude Control, read live: SETUP (rules version from ~/.claude/CLAUDE.md, settings env names and hooks, agents, skills, workflows, mods loaded or not, blockers and hidden rules), USAGE (model, effort and delegation mix against the live rule lines), PRACTICES (one section per CLAUDE.md heading with the evidence it cites, plus pending V6 changes), CONFIG (everything in Claude Code as a searchable tree with full contents, settings by precedence, documented defaults, secrets masked). /control, /config-claude
 
+- **Où** : dans Référence (onglet Config) ; /control et /config-claude restent des commandes (alias de Référence quand control n’est pas chargé)
 - **État** : stable · version 0.3.0 · CONFIG (/config-claude, onglet de /control) : arbre catégorie → sous-catégorie → élément avec chemin, date, taille et contenu complet (rendu ou brut), recherche partout, Changements des 7 derniers jours. Secrets masqués avant écriture (clés token, secret, passw, key, auth, credential, cookie ; valeurs ANTHROPIC_* ; chaînes qui ressemblent à un jeton). Non vérifié : compaction au repos, canal de mise à jour par défaut, outils de statusline-setup et claude-code-guide ; drapeaux --settings de la ligne de commande, préfixe des branches, Remote Control par défaut : non lisibles depuis un mod. Plus rien d'écrit en dur pour V5 : version et règles lues en direct. Qu'une nouvelle session Desktop prenne CLAUDE_CODE_PLUGIN_DIRS de settings.json au démarrage : documenté pour l'env de settings, non vérifié pour les sessions déjà ouvertes.
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : règles actives lues à chaque scan (~/.claude/CLAUDE.md : ligne de titre et version, sections, preuves citées), settings.json (noms des variables env seulement, hooks), agents, skills, workflows, mods de CLAUDE_CODE_PLUGIN_DIRS (chargé / installé non chargé), mémoire, transcripts (scanner Python), docs/V6-CHANGES.md sur la branche main du dépôt des règles (git show) ; CONFIG : CLAUDE.md / CLAUDE.local.md / AGENTS.md et .claude/ des dépôts sous projects_root, ~/.claude (agents, skills, commandes, workflows, styles, mémoire, mods, plugins), les fichiers settings (managed, local, project, user), ~/.claude.json et .mcp.json (noms des serveurs, jamais leurs env), les préférences de l'app Desktop (liste de clés), le dépôt Claude Control (config/, deploy.py, sauvegardes, RULES-INVENTORY.md) · aucun blocage
 - **Fonctionnalités** : commandes `/control`, `/config-claude` · affiche : panneau, toasts · options userConfig : aucune
@@ -449,6 +559,7 @@ Claude Control, read live: SETUP (rules version from ~/.claude/CLAUDE.md, settin
 
 CI routing and pipeline diagram: which CI backends exist (from a config file), whether they are usable, which repo or conversation uses which, and a Diagramme tab (repo -> CI host -> stages/jobs -> result, Gantt, ETA, filters Claude Code / Codex / app / conversation). /ci, /ci diagramme, /ci route, /ci clear
 
+- **Où** : dans Référence (onglet CI avec le Diagramme) et la carte CI de Cockpit ; /ci reste une commande (alias)
 - **État** : en construction · version 0.2.0 · note dans le prompt système désactivée par défaut (prompt_note: false) ; /ci close ferme le panneau ; Diagramme : une phrase en tête (pipelines en cours, rouges avec leur job, runner local N/concurrent), filtres en boutons Tout · Claude Code · Codex · inconnu et groupes par hôte · par app · par conversation, sections repliables, Gantt texte par pipeline (file ░, exécution █, fin estimée ┄, maintenant │), heure de fin estimée = médiane d'au moins 3 runs réussis du même job (sinon médiane des pipelines, sinon « pas assez d'historique »), commande de log par job rouge (montrée, jamais lancée) ; rouge seulement pour un vrai échec (allow_failure en orange) ; attribution Claude / Codex par branche, trailer ou auteur, « inconnu » sinon ; lecture gh/glab seulement sur Rafraîchir ou cache plus vieux que cache_minutes ; titre de conversation lu dans custom-title (ai-title non vérifié)
 - **Fonctionnement** : événements `session.start`, `command.run`, `prompt.compose`, `ui.render` · lit : ~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners) ; onglet Diagramme (/ci diagramme) : gh run list / gh run view --json jobs, glab api en GET (pipelines et jobs des projets et miroirs GitLab), git log -1 du clone local (trailer Co-Authored-By), transcripts ~/.claude/projects/*/*.jsonl (sortie de gh pr create / glab mr create, titre de la conversation), caches ~/.claude/ci-pipelines-cache.json et ci-conversations-cache.json · aucun blocage
 - **Fonctionnalités** : commandes `/ci` · affiche : panneau, ligne de statut, note dans le prompt système · options userConfig : aucune
@@ -459,6 +570,7 @@ CI routing and pipeline diagram: which CI backends exist (from a config file), w
 
 Scénarios d'agents: read-only guide and editable presets of roles -> model, effort, unit and max parallel, with ready-to-paste snippets. /scenarios
 
+- **Où** : dans Référence (onglet Scénarios, bouton « Appliquer ce scénario ») ; /scenarios reste une commande (alias)
 - **État** : en construction · version 0.1.0
 - **Fonctionnement** : événements `session.start`, `command.run`, `agent.spawn`, `ui.render` · lit : scenarios.json du mod + ton fichier (userConfig file) · aucun blocage
 - **Fonctionnalités** : commandes `/scenarios` · affiche : panneau, toasts · options userConfig : file « Extra scenarios file », défaut "" ; warn_no_model « Warn when an Agent call names no model » (on | off), défaut "on"
@@ -467,9 +579,10 @@ Scénarios d'agents: read-only guide and editable presets of roles -> model, eff
 
 #### usage
 
-Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Onglet Classement : qui consomme le plus sur 1 h, 4 h, aujourd'hui, 2 j, 7 j ou 30 j, par conversation, projet, modèle, type d'agent, fonction ou Claude/Codex, avec tendance et part. Onglet Codex : tokens Codex du jour et de la semaine par modèle et % de limite lus dans ~/.codex/sessions. Lecture seule. /conso
+Consommation : tokens et coût équivalent par jour, heure, projet, modèle, session, type d'agent, surface, skill et MCP ; prévision des limites 5 h et semaine ; débit des scénarios S1-S5 et suggestion Plein régime. Onglet Classement : qui consomme le plus sur 1 h, 4 h, aujourd'hui, 2 j, 7 j ou 30 j, par conversation, projet, modèle, type d'agent, fonction ou Claude/Codex, avec tendance et part. Onglet Codex : tokens Codex du jour et de la semaine par modèle et % de limite lus dans ~/.codex/sessions. Ligne Quotas en tête et dans la réponse de /conso : 5 h et semaine de Claude et de Codex, date d'épuisement, lues par lib/core/usage.mjs comme band et Cockpit (mêmes chiffres). Lecture seule. /conso
 
-- **État** : en construction · version 0.3.0 · tokens par 1 % calibrés sur ce PC seulement (non vérifié) ; % Codex lus seulement s'ils sont écrits dans les sessions (Codex 0.142+ via app-server : non vérifié), coût Codex non calculé ; Classement : lignes par heure d'horloge (« 1 h » = tranches qui touchent la dernière heure), sous-agents comptés dans leur conversation parente, famille d'outil non disponible, Codex par jour entier ; ouverture par lien claude:// non vérifiée
+- **Où** : dans Cockpit (cartes Qui consomme et Quota, bouton Voir → /conso) ; /conso reste une commande
+- **État** : en construction · version 0.4.0 · tokens par 1 % calibrés sur ce PC seulement (non vérifié) ; % Codex lus seulement s'ils sont écrits dans les sessions (Codex 0.142+ via app-server : non vérifié), coût Codex non calculé ; Classement : lignes par heure d'horloge (« 1 h » = tranches qui touchent la dernière heure), sous-agents comptés dans leur conversation parente, famille d'outil non disponible, Codex par jour entier ; ouverture par lien claude:// non vérifiée
 - **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : transcripts (~/.claude/projects, scanner Node incrémental), $.session.usage() et session.measure pour les % 5 h et semaine, échantillons dans ~/.claude/usage-mod, scenarios.json ; onglet Codex : ~/.codex/sessions/**/rollout-*.jsonl (token_count, turn_context), jamais auth.json ni config.toml ; classement.json (même cache incrémental, 31 j) et fil.json de veille pour le bouton Ouvrir · aucun blocage
 - **Fonctionnalités** : commandes `/conso` · affiche : panneau, ligne de statut · options userConfig : status_line « Ligne de statut » (config | on | off), défaut "config" ; codex « Onglet Codex » (config | on | off), défaut "config"
 - **Activer** : `<dépôt>/mods/usage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/usage`
@@ -479,26 +592,18 @@ Consommation : tokens et coût équivalent par jour, heure, projet, modèle, ses
 
 Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux, commandes, userConfig, installer, activer, tester, écrire un mod pas à pas, et une fiche par mod du dépôt (lue en direct). Onglets et sommaire. /mods-guide
 
+- **Où** : dans Référence (onglet Guide) ; /mods-guide reste une commande (alias de Référence quand guide n’est pas chargé)
 - **État** : en construction · version 0.1.0
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : MODE-EMPLOI.md, mods.json et les plugin.json / hooks des mods voisins · aucun blocage
 - **Fonctionnalités** : commandes `/mods-guide` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/guide` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/guide`
 - **Tests** : `node --test mods/guide/tests/guide.test.mjs` · `claude plugin test mods/guide`
 
-#### band
-
-Jauge : bandeau au-dessus du prompt, en lecture seule. Une seule ligne toujours visible : barre fine du contexte (repères relais 250 K et auto-compact, seul le plus proche nommé, vert → orange → rouge) puis « ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 % » et un ▸ qui déplie les sections repliables (Cette conversation, Usage, Veille ; résumé d'une ligne quand fermées, état gardé d'une session à l'autre). Ligne orange « Passation conseillée » (Préparer RESUME, Ouvrir RESUME, rien ne se lance seul) et barre Mods qui ouvre et ferme les autres mods. /jauge
-
-- **État** : en construction · version 0.2.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée ; « relais lancés » = /handoff vus dans cette session seulement. Effort lu dans CLAUDE_EFFORT (non vérifié pour un mod ; absent, seul le modèle s'affiche) ; « agents en cours » = agents qui ont écrit dans les 120 dernières secondes ; état des sections gardé par $.store (documenté « kept between sessions »), non vérifié à la main dans Desktop.
-- **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
-- **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut, toasts · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
-- **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
-- **Tests** : `node --test mods/band/tests/logic.test.mjs` · `node --test mods/band/tests/health.test.mjs` · `claude plugin test mods/band`
-
 #### filetree
 
 An IDE-style file tree for Claude Code that shows what Claude is doing and where in files
 
+- **Où** : à part, hors barre Mods : son onglet Fichiers à côté de Cockpit (/filetree)
 - **État** : stable · version 0.2.26 · externe, MIT, data-goblin (Kurt Buhler), copié à la release v0.2.26 sans changement de comportement, libellés en anglais ; contexte envoyé au modèle seulement quand tu cliques un fichier (une ligne « selected » avec son chemin, à chaque prompt tant que la sélection reste ; bouton ⊘ pour l'enlever) ; avant un git commit, un git rev-parse HEAD (≤ 5 s) retarde l'appel ; aucune option de config ajoutée par nous ; détails dans vendor/filetree/NOTICE
 - **Fonctionnement** : événements `session.start`, `config.set`, `command.run`, `tool.call`, `ui.message`, `classic.SessionStart`, `classic.CwdChanged`, `classic.FileChanged`, `ui.focus`, `ui.scroll`, `prompt.submit`, `prompt.attachment`, `ui.render` · lit : dossier de travail de la session ($.fs.list), git status / diff / ls-files / rev-parse, état du mod ($.state) ; sous Windows powershell seulement pour ouvrir un fichier au double-clic · aucun blocage
 - **Fonctionnalités** : commandes `/filetree` · affiche : panneau, toasts · options userConfig : activity « Claude activity » (reads and writes | writes | reads | none), défaut "reads and writes" ; glyphs « Glyphs » (auto | nerd | plain), défaut "auto" ; follow « Follow Claude » (on | off), défaut "on" ; start « Open at start » (on | off), défaut "on" ; column « Right column » (date | age | size), défaut "date" ; hints « Hints » (on | off), défaut "on" ; open « Open with », défaut ""
@@ -507,9 +612,10 @@ An IDE-style file tree for Claude Code that shows what Claude is doing and where
 
 #### machine
 
-Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RAM, disques, GPU, top 5 processus CPU et mémoire (claude, node, python, git en couleur), charge du runner GitLab local (via le mod ci) et « agents en parallèle conseillés maintenant : N ». /machine
+Maintenant dans Cockpit (onglet Machine, /cockpit machine : charge du PC par ce même échantillonneur, charge du runner par lib/core/runner.mjs) ; ce mod reste utilisable seul, et quand il n'est pas chargé Cockpit répond à /machine. Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RAM, disques, GPU, top 5 processus CPU et mémoire (claude, node, python, git en couleur), charge du runner GitLab local (via le mod ci) et « agents en parallèle conseillés maintenant : N ». /machine
 
-- **État** : en construction · version 0.1.0 · règle « agents conseillés » et plafonds 4 pipelines / 3 npm ci-tsc dans machine.config.json. Non vérifié : enfants du processus runner = jobs locaux ; compteur GPU sur un Windows non anglais ; ordre des mods dans le bandeau : l'entrée garde le dessin des mods suivants, mais band (Jauge) ne garde pas le sien, donc elle n'apparaît que si machine passe avant band.
+- **Où** : dans Cockpit (onglet Machine, charge du runner dans la carte CI) ; /machine reste une commande
+- **État** : en construction · version 0.1.1 · règle « agents conseillés » et plafonds 4 pipelines / 3 npm ci-tsc dans machine.config.json. Non vérifié : enfants du processus runner = jobs locaux ; compteur GPU sur un Windows non anglais ; ordre des mods dans le bandeau : l'entrée garde le dessin des mods suivants, mais band (Jauge) ne garde pas le sien, donc elle n'apparaît que si machine passe avant band.
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : compteurs système (Windows : ntdll/kernel32 par ctypes ; Linux : /proc), nvidia-smi ou compteur de performance Windows (typeperf) pour le GPU, scanner et config du mod ci pour le runner GitLab (compteurs seulement, jamais de jeton) ; échantillons seulement pendant que le panneau est ouvert (5 s) ou que l'entrée du bandeau est allumée (15 s) · aucun blocage
 - **Fonctionnalités** : commandes `/machine` · affiche : panneau, bandeau · options userConfig : config « Settings file », défaut "" ; band « Band entry above the prompt » (on | off), défaut "off"
 - **Activer** : `<dépôt>/mods/machine` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/machine`
@@ -519,6 +625,7 @@ Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RA
 
 Les règles marchent ? PR/MR mergées par jour, tokens par PR, part Opus / Sonnet / Haiku, agents avec modèle nommé, arrêts, refus, gardes de l'app, creux CI, arrêts BLOCKED, avec les versions des règles en repères et un tableau avant / après. Lecture seule. /regles
 
+- **Où** : dans Registres (onglet Règles) ; /regles reste une commande (alias de Registres quand metrics n’est pas chargé)
 - **État** : en construction · version 0.1.0 · aucun texte envoyé au modèle (la commande ouvre un panneau). Non vérifié : les attentes de permission (seuls les refus sont comptés), le modèle des agent() de Workflow (lu dans le script), les creux CI (le travail démarrable n'est pas connu).
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : transcripts ~/.claude/projects (lecture incrémentale, parseur de mods/usage/lib), git remote de tes repos, gh search prs / gh run list et glab mr list / glab ci list (lecture seule, au plus toutes les 30 min), git log du fichier de règles ; caches dans ~/.claude/metrics-mod · aucun blocage
 - **Fonctionnalités** : commandes `/regles` · affiche : panneau · options userConfig : aucune
@@ -529,56 +636,29 @@ Les règles marchent ? PR/MR mergées par jour, tokens par PR, part Opus / Sonne
 
 Santé des mods : une ligne verte / orange / rouge en haut, puis chaque mod chargé par CLAUDE_CODE_PLUGIN_DIRS ou installé : chargé ou non, version, commandes enregistrées, dernier rafraîchissement de ses caches, erreurs, durée et CPU de ses scans (fiches ~/.claude/mods-health), taille des caches, JSON de config invalides, version de Claude Code face au minimum. Lecture seule. /sante
 
+- **Où** : dans Référence (onglet Santé ; ses erreurs vont aussi au registre Problèmes) ; /sante reste une commande (alias)
 - **État** : en construction · version 0.1.0 · rien n'est supprimé : les commandes de nettoyage sont affichées avec un bouton Copier. Convention proposée : ~/.claude/mods-health/<mod>.json (lastRun, durationMs, cpuMs, error, lastOk, fenêtre 24 h), écrite par band, usage, metrics, ci et machine. Non vérifié : champ de version minimale dans plugin.json (absent de la doc), format de installed_plugins.json, plugin toujours renseigné par $.command.list().
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : CLAUDE_CODE_PLUGIN_DIRS, $.command.list() et $.session.version() ; pour chaque mod : plugin.json, hooks.json, JSON de config, caches (taille, dernière modification), journaux, fiches ~/.claude/mods-health/<mod>.json ; ~/.claude/mods et ~/.claude/plugins/installed_plugins.json ; rapport dans ~/.claude/sante-mod (scanner Node, seulement quand le panneau est demandé) · aucun blocage
 - **Fonctionnalités** : commandes `/sante` · affiche : panneau · options userConfig : config « Settings file », défaut ""
 - **Activer** : `<dépôt>/mods/sante` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/sante`
 - **Tests** : `node --test mods/sante/tests/logic.test.mjs` · `claude plugin test mods/sante` · `claude plugin validate mods/sante`
 
-#### veille
-
-Veille : un script sans tokens (tâche Windows ClaudeVeille) fait le tour des conversations, PR/MR et CI selon un mode (rien, légère, active, nuit-active, nuit-test-légère) et écrit des alertes que ce panneau montre : gravité, depuis quand, conversation ou PR, lien, Ack ; dernier tour (rouge si deux tours manqués), actions avec leur raison. Fil : le dernier message de chaque conversation, par projet puis lead → sous-conversations, sans token (/veille fil). À archiver : les conversations finies, listées pour la conversation VEILLE (/veille archiver). « Attend Julian » (question ouverte, wrap_up, question finale, incohérence entre consignes) : notification Windows et e-mail tout de suite, compteur rouge. /veille [fil|archiver|mode <x>|ack <clé>|coordinateur|tour]
-
-- **État** : en construction · version 0.2.0 · réveil d'une conversation par claude -p --resume <id> (documenté ; vérifié ici sur une session jetable : même transcript, même modèle ; non vérifié : effort, mode de permission différent du défaut, affichage dans l'app Desktop) ; désactivé par défaut (wake.enabled false). Push téléphone : aucun moyen documenté pour un script (PushNotification est un outil de Claude) ; option push.claude (claude -p, coûte des tokens, non vérifié) désactivée ; l'e-mail arrive sur le téléphone par l'app mail. Fil : « Ouvrir la conversation » passe claude://claude.ai/epitaxy/<id> au système (gestionnaire claude: de l'app, route epitaxy vue dans l'app 2.42304) car un Link de panneau n'ouvre que https: ; arrivée sur la session non vérifiée, « Copier l'id » en secours. « Attend Julian » à chaque passage de la tâche (5 min, même en légère) : AskUserQuestion en attente, wrap_up avec ask ou blocked, needs_action, question en fin de dernier message (heuristique), carte d'approbation probable (non vérifié), incohérence entre consignes (mots clés FR/EN) ; notification Windows, e-mail si smtp.json, compteur rouge « attend Julian : N ».
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : mêmes sources que « Ça t'attend » du mod factory (son scanner et waiting.mjs importés, pas copiés) : fichiers de session de l'app, transcripts, gh search / glab api (jetons gardés par gh et glab, jamais lus) ; état dans ~/.claude/veille (state.json, heartbeat.json, events.jsonl, acks.jsonl, config.json) ; smtp.json créé par toi ; Fil : fichiers de session de l'app (titre, modèle, effort, spawnedFrom, postTurnSummary, PR) et la fin de chaque transcript (dernier texte, wrap_up, AskUserQuestion en attente), écrit par la tâche dans ~/.claude/veille/fil.json ; marques « lu » dans $.store · aucun blocage
-- **Fonctionnalités** : commandes `/veille` · affiche : panneau, bandeau · options userConfig : band « Band entry above the prompt » (on | off), défaut "on"
-- **Activer** : `<dépôt>/mods/veille` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/veille`
-- **Tests** : `node --test mods/veille/tests/logic.test.mjs` · `node --test mods/veille/tests/mail.test.mjs` · `node --test mods/veille/tests/fil.test.mjs` · `claude plugin test mods/veille`
-
 #### menage
 
 Ménage : ce que le travail de Claude laisse traîner sur ce PC, en lecture seule. Worktrees (branche, mergée ou non, propre ou modifié, âge, taille), dossiers de worktree orphelins, branches locales et distantes déjà mergées, copies de mods, sauvegardes de deploy, transcripts par projet, dossiers temporaires, sessions archivables. Pour chaque ligne la commande sûre à lancer, jamais lancée ; en rouge « ne pas supprimer ». /menage
 
+- **Où** : dans Registres (onglet Ménage) ; /menage reste une commande (alias)
 - **État** : en construction · version 0.1.0 · ne supprime rien et ne lance aucune commande : il les montre (bouton Copier). Aucun texte envoyé au modèle. « mergée » = atteignable depuis origin/main au dernier fetch, ou contenu identique / même patch-id dans main (squash), ou PR mergée selon les fichiers de session. Non vérifié : archiver une session hors de l'app (pas de commande documentée) ; format des fichiers de session de l'app (non documenté).
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : git en lecture seule dans chaque dépôt sous repos.roots (worktree list, status, branch --merged, for-each-ref, merge-base, diff --quiet, patch-id ; GIT_OPTIONAL_LOCKS=0, jamais de fetch), tailles des dossiers (pwsh sous Windows, cache 12 h), ~/.claude/mods et CLAUDE_CODE_PLUGIN_DIRS de settings.json, ~/.claude/effort-board/_deploy_backups, ~/.claude/projects (taille, cwd), TEMP/claude, ~/.claude/dev-mods, APPDATA/Claude/scratch-workspaces, fichiers de session de l'app (titre, isArchived, lastActivityAt, prs) ; résultat dans ~/.claude/menage-mod · aucun blocage
 - **Fonctionnalités** : commandes `/menage` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/menage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/menage`
 - **Tests** : `node --test mods/menage/tests/logic.test.mjs` · `claude plugin test mods/menage`
 
-#### cockpit
-
-Cockpit, un seul panneau latéral en lecture seule, rangé par périmètre, chaque section repliable avec un résumé d'une ligne : Cette conversation (ouverte et sélectionnée : modèle, effort, ctx, état, arbre lead › sous-conversations › Workflows › agents, étape, PR/CI), Ce projet (arbre, Focus et Pipeline), Tous les projets (une ou deux lignes par projet), Qui consomme (top 3 conversations et projet en tête sur 1 h, aujourd'hui ou 7 j, bouton vers le Classement complet de /conso), Claude global (quotas, Veille, /machine). Petit fil d'Ariane, un clic sur un nœud descend. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]
-
-- **État** : en construction · version 0.1.0 · Un seul panneau rangé par périmètre, de haut en bas : Cette conversation (ouverte, sélectionnée au démarrage ; agents et Workflows terminés repliés derrière un bouton « + N terminé(s) »), Ce projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt ; Focus + Pipeline de factory), Tous les projets (deux lignes par projet), Claude global (quotas, Veille, bouton /machine). Fermée, chaque section tient sur une ligne de résumé. Un clic sur un nœud descend (Agent : modèle, effort, tokens, coût, journal) et ouvre la section qui le montre ; le fil d'Ariane remonte. Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour les quotas de « Claude global » ; les fichiers de veille (~/.claude/veille). La jauge de contexte n'est plus dans le cockpit : elle est dans band, au-dessus du prompt. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché. ; classement.json du mod usage pour « Qui consomme » (lance le scanner incrémental de usage s'il a plus de 10 min et que la section est ouverte) · aucun blocage
-- **Fonctionnalités** : commandes `/cockpit` · affiche : panneau, toasts · options userConfig : start « Open at start » (on | off), défaut "on" ; config « Settings file », défaut ""
-- **Activer** : `<dépôt>/mods/cockpit` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/cockpit`
-- **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
-
-#### a-faire
-
-À faire par Julian : tout ce qui attend une action que seul toi peux faire, pour que rien ne se perde. Configuration (smtp.json de la veille, mods installés pas chargés, tâche ClaudeVeille), décisions (DECISIONS-PENDING, PR qui attendent ton accord, questions.md), connexions et 2FA, secrets de tests réels à ranger, tests manuels (manual-checks.md), questions des conversations (alertes « attend Julian » de la veille). Pour chacune : pourquoi elle bloque, les étapes exactes avec Copier, depuis quand, la source ; Fait (revérifie quand c'est possible), Plus tard (1 jour). Lecture seule, sans tokens. /afaire
-
-- **État** : en construction · version 0.1.0 · lecture seule sauf son propre état (Fait, Plus tard) ; aucune source n'est modifiée, aucune commande montrée n'est lancée, aucun texte envoyé au modèle. Fait sur une ligne mesurée (smtp.json, mods, tâche, secrets) revérifie et refuse tant que la cause est là. Non vérifié : format de ~/.claude/tests-reels/registry.json (le mod tests-reels est en construction : un tableau ou {items|secrets|entries} dont status/state/category contient « ranger »). La copie installée de la veille (~/.claude/veille/bin) ne prend le flux qu'après node veille.mjs install.
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : ~/.claude/effort-board/manual-checks.md et questions.md, les fichiers de décisions listés dans sources.decisions.files, gh search prs --author @me (titre, corps, étiquettes ; cache 30 min, jetons gardés par gh), ~/.claude/veille (state.json, acks.jsonl, heartbeat.json, smtp.json : présence et champs, jamais le mot de passe), schtasks /Query ClaudeVeille, CLAUDE_CODE_PLUGIN_DIRS de ~/.claude/settings.json et les dossiers de mods à côté, ~/.claude/tests-reels/registry.json (comptes « à ranger ») ; écrit seulement ~/.claude/a-faire (state.json, items.json, summary.json, notified.json, prs-cache.json) · aucun blocage
-- **Fonctionnalités** : commandes `/afaire` · affiche : panneau · options userConfig : aucune
-- **Activer** : `<dépôt>/mods/a-faire` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/a-faire`
-- **Tests** : `node --test mods/a-faire/tests/logic.test.mjs` · `claude plugin test mods/a-faire` · `claude plugin validate mods/a-faire`
-
 #### problemes
 
 Problèmes : registre persistant de chaque erreur et problème du travail de Claude, compris une fois et jamais redécouvert. Collecte sans tokens (questions à Julian, fins de tour qui attendent, refus de permission, gardes de l'app et des worktrees, fins BLOCKED, Workflows en échec, CI en échec), dédoublonnée par signature ; arbre de catégories repliables (Blocages manuels, Workflow, Règles, App, CI, Par application, Mods), symptôme, cause, correctif, preuves et chronologie ; filtres ; notes écrites dans le registre local. /problemes
 
+- **Où** : dans Registres (onglet Problèmes) et la carte Problèmes du jour de Cockpit ; /problemes reste une commande (alias)
 - **État** : en construction · version 0.1.0 · Bouton « Exporter vers eta » et /problemes export : le registre en Markdown masqué vers le dépôt eta (sources/problemes/REGISTRE.md, un fichier par catégorie au-delà de 300 Ko), même masquage et même flux git que le mod export-eta (copiés dans lib/eta/, test de synchro), fichiers non masquables retenus et listés ; chemin du dépôt eta lu dans ~/.claude/export-eta/config.json. Repère AskUserQuestion, fins de tour qui finissent par une question, needs_action de l'app, refus de permission, dossiers et règles accordés, gardes de l'app et des worktrees, rm sur chemin protégé, fins BLOCKED, Workflows avec agents_error, sorties gh / glab en échec ou skipped, erreurs API ; classe par règles du JSON (première qui correspond), dédoublonne par signature (règle + application ou clé), monte compte et dernière vue, rouvre un problème corrigé qui revient. « Par application » est une vue croisée. Le panneau n'écrit que « Ajouter une note » (dans le registre local) ; statut et correctif par la ligne de commande (set). Aucun texte envoyé au modèle. Non vérifié : les demandes de permission acceptées ne sont pas dans les transcripts (seuls les refus et les dossiers ou règles accordés sont comptés) ; format des fichiers de session de l'app (non documenté) ; la Veille installée n'appelle le collecteur qu'après un nouveau veille.mjs install (copie des fichiers).
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : collecteur Node sans tokens (scanner/problemes_scan.mjs collect, lancé par le panneau quand le registre a plus de 30 min, par ↻, ou par la Veille à chaque tour) : octets ajoutés aux transcripts ~/.claude/projects (sessions, sous-agents, agents de Workflow) depuis le dernier passage, fichiers de session de l'app (postTurnSummary.needs_action, sessionPermissionUpdates) ; imports une fois par ligne depuis tes registres (tableaux Markdown, incidents.json, findings.json, fichier ou git show) listés dans ~/.claude/problemes/problemes.config.json ; registre ~/.claude/problemes/register.jsonl (ajout seulement), instantané problems.json lu par le panneau · aucun blocage
 - **Fonctionnalités** : commandes `/problemes` · affiche : panneau · options userConfig : aucune
@@ -587,9 +667,10 @@ Problèmes : registre persistant de chaque erreur et problème du travail de Cla
 
 #### export-eta
 
-Export eta : exporte des conversations Claude Code en Markdown vers le dépôt eta, sans tokens. En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet), Lot terminé (la Veille compte les conversations terminées depuis le dernier export et propose un bouton « Exporter vers eta »). Passe de confidentialité avant écriture (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails), fichiers non masquables retenus et listés ; worktree neuf du dépôt eta, branche, PR, merge squash. /export, /export-eta
+Export eta : exporte des conversations Claude Code en Markdown vers le dépôt eta, sans tokens. En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet), Lot terminé (la Veille compte les conversations terminées depuis le dernier export et propose un bouton « Exporter vers eta »). Passe de confidentialité avant écriture (jetons, clés, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails), fichiers non masquables retenus et listés ; worktree neuf du dépôt eta, branche, PR, merge squash. Le lot terminé est aussi l'onglet « Export eta » du panneau Veille (/veille export), qui lance le même exporteur. Erreurs dans ~/.claude/mods-health/export-eta.json (Santé, Problèmes). /export, /export-eta
 
-- **État** : en construction · version 0.1.0 · Trois modes : En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet, repliables), Lot terminé (la Veille compte à chaque tour les conversations terminées depuis le dernier export ; à partir de batch_min, défaut 3, ou quand un lead et toutes ses sous-conversations sont terminés, elle affiche « 4 conversations terminées — Exporter vers eta » avec un bouton, dans son onglet Alertes et Fil ; la même ligne et le même bouton apparaissent au-dessus du prompt). auto: true exporte le lot sans clic. Chaque conversation devient un Markdown : en-tête (projet, dossier, branche, modèle · effort, début, dernière activité, état, parent, sous-conversations, PR), puis les messages dans l'ordre, un appel d'outil par ligne, sorties d'outils et fichiers omis, résultats d'agents en une ligne ; découpé en parties au-delà de max_kb (300 Ko). Passe de confidentialité avant écriture (jetons GitHub/GitLab/Anthropic/OpenAI/AWS/Slack, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails sauf les tiens, motifs en plus par config ou fichier) puis une vérification : un fichier avec un secret non masquable est retenu et listé, jamais écrit. Chemin : sources/conversations/<projet>/<date>-<titre>-<id>.md, INDEX.md par projet et global ; un ré-export réécrit son propre fichier (retrouvé par l'id), jamais un autre. Git : worktree neuf du dépôt eta, branche export/conversations-<date-heure>, commit, push, PR, merge squash (checks verts s'il y en a, sinon après la passe de confidentialité), branche distante supprimée, worktree retiré ; jamais de push sur main ni de force-push. /export peut être pris par la commande intégrée de Claude Code : /export-eta marche toujours. La copie du veilleur installée (~/.claude/veille/bin) ne prend l'export qu'après un nouveau « veille install ».
+- **Où** : dans Veille (onglet Export eta, bouton « Exporter vers eta ») ; /export-eta reste une commande (alias de Veille quand export-eta n’est pas chargé)
+- **État** : en construction · version 0.2.0 · Trois modes : En cours (instantané de toutes les conversations en cours), Sélection (cases à cocher par projet, repliables), Lot terminé (la Veille compte à chaque tour les conversations terminées depuis le dernier export ; à partir de batch_min, défaut 3, ou quand un lead et toutes ses sous-conversations sont terminés, elle affiche « 4 conversations terminées — Exporter vers eta » avec un bouton, dans son onglet Alertes et Fil ; la même ligne et le même bouton apparaissent au-dessus du prompt). auto: true exporte le lot sans clic. Chaque conversation devient un Markdown : en-tête (projet, dossier, branche, modèle · effort, début, dernière activité, état, parent, sous-conversations, PR), puis les messages dans l'ordre, un appel d'outil par ligne, sorties d'outils et fichiers omis, résultats d'agents en une ligne ; découpé en parties au-delà de max_kb (300 Ko). Passe de confidentialité avant écriture (jetons GitHub/GitLab/Anthropic/OpenAI/AWS/Slack, mots de passe, cookies, chaînes de connexion, JWT, clés privées, e-mails sauf les tiens, motifs en plus par config ou fichier) puis une vérification : un fichier avec un secret non masquable est retenu et listé, jamais écrit. Chemin : sources/conversations/<projet>/<date>-<titre>-<id>.md, INDEX.md par projet et global ; un ré-export réécrit son propre fichier (retrouvé par l'id), jamais un autre. Git : worktree neuf du dépôt eta, branche export/conversations-<date-heure>, commit, push, PR, merge squash (checks verts s'il y en a, sinon après la passe de confidentialité), branche distante supprimée, worktree retiré ; jamais de push sur main ni de force-push. /export peut être pris par la commande intégrée de Claude Code : /export-eta marche toujours. La copie du veilleur installée (~/.claude/veille/bin) ne prend l'export qu'après un nouveau « veille install ».
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : les fichiers de session de l'app Desktop (titre, modèle, effort, état de fin de tour, spawnedFrom, PR) et les transcripts de ~/.claude/projects, lus par un script Node sans dépendance ; ~/.claude/export-eta (config.json, state.json, sessions.json, pending.json) ; le dépôt eta (chemin dans config.json, jamais dans le dépôt public), où le mod crée un worktree neuf. Aucun appel de modèle. · aucun blocage
 - **Fonctionnalités** : commandes aucune · affiche : panneau, bandeau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/export-eta` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/export-eta`
@@ -599,6 +680,7 @@ Export eta : exporte des conversations Claude Code en Markdown vers le dépôt e
 
 Tests réels : le registre des tests hors CI par application (tenant de test, Cloudflare Access et Workers, Power BI Desktop / SSAS / Docker en local, automatisation d'interface, vérifications manuelles), en lecture seule. Par appli : environnements, comptes de test masqués (seulement l'endroit où le secret est rangé, jamais sa valeur), procédures et derniers essais (vert, rouge, jamais), « jamais testé en réel », et la liste « À ranger ». Données locales dans ~/.claude/tests-reels. /tests
 
+- **Où** : dans Registres (onglet Tests réels) ; /tests reste une commande (alias)
 - **État** : en construction · version 0.1.0 · aucun mot de passe, jeton, clé ni cookie stocké ni affiché : seulement une référence (Gestionnaire d'identification Windows : cible). Ids de tenant, de workspace et URL privées seulement dans le dossier local, jamais dans le dépôt. Aucun texte envoyé au modèle. Non vérifié : format des transcripts (non documenté) ; détection des secrets heuristique (formats forts et paires mot de passe=… dont la valeur a l'air aléatoire).
 - **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : ~/.claude/tests-reels (registry.json écrit par cli.mjs add, runs.jsonl par cli.mjs run-log, recovered.json par le scan de récupération) ; le scan lit les transcripts ~/.claude/projects, effort-board/manual-checks.md, handoff/*.md et reports/* des dépôts sous repo_roots, et les dossiers extra_roots · aucun blocage
 - **Fonctionnalités** : commandes `/tests` · affiche : panneau · options userConfig : aucune
@@ -653,7 +735,7 @@ Pas par lui-même. Seulement s'il appelle `$.model.complete`, lance un agent, ou
 
 #### Ouvrir un autre mod depuis la Jauge
 
-La ligne « Mods : » sous la Jauge a un bouton par mod (`launcher` dans `band.config.json`). Un clic lance sa commande et ouvre son panneau, le bouton devient « Conso ✕ » ; un second clic le ferme. Un bouton grisé = mod non chargé : ajouter `<dépôt>/mods/<x>` à `CLAUDE_CODE_PLUGIN_DIRS` et ouvrir une nouvelle session.
+La ligne « Mods : » sous la Jauge a six boutons : Jauge, Cockpit, Veille, À toi, Registres, Référence (`launcher` dans `band.config.json`, preset `hubs`). Un clic lance la commande de l'entrée et ouvre son panneau, le bouton devient « Cockpit ✕ » ; un second clic le ferme. Jauge ouvre le panneau /jauge directement. Un bouton grisé dit « non chargé : ajouter mods/<x> à CLAUDE_CODE_PLUGIN_DIRS » : ajouter `<dépôt>/mods/<x>` et ouvrir une nouvelle session. `launcher.preset: "all"` remet les 15 anciens boutons ; ta propre liste `launcher.items` reste prioritaire.
 
 #### Passer le relais depuis la Jauge
 

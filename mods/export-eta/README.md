@@ -1,5 +1,7 @@
 # export-eta
 
+**Now shown inside Veille** (tab Export eta, button « Exporter vers eta », `/veille export`); `/export-eta` keeps working (this mod while loaded, else Veille's alias).
+
 Exports Claude Code conversations to the eta repo as masked Markdown through a PR, with no model call.
 `/export-eta [en-cours | lot | close]` (and `/export` when the built-in leaves it free) opens its pane: **Lot terminé**,
 **En cours**, **Sélection**, **Exports**.
