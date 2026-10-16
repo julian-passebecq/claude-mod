@@ -24,6 +24,8 @@ const CONFIG = {
     groups: [{ id: 'conversation', label: 'conversation' }, { id: 'project', label: 'projet' }, { id: 'source', label: 'Claude / Codex' }],
     labels: { others: 'autres', new: 'nouveau', copy: "Copier l'id", open: 'Ouvrir', sub: 'sous-agents', codex_note: 'par jour entier' },
   },
+  history: { presets: [{ id: '30d', label: '30 j', days: 30 }, { id: 'all', label: 'tout', days: 0 }], default_preset: 'all' },
+  tps: { range_pct: [10, 90], recent: 12 },
   codex: {
     enabled: 'auto', sessions_dir: '~/.codex/sessions', stale_limits_h: 24, expected_windows: [300, 10080], window_labels: { '300': 'Fenêtre 5 h', '10080': 'Semaine' },
     labels: { codex: 'Codex', claude: 'Claude', unavailable: 'non disponible', off: 'Codex désactivé', no_dir: 'non disponible : aucun dossier {dir}', no_data: 'non disponible : aucune session {dir}', no_limits: '% : non disponible', stale: 'ancienne lecture', past: 'réinitialisée', source: 'Source : {dir}' },
@@ -37,7 +39,11 @@ const AGGR = {
   days: { '2026-10-16': { total: V(24), project: { 'app-one': V(20), 'app-two': V(4) }, model: { 'claude-opus-5-5': V(24) }, kind: { main: V(10), workflow: V(14) }, surface: { 'Onglet Code (app)': V(24) }, skill: { handoff: V(1) }, mcp: {}, session: { 'sess-a': V(24) }, effort: { medium: V(24) } } },
   sessions: { 'sess-a': { title: 'App one lane', project: 'app-one', kind: 'main', surface: 'Onglet Code (app)' } },
   rates: { 'main|opus': [0, 0, 0, 0, 0, 0, 3600, 3], 'workflow|opus': [0, 0, 0, 0, 0, 0, 3600, 3] },
+  // tokens/s: 3 streams of opus medium (9 000 tokens in 120 s), buckets x1.15 around 75 tok/s
+  tps: { 'claude-opus-5-5|medium': [9000, 120000, 3, { 30: 3 }] },
+  streams: [{ ts: NOW - 60000, model: 'claude-opus-5-5', effort: 'medium', out: 669, ms: 7000, kind: 'main', project: 'app-one', session: 'sess-a' }],
 }
+const HIST = { v: 2, updated: NOW, days: { '2026-08-01': { total: V(30), model: { 'claude-opus-5-5': V(30) }, project: { 'app-old': V(30) }, kind: {}, v: 2 }, '2026-10-16': { total: V(24), model: { 'claude-opus-5-5': V(24) }, project: { 'app-one': V(24) }, kind: {}, v: 2 } } }
 // classement.json rows: [hour, sid, kind, model, agent, skill, mcp, in, out, cache read, cw5, cw1h, msgs, active, cost]
 const CR = (h: number, sid: string, kind: string, usd: number) => [NOW - h * H, sid, kind, 'claude-opus-5-5', '', '', '', 1000, 100, 5000, 0, 200, 1, 0, usd]
 const CLASSEMENT = {
@@ -59,6 +65,8 @@ const CODEX = {
   generated: NOW, available: true, dir: '~/.codex/sessions', sessions: 2, model: 'gpt-b',
   days: { '2026-10-16': { 'gpt-b': CX(1000000) }, '2026-10-14': { 'gpt-a': CX(3000000) } },
   limits: { ts: NOW - H, primary: { pct: 62, windowMin: 10080, reset: NOW + 50 * H }, secondary: null, plan: 'pro' },
+  tps: { '2026-10-16|gpt-b|high': [4000, 100000, 2, { 26: 2 }] },
+  streams: [{ ts: NOW - 30000, model: 'gpt-b', effort: 'high', out: 400, ms: 10000 }],
 }
 
 function world(on: any, weekPct?: number, codex: any = CODEX) {
@@ -74,6 +82,7 @@ function world(on: any, weekPct?: number, codex: any = CODEX) {
     if (p.endsWith('/scenarios/scenarios.json')) return { value: JSON.stringify(SCEN) }
     if (p.endsWith('/usage-mod/codex.json') && codex) return { value: JSON.stringify(codex) }
     if (p.endsWith('/usage-mod/classement.json')) return { value: JSON.stringify(CLASSEMENT) }
+    if (p.endsWith('/usage-mod/history.json')) return { value: JSON.stringify(HIST) }
     if (p === 'C:/Users/me/.claude/veille/fil.json') return { value: JSON.stringify(FIL) }
     throw new Error('ENOENT ' + p)
   })
@@ -142,6 +151,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`the Codex tab shows today, 7 days, models and the weekly % next to Claude (${surface})`, async ($, on) => {
     world(on, 10)
     const pane = await mount($, surface)
+    expect(await pane.find({ type: 'Button', text: /^Codex$/ })).toBeUndefined() // Claude only by default
+    expect(await pane.find({ type: 'Text', text: /^Claude aujourd'hui .* tokens · 7 j [^|]*$/ })).toBeDefined()
+    await pane.press({ key: 'codex-toggle' })
     expect(await pane.find({ type: 'Text', text: /^Claude aujourd'hui .* \|  Codex aujourd'hui 1\.1 M tokens · 7 j 4\.4 M · Semaine 62 %/ })).toBeDefined()
     await pane.press({ key: 'tab-codex' })
     expect(await pane.find({ type: 'Text', text: /^Aujourd'hui : 1\.1 M tokens \(entrée 1\.0 M dont cache 500 k/ })).toBeDefined()
@@ -156,6 +168,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 test('without Codex files the tab says « non disponible » instead of guessing', async ($, on) => {
   world(on, 10, { generated: NOW, available: false, dir: '~/.codex/sessions', error: 'no_dir', days: {} })
   const pane = await mount($, 'terminal')
+  await pane.press({ key: 'codex-toggle' })
   expect(await pane.find({ type: 'Text', text: /Codex non disponible/ })).toBeDefined()
   await pane.press({ key: 'tab-codex' })
   expect(await pane.find({ type: 'Text', text: /non disponible : aucun dossier ~\/\.codex\/sessions/ })).toBeDefined()
@@ -176,6 +189,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(w.runs.some(a => a.includes('claude://claude.ai/epitaxy/local_aaa'))).toBe(true)
     await pane.press({ key: 'g-project' })
     expect(await pane.find({ type: 'Text', text: /^ 1\. .* app-one · 13 k/ })).toBeDefined()
+    expect(await pane.find({ type: 'Button', text: 'Claude / Codex' })).toBeUndefined()
+    await pane.press({ key: 'codex-toggle' })
     await pane.press({ key: 'g-source' })
     expect(await pane.find({ type: 'Text', text: /^Codex · 1\.1 M tokens · par jour entier/ })).toBeDefined()
     await pane.press({ key: 'p-7d' })
@@ -183,3 +198,35 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await pane.unmount()
   })
 }
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the Historique tab keeps days older than the transcripts and the Débit tab shows tokens/s (${surface})`, async ($, on) => {
+    const w = world(on, 10)
+    const pane = await mount($, surface)
+    await pane.press({ key: 'tab-history' })
+    expect(await pane.find({ type: 'Text', text: /^Total tout : .* · 2 jour\(s\) gardé\(s\) · depuis 2026-08-01/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /app-old/ })).toBeDefined()
+    await pane.press({ key: 'h-30d' })
+    expect(await pane.find({ type: 'Text', text: /^Total 30 j : .* · 1 jour\(s\)/ })).toBeDefined()
+    await pane.press({ key: 'tab-tps' })
+    expect(await pane.find({ type: 'Text', text: /Modèle .*Tokens .*Temps .*TPS pondéré .*médiane .*plage/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^  opus-5-5 .*9 k .*2 min 00 .*75 .*\d+ .*\d+–\d+$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^  opus-5-5 medium : 96 TPS \(669 tokens en 7 s\)$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /gpt-b/ })).toBeUndefined() // Claude only by default
+    await pane.press({ key: 'codex-toggle' })
+    expect(await pane.find({ type: 'Text', text: /^  Codex gpt-b .*4 k .*40/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^  Codex gpt-b high : 40 TPS \(400 tokens en 10 s\)$/ })).toBeDefined()
+    await pane.press({ key: 't-effort' })
+    expect(await pane.find({ type: 'Text', text: /^  Claude opus-5-5 medium .*9 k/ })).toBeDefined()
+    expect(w.runs.length).toBe(0)
+    await pane.unmount()
+  })
+}
+
+test('/conso answers with Claude only by default', async ($, on) => {
+  world(on, 10)
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/x', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'conso', args: '' } as any)
+  expect(r.text).not.toMatch(/Codex/)
+})

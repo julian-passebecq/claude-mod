@@ -84,6 +84,8 @@
   "codex": {
     "_doc": "Onglet Codex : lit seulement les rollout-*.jsonl de sessions_dir (événements token_count et turn_context, comme le plugin codex-hud). enabled : auto (actif si le dossier existe), on, off. expected_windows : fenêtres (minutes) annoncées « non disponible » quand Codex n'en écrit aucune. Coût non calculé.",
     "enabled": "auto",
+    "show_default": false,
+    "_show_doc": "show_default : false = Claude seul dans le volet (en-tête, réponse de /conso, onglets Codex, Débit et Classement « Claude / Codex ») ; le bouton « + Codex » l'ajoute pour la session du volet. true = Codex affiché d'emblée.",
     "sessions_dir": "~/.codex/sessions",
     "days": 8,
     "stale_limits_h": 24,
@@ -91,6 +93,8 @@
     "window_labels": { "300": "Fenêtre 5 h", "10080": "Semaine" },
     "labels": {
       "tab": "Codex",
+      "show": "+ Codex",
+      "hide": "− Codex",
       "claude": "Claude",
       "codex": "Codex",
       "unavailable": "non disponible",
@@ -103,9 +107,46 @@
       "source": "Source : {dir}/AAAA/MM/JJ/rollout-*.jsonl, événements token_count (tokens cumulés par session, différence par événement) et turn_context (modèle). Même lecture que le plugin codex-hud. Coût non calculé. Sous Codex 0.142+ lancé par l'app-server, les % peuvent ne pas être écrits sur disque (non vérifié)."
     }
   },
+  "history": {
+    "_doc": "Onglet Historique (/conso historique) : un enregistrement par jour dans <data_dir>/history.json, gardé quand les transcripts disparaissent (nettoyage de Claude Code après cleanupPeriodDays, 30 j par défaut). Un jour est réécrit tant que le scanner le voit en entier : remplacé s'il a moins de trust_days jours, si la règle de comptage a changé, ou s'il n'est pas plus petit (plus vieux et plus petit = transcripts effacés, l'ancien chiffre reste). keep_days : 0 = tout garder. Claude seulement.",
+    "trust_days": 25,
+    "keep_days": 0,
+    "presets": [
+      { "id": "30d", "label": "30 j", "days": 30 },
+      { "id": "90d", "label": "90 j", "days": 90 },
+      { "id": "365d", "label": "1 an", "days": 365 },
+      { "id": "all", "label": "tout", "days": 0 }
+    ],
+    "default_preset": "90d",
+    "max_rows": 16,
+    "bar_width": 16,
+    "top": 8,
+    "labels": {
+      "units": { "day": "jour", "week": "semaine (lundi)", "month": "mois" },
+      "empty": "Pas encore d'historique : le prochain scan écrit history.json (↻).",
+      "note": "Historique local (history.json du dossier du mod), gardé après le nettoyage des transcripts ; Claude seulement."
+    }
+  },
+  "tps": {
+    "_doc": "Onglet Débit (/conso debit) : tokens par seconde par flux (une réponse de l'API) et par modèle. Un flux part de la dernière ligne qui l'a envoyé (prompt ou résultat d'outil ; pour Codex task_started ou sortie d'outil) et finit à son dernier bloc (Codex : token_usage_record). Temps = attente du 1er token comprise. Pondéré = somme des tokens ÷ somme des temps ; médiane et plage (range_pct) lues dans des paliers de x1,15 (±7 %). Flux de moins de 50 tokens de sortie ou de plus de 30 min exclus. Fenêtre : view_days. aliases : noms courts des modèles.",
+    "range_pct": [10, 90],
+    "recent": 12,
+    "default_by": "model",
+    "groupings": [
+      { "id": "model", "label": "par modèle" },
+      { "id": "effort", "label": "par modèle et effort" }
+    ],
+    "aliases": {},
+    "labels": {
+      "columns": ["Modèle", "Tokens", "Temps", "TPS pondéré", "médiane", "plage"],
+      "recent_title": "Derniers flux",
+      "stream": "{model} {effort} : {tps} TPS ({tokens} tokens en {time})",
+      "note": "TPS = tokens de sortie (réflexion comprise) ÷ temps du flux, attente du 1er token comprise. Pondéré = tous les tokens ÷ tout le temps ; médiane et plage (p{lo}–p{hi}) par flux, à ±7 %. Flux de moins de 50 tokens de sortie exclus. {days} derniers jours."
+    }
+  },
   "labels": {
     "pane_title": "Consommation",
-    "tabs": { "today": "Aujourd'hui", "week": "Semaine", "forecast": "Prévision", "scenarios": "Scénarios de consommation", "full": "Plein régime", "codex": "Codex" },
+    "tabs": { "today": "Aujourd'hui", "week": "Semaine", "classement": "Classement", "history": "Historique", "tps": "Débit", "forecast": "Prévision", "scenarios": "Scénarios de consommation", "full": "Plein régime", "codex": "Codex" },
     "kinds": { "main": "fil principal", "subagent": "sous-agent (Agent)", "workflow": "agent de Workflow", "subconversation": "sous-conversation" },
     "week_label": "Semaine",
     "five_hour_label": "Fenêtre 5 h",

@@ -110,7 +110,11 @@ export function scanTranscripts({ projects, cache, det, prices, now, historyDays
     }
     present.add(rel)
     let st = cache.files[rel]
-    if (!st || s.size < st.offset) st = cache.files[rel] = newFile(kindOfPath(rel))
+    if (!st || s.size < st.offset) {
+      // a rewritten file is read again from the start: its old keys must not make it look already counted
+      if (st) for (const k of Object.keys(st.keys || {})) seen.delete(k)
+      st = cache.files[rel] = newFile(kindOfPath(rel))
+    }
     if (s.size > st.offset) {
       bytes += s.size - st.offset
       readFrom(p, st, s.size, { det, prices, claim })
@@ -298,7 +302,8 @@ export async function scan(ctx, now, { force = false, offline = false } = {}) {
   const cachePath = join(dataDir, 'scan-cache.json')
   let cache = readJson(cachePath)
   const key = JSON.stringify([prices.models, cfg.detect, historyDays])
-  if (!cache || cache.version !== 1 || cache.key !== key) cache = { version: 1, key, files: {} }
+  // version 2: responses keyed on message.id + requestId (uuid only without a message.id), rewritten files recounted
+  if (!cache || cache.version !== 2 || cache.key !== key) cache = { version: 2, key, files: {} }
   const tr = scanTranscripts({ projects, cache, det, prices, now, historyDays })
   saveJson(cachePath, cache)
 

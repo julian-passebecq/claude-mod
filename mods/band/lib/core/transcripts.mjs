@@ -69,6 +69,54 @@ export function costOf(v, model, table) {
 }
 
 /**
+ * The key an API response is counted once under: message.id + requestId. Every content block of one response is a
+ * separate transcript line with its own uuid but the same message.id, and a fork, a resume or a subagent file can
+ * repeat the same response, so the uuid is used only when the line has no message.id at all.
+ */
+export function keyOf(o) {
+  const m = (o && o.message) || {}
+  if (m.id) return `${m.id}|${o.requestId || ''}`
+  return `|${o.requestId || o.uuid || o.timestamp || ''}`
+}
+
+/** Timestamp (ms) of a raw transcript line without parsing it, or 0. Only an unescaped top-level key matches. */
+export function lineTs(line) {
+  const i = line.indexOf('"timestamp":"')
+  if (i < 0) return 0
+  const t = Date.parse(line.slice(i + 13, line.indexOf('"', i + 13)))
+  return Number.isFinite(t) ? t : 0
+}
+
+/** Whether a raw line sends a request (a prompt or a tool result): only those start a stream. Bookkeeping lines (queue,
+ * hooks, PR links, titles, attachments) can be written at any time, even while a response streams. */
+const sendsRequest = line => line.slice(0, 400).includes('"type":"user"')
+
+/**
+ * Output speed. One stream = one API response: it starts at the last transcript line written before its first
+ * content block (the prompt or tool result that sent it) and ends at its last content block, so the time includes the
+ * wait for the first token. TPS = output tokens (thinking included) / that time. Per hour, model and effort the state
+ * keeps [output tokens, ms, streams, {bucket: streams}]; buckets are geometric (x1.15 from 1 tok/s) for the median
+ * and the range. Streams under TPS_MIN_OUT output tokens or longer than TPS_MAX_MS are left out (latency or a pause,
+ * not speed).
+ */
+export const TPS_MIN_OUT = 50
+export const TPS_MAX_MS = 30 * 60000
+const TPS_STEP = Math.log(1.15)
+export const tpsBucket = tps => Math.max(0, Math.floor(Math.log(Math.max(tps, 1)) / TPS_STEP))
+export const tpsOfBucket = b => Math.exp((b + 0.5) * TPS_STEP)
+/** Adds (sign 1) or removes (sign -1) one stream in a TPS row [out, ms, n, hist]. */
+export function tpsAdd(row, out, ms, sign = 1) {
+  row[0] += sign * out
+  row[1] += sign * ms
+  row[2] += sign
+  const b = tpsBucket(out / (ms / 1000))
+  row[3][b] = (row[3][b] || 0) + sign
+  if (!row[3][b]) delete row[3][b]
+  return row
+}
+const STREAMS_KEPT = 10
+
+/**
  * One usage record from a parsed transcript line, or null. Only assistant rows with a `message.usage` count;
  * `<synthetic>` rows (local notices) are skipped.
  */
@@ -85,7 +133,7 @@ export function usageOf(o) {
   const ts = Date.parse(o.timestamp)
   if (!Number.isFinite(ts)) return null
   return {
-    key: `${m.id || ''}|${o.requestId || o.uuid || ''}`,
+    key: keyOf(o),
     ts,
     model: m.model,
     v: [Number(u.input_tokens) || 0, Number(u.output_tokens) || 0, Number(u.cache_read_input_tokens) || 0, cw5, cw1h, 1, 0, 0],
@@ -102,22 +150,50 @@ export function usageOf(o) {
 /** Fresh per-file state: what the incremental scanner keeps for each transcript. */
 export const newFileState = (kind = 'main') => ({
   kind, offset: 0, session: '', cwd: '', entrypoint: '', title: '', agent: '', firstOrigin: '', lastTs: 0,
-  rows: {}, recent: {}, keys: {},
+  rows: {}, recent: {}, keys: {}, lineTs: 0, tps: {}, streams: [],
 })
 
 const RECENT = 200
 
+/** Puts one stream's timing in the file state, replacing what an earlier line of the same response gave. */
+function timeStream(st, r, rec) {
+  st.tps = st.tps || {}
+  st.streams = st.streams || []
+  if (rec.t) {
+    const old = st.tps[rec.t.row]
+    if (old) {
+      tpsAdd(old, rec.t.out, rec.t.ms, -1)
+      if (old[2] <= 0) delete st.tps[rec.t.row]
+    }
+  }
+  const out = r.v[V.out]
+  const ms = r.ts - rec.start
+  rec.t = null
+  const i = st.streams.findIndex(x => x.k === r.key)
+  if (i >= 0) st.streams.splice(i, 1)
+  if (!(rec.start > 0) || ms <= 0 || ms > TPS_MAX_MS || out < TPS_MIN_OUT) return
+  const row = `${Math.floor(rec.start / HOUR) * HOUR}|${r.model}|${r.effort}`
+  tpsAdd((st.tps[row] = st.tps[row] || [0, 0, 0, {}]), out, ms)
+  rec.t = { row, out, ms }
+  st.streams.push({ k: r.key, ts: r.ts, model: r.model, effort: r.effort, out, ms })
+  if (st.streams.length > STREAMS_KEPT) st.streams.splice(0, st.streams.length - STREAMS_KEPT)
+}
+
 /**
- * Feeds one transcript line into a file state. `claim(key)` says whether this request is new across files
+ * Feeds one transcript line into a file state. `claim(key)` says whether this response is new across files
  * (true) or already counted in another file (false); `prices` turns tokens into a list-price cost.
  * Rows are keyed `hourMs|model|effort|skill|mcp|agent`, each a usage vector.
- * The same request repeated in one file (one line per content block) replaces its earlier figures.
+ * The same response repeated in one file (one line per content block) replaces its earlier figures.
  */
 export function feedLine(st, line, { prices, claim = () => true, idleGapS = 300 } = {}) {
   if (!line || line.length < 20) return
   const hasUsage = line.includes('"usage"')
   const wantsMeta = (!st.firstOrigin && line.includes('"origin"')) || line.includes('"custom-title"') || line.includes('"agent-name"')
-  if (!hasUsage && !wantsMeta) return
+  const ts = lineTs(line)
+  if (!hasUsage && !wantsMeta) {
+    if (ts && sendsRequest(line)) st.lineTs = ts
+    return
+  }
   let o
   try {
     o = JSON.parse(line)
@@ -128,27 +204,34 @@ export function feedLine(st, line, { prices, claim = () => true, idleGapS = 300 
   if (o.type === 'agent-name' && o.agentName) st.agent = st.agent || String(o.agentName).slice(0, 60)
   if (!st.firstOrigin && o.type === 'user' && o.origin && o.origin.kind) st.firstOrigin = String(o.origin.kind)
   const r = usageOf(o)
+  const before = st.lineTs || 0
+  if (ts && (r || o.type === 'user')) st.lineTs = ts
   if (!r) return
   st.session = st.session || r.session
   st.cwd = st.cwd || r.cwd
   st.entrypoint = st.entrypoint || r.entrypoint
   if (r.agent && !st.agent) st.agent = r.agent
   const prev = st.recent[r.key]
+  let start = before
   if (!prev) {
     if (st.keys[r.key] !== undefined || !claim(r.key)) return // counted already (here, or in another file)
     if (st.lastTs && r.ts > st.lastTs) r.v[V.active_s] = Math.min((r.ts - st.lastTs) / 1000, idleGapS)
     if (r.ts > st.lastTs) st.lastTs = r.ts
   } else {
-    // a later line of the same request: drop the earlier figures, keep its active time and message count
+    // a later line of the same response: drop the earlier figures, keep its active time and message count
     const old = st.rows[prev.row]
     if (old) addInto(old, prev.v, -1)
     r.v[V.active_s] = prev.v[V.active_s]
+    start = prev.start
   }
   r.v[V.cost] = costOf(r.v, r.model, prices)
   const hour = Math.floor(r.ts / HOUR) * HOUR
   const row = `${hour}|${r.model}|${r.effort}|${r.skill}|${r.mcp}|${r.agent}`
   st.rows[row] = addInto(st.rows[row] || zero(), r.v)
-  st.recent[r.key] = { row, v: r.v }
+  const rec = { row, v: r.v, start, t: prev ? prev.t : null }
+  timeStream(st, r, rec)
+  delete st.recent[r.key]
+  st.recent[r.key] = rec
   st.keys[r.key] = hour
   const ks = Object.keys(st.recent)
   if (ks.length > RECENT) for (const k of ks.slice(0, ks.length - RECENT)) delete st.recent[k]
@@ -157,6 +240,7 @@ export function feedLine(st, line, { prices, claim = () => true, idleGapS = 300 
 /** Drops rows and keys older than `fromMs` (retention). */
 export function prune(st, fromMs) {
   for (const k of Object.keys(st.rows)) if (Number(k.split('|')[0]) < fromMs) delete st.rows[k]
+  for (const k of Object.keys(st.tps || {})) if (Number(k.split('|')[0]) < fromMs) delete st.tps[k]
   for (const [k, h] of Object.entries(st.keys)) if (h < fromMs) delete st.keys[k]
 }
 
@@ -182,7 +266,7 @@ const bump = (map, key, v) => {
  */
 export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subRule = 'peer' } = {}) {
   const from = now - days * 86400000
-  const out = { generated: now, tzMin, hourly: {}, hourlyModel: {}, days: {}, sessions: {}, rates: {} }
+  const out = { generated: now, tzMin, hourly: {}, hourlyModel: {}, days: {}, sessions: {}, rates: {}, tps: {}, streams: [] }
   for (const st of Object.values(files)) {
     if (st.kind === 'journal') continue
     const kind = isSubConversation(st, subRule) ? 'subconversation' : st.kind
@@ -193,6 +277,16 @@ export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subR
       const s = (out.sessions[sid] = out.sessions[sid] || { title: '', project, kind, surface })
       if (st.title) s.title = st.title
     } else if (!out.sessions[sid]) out.sessions[sid] = { title: '', project, kind: 'main', surface }
+    for (const [rk, t] of Object.entries(st.tps || {})) {
+      const [h, model, effort] = rk.split('|')
+      if (Number(h) < from) continue
+      const row = (out.tps[`${model}|${effort}`] = out.tps[`${model}|${effort}`] || [0, 0, 0, {}])
+      row[0] += t[0]
+      row[1] += t[1]
+      row[2] += t[2]
+      for (const [b, n] of Object.entries(t[3])) row[3][b] = (row[3][b] || 0) + n
+    }
+    for (const x of st.streams || []) if (x.ts >= from) out.streams.push({ ts: x.ts, model: x.model, effort: x.effort, out: x.out, ms: x.ms, kind, project, session: sid })
     for (const [rk, v] of Object.entries(st.rows)) {
       const [h, model, effort, skill, mcp] = rk.split('|')
       const hour = Number(h)
@@ -216,5 +310,6 @@ export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subR
       bump(d.effort, effort || '?', v)
     }
   }
+  out.streams = out.streams.sort((a, b) => b.ts - a.ts).slice(0, STREAMS_KEPT * 3)
   return out
 }
