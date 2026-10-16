@@ -1,0 +1,94 @@
+{
+  "_doc": "machine mod (Machine) settings. Override any key with your own JSON file (userConfig 'config', deep merge; keys starting with _ are ignored). Nothing is sampled while the pane is closed and the band entry is off.",
+  "python": "python",
+  "interval_s": 5,
+  "_min_interval_s": "floor applied to interval_s and band.interval_s, so a typo cannot poll faster",
+  "min_interval_s": 2,
+  "first_delta_ms": 500,
+  "top_n": 5,
+  "_families": "process name (without .exe) equal to an entry, or the entry followed by a non-letter (git-remote-https, python3.14)",
+  "families": {
+    "claude": ["claude"],
+    "node": ["node"],
+    "python": ["python", "pythonw", "py"],
+    "git": ["git"]
+  },
+  "disks_exclude": [],
+  "disk_warn_pct": 90,
+  "gpu": {
+    "_source": "auto: nvidia-smi, else the Windows performance counter below (typeperf), else 'non disponible'. nvidia-smi | perf | off force one.",
+    "source": "auto",
+    "refresh_s": 15,
+    "perf_counter": "\\GPU Engine(*engtype_3D)\\Utilization Percentage"
+  },
+  "ci": {
+    "_doc": "GitLab runner load through the ci mod's own scanner and config (mods/ci): same status cache, same token rules (presence only). Empty scanner = the ci mod next to this one.",
+    "enabled": true,
+    "scanner": "",
+    "config": "",
+    "backends": ["gitlab-local"],
+    "refresh_s": 60,
+    "runner_process": ["gitlab-runner"]
+  },
+  "advice": {
+    "_doc": "agents en parallèle conseillés = base + the delta of the FIRST matching rule of each metric, then each cap, then clamped to [floor, ceiling]. Metrics: cpu, ram (%), gpu (% max), disk_free_gb (lowest fixed drive), ci_running, ci_pending (jobs of the backends above), runner_children (jobs the local runner process is running, non vérifié). A metric that could not be read skips its rules.",
+    "base": 4,
+    "floor": 1,
+    "ceiling": 6,
+    "rules": [
+      { "metric": "cpu", "op": ">", "value": 85, "delta": -2, "label": "CPU > 85 %" },
+      { "metric": "cpu", "op": ">", "value": 70, "delta": -1, "label": "CPU > 70 %" },
+      { "metric": "cpu", "op": "<", "value": 30, "delta": 1, "label": "CPU < 30 %" },
+      { "metric": "ram", "op": ">", "value": 90, "delta": -2, "label": "RAM > 90 %" },
+      { "metric": "ram", "op": ">", "value": 80, "delta": -1, "label": "RAM > 80 %" },
+      { "metric": "disk_free_gb", "op": "<", "value": 10, "delta": -1, "label": "moins de 10 Go libres sur un disque" },
+      { "metric": "ci_pending", "op": ">", "value": 0, "delta": -1, "label": "jobs CI en attente" }
+    ],
+    "caps": [
+      { "id": "ci_pipelines", "value": 4, "minus": "ci_running", "label": "4 pipelines CI au plus (moins les jobs en cours)" },
+      { "id": "npm_tsc", "value": 3, "label": "3 npm ci / tsc en même temps au plus" }
+    ]
+  },
+  "band": {
+    "_doc": "Compact entry above the prompt, off by default (userConfig 'band'). Items in order: advice, cpu, ram, gpu, disk, ci.",
+    "interval_s": 15,
+    "items": ["advice", "cpu", "ram", "gpu", "ci"]
+  },
+  "colors": {
+    "ok": "success",
+    "warn": "warning",
+    "bad": "error",
+    "dim": "inactive",
+    "claude": "claude",
+    "node": "success",
+    "python": "warning",
+    "git": "cyan"
+  },
+  "levels": {
+    "_doc": "colour of a % reading: >= bad is bad, >= warn is warn",
+    "warn": 70,
+    "bad": 90
+  },
+  "labels": {
+    "pane_title": "Machine",
+    "advice": "agents en parallèle conseillés maintenant",
+    "advice_short": "agents conseillés",
+    "cpu": "CPU",
+    "cores": "par cœur",
+    "ram": "RAM",
+    "disks": "Disques",
+    "gpu": "GPU",
+    "gpu_none": "non disponible",
+    "top_cpu": "Top processus (CPU)",
+    "top_ram": "Top processus (mémoire)",
+    "families": "Nos processus",
+    "ci": "Runner GitLab",
+    "ci_off": "désactivé",
+    "running": "en cours",
+    "pending": "en attente",
+    "free": "libres",
+    "measuring": "mesure en cours",
+    "refresh": "Actualiser",
+    "refresh_ci": "Vérifier le runner"
+  }
+}
