@@ -79,6 +79,7 @@ export const parseLines = (
     if (isMain && typeof o.cwd === 'string') meta.cwd = o.cwd
     if (o.type === 'custom-title' && typeof o.customTitle === 'string' && isMain) meta.title = o.customTitle
     else if (o.type === 'agent-name' && typeof o.agentName === 'string' && isMain && !meta.title) meta.title = o.agentName
+    else if (o.type === 'pr-link' && isMain && o.prNumber !== undefined) meta.pr = { number: Number(o.prNumber), ...(typeof o.prUrl === 'string' ? { url: o.prUrl } : {}) }
 
     if (o.type === 'system' && o.subtype === 'compact_boundary') {
       const m = o.compactMetadata ?? {}

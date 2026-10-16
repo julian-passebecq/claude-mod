@@ -1,7 +1,7 @@
 {
   "name": "band",
   "version": "0.2.0",
-  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation en barre fine (repère du relais RESUME 250 K et de l'auto-compact, vert → orange → rouge) avec une ligne courte « compactage dans ~N min · tok/s · semaine % », débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge",
+  "description": "Jauge : bandeau au-dessus du prompt, en lecture seule. Une seule ligne toujours visible : barre fine du contexte (repères relais 250 K et auto-compact, seul le plus proche nommé, vert → orange → rouge) puis « ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 % » et un ▸ qui déplie les sections repliables (Cette conversation, Usage, Veille ; résumé d'une ligne quand fermées, état gardé d'une session à l'autre). Ligne orange « Passation conseillée » (Préparer RESUME, Ouvrir RESUME, rien ne se lance seul) et barre Mods qui ouvre et ferme les autres mods. /jauge",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

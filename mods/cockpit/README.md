@@ -1,26 +1,29 @@
 # cockpit
 
-**Cockpit** is one side pane that zooms through all your agents, read-only, with French labels.
+**Cockpit** is one side pane over all your agents, read-only, with French labels, ordered by scope: this conversation first, then its project, then every project, then Claude as a whole. Each section folds; closed, it is one summary line.
 
 ```
-Méga › datapass-claude-eta › Galaxy finalisation autonome › coder · release-commit
+[Méga] › [eta] › [Galaxy finalisation…] [↻] 18:54
+[▾ Cette conversation]
+ opus 5.5 ▮▮▯▯ medium ctx 27 % en cours
+ ● [Galaxy finalisation autonome (cette conversation)]
+   └ ◇ [workflow package-wave]
+     └ ● [coder · build]
+ [+ 3 terminé(s)]
+ PR #29 · open · CI running
+[▸ Ce projet · eta] 4 conv · 1 en cours · $7.00 aujourd’hui
+[▸ Tous les projets] 2 en cours · 3 au repos · 1 attend Julian · $424
+[▸ Claude global] 5 h 24 % · sem 14 % · 1 alerte(s)
 ```
 
-| Level | The tree shows | The detail under it |
+| Section | Default | Shows |
 |---|---|---|
-| **Méga** | every project on this PC, with counters (conversations, working, waiting on Julian, blocked, agents, cost today) | factory's **Mission** screen |
-| **Projet** | one project: each lead conversation and the conversations it spawned (the app's `spawnedFrom` link), even lanes it launched in another repo, with a state dot like the sidebar | factory's **Focus** and **Pipeline**, filtered to that project |
-| **Conversation** | the same tree, with the selected conversation opened into its Agent subagents and its Workflows → agents | factory's **Arbre** (lead, sub-conversations, agents, architect, bill, log) |
-| **Agent** | the same tree, the agent selected | an agent card (model, effort, state, tokens, cost, tools, task) and the agent's own log |
+| **Cette conversation** | open, selected | status line (model · effort, ctx, state), the lead tree holding it (lead → sub-conversations → Workflows → agents, model/effort/tokens/cost), the running Workflow and current step, PR/CI. Finished agents and Workflows fold behind « + N terminé(s) ». An agent selected: its card and log. |
+| **Ce projet** | closed | the project's conversations as a tree (the app's `spawnedFrom` link, even lanes launched in another repo), then factory's **Focus** and **Pipeline** for that project |
+| **Tous les projets** | closed | two lines per project: name and cost today, then counters (conv, en cours, attend Julian, agents, ctx max) |
+| **Claude global** | closed | Session (5 h), Semaine, Semaine Fable with bars and « reset dans … », cloud credits, this session's cost / model share / cache hit, Veille's open alerts, a `/machine` button. What the API does not give says « non lisible depuis un mod ». |
 
-Click a node to zoom in; click a breadcrumb item to zoom out. On the desktop the tree is also drawn (an SVG: dots coloured by state, elbows to the parent, the selection highlighted); the terminal has no `Svg`, so it shows the clickable rows only.
-
-Under the detail, small foldable strips:
-
-- **Jauge**: band's context gauge (a thin bar with the hand-off and auto-compact marks, then « compactage dans ~N min · tok/s · semaine %»). The rates come from band's scanner when band sits beside cockpit and the strip is open.
-- **Usage**: Session (5 h), Semaine tous modèles, Semaine Fable with bars and « reset dans … »; cloud credits; this session's cost, Opus / Sonnet / Haiku share, cache hit and the top 3 contributors. What the API does not give says « non lisible depuis un mod ».
-- **Veille**: the mode, the watcher's last tour and the open alerts, from veille's files.
-- **Fichiers**: a button that runs `/filetree`.
+The breadcrumb (one small row) zooms out; a click on a node drills down and unfolds the section that shows it. The context gauge is not here: it is band's, above the prompt, where you look. A button at the bottom runs `/filetree`.
 
 ## Next to filetree
 
@@ -30,8 +33,9 @@ Both open by themselves at session start. The desktop shows **one pane at a time
 
 `cockpit.config.json` (deep-merged with your own file: userConfig `config`, else `~/.claude/effort-board/cockpit.config.json`):
 
-- `sections.order` / `sections.enabled` / `sections.open`: which sections, in which order, which strips start unfolded;
-- `default_level`: `mega`, `macro` (default: this conversation's project, the conversation selected) or `medium`;
+- `sections.order` / `sections.enabled` / `sections.open`: which sections (`breadcrumb`, `conv`, `project`, `all`, `global`, `fichiers`), in which order, which start unfolded (default `conv` only);
+- `default_level`: `medium` (default: this conversation selected), `macro` or `mega`;
+- `diagram.enabled`: the project tree also drawn as an SVG in « Ce projet » (off: it repeated the rows);
 - `auto_open` (and userConfig `start`): open at session start;
 - `refresh_s`, `strips_refresh_s`: refresh only while the pane is the one shown;
 - `diagram`, `tree`, `colors`, `term_colors`, `labels`.
@@ -53,7 +57,7 @@ node mods/cockpit/scripts/sync-libs.mjs --check  # what CI checks (tests/nav.tes
 node mods/cockpit/scripts/preview.mjs --cols 75 --project datapass-claude-eta --conv "Galaxy finalisation autonome"
 ```
 
-prints the four levels as text at a side-panel width from this PC's transcripts.
+prints the four levels as text (every section unfolded) at a side-panel width from this PC's transcripts; `--defaults` prints the pane as it opens (this conversation selected, the other sections folded).
 
 ## Tests
 

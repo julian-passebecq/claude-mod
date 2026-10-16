@@ -6,6 +6,20 @@ import type { Compaction, CompactRow, CountMode, Ev, Rate, ScopeId, ScopeRow, Se
 
 export type { Compaction, CompactRow, CountMode, Ev, Rate, ScopeId, ScopeRow, SessionMeta, TopRow, Usage, View }
 
+/** This conversation's agents in the kept window: total seen, running (wrote within runningS), the running Workflow. */
+export const agentsOf = (events: Ev[], session: string | undefined, now: number, runningS: number) => {
+  if (!session) return undefined
+  const last = new Map<string, { t: number; w?: string }>()
+  for (const e of events) {
+    if (e.s !== session || !e.a) continue
+    const p = last.get(e.a)
+    if (!p || e.t > p.t) last.set(e.a, { t: e.t, ...(e.w ? { w: e.w } : {}) })
+  }
+  const running = [...last.values()].filter(x => now - x.t <= runningS * 1000)
+  const wf = running.filter(x => x.w).sort((a, b) => b.t - a.t)[0]?.w
+  return { running: running.length, total: last.size, ...(wf ? { workflow: wf } : {}) }
+}
+
 
 export type Rates = Record<string, { in: number; out: number; cache_read: number; cache_write_5m: number }>
 
@@ -184,6 +198,7 @@ export const buildView = (
   sessions: Record<string, SessionMeta>,
   cfg: Pick<Config, 'windows_s' | 'spark_min' | 'bucket_s' | 'count' | 'rates' | 'top_n' | 'compact_history_hours' | 'worktree_markers'> & {
     context?: { growth_window_s: number }
+    sections?: { running_s?: number }
   },
   opts: { now: number; session?: string; cwd?: string; files?: number; ms?: number; price?: (e: Ev) => number; lib?: string },
 ): View => {
@@ -277,7 +292,15 @@ export const buildView = (
       all: marksFor(() => true),
     },
     conv: me
-      ? { ctx: me.ctx, ctxT: me.ctxT, last: me.last, title: me.title, growthTpm: growthTpm(me.samples, now, cfg.context?.growth_window_s ?? 600) }
+      ? {
+          ctx: me.ctx,
+          ctxT: me.ctxT,
+          last: me.last,
+          title: me.title,
+          growthTpm: growthTpm(me.samples, now, cfg.context?.growth_window_s ?? 600),
+          agents: agentsOf(events, session, now, cfg.sections?.running_s ?? 120),
+          ...(me.pr ? { pr: me.pr } : {}),
+        }
       : undefined,
     files: opts.files ?? 0,
     ms: opts.ms ?? 0,

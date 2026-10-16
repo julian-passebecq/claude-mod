@@ -1,18 +1,16 @@
-// cockpit - one side pane that zooms: Méga (all projects) › Projet (lead and sub-conversations) › Conversation
-// (Workflows and agents) › Agent. A breadcrumb, a clickable tree (drawn as an SVG on the desktop), the detail of the
-// selection under it (factory's own screens), and small strips: Jauge, Usage, Veille, Fichiers.
+// cockpit - one side pane, top to bottom by scope, every section foldable with a one-line summary while closed:
+// Cette conversation (open, selected) › Ce projet › Tous les projets › Claude global. A small breadcrumb
+// (Méga › Projet › Conversation › Agent) zooms; a click on a node drills down and opens the section that shows it.
 //   /cockpit [mega|macro|medium|micro] [projet ou conversation] | close
-// Opens by itself at session start (like filetree; userConfig `start`), on this conversation's project at the level of
-// cockpit.config.json. Read-only: it runs factory's scanner (copied in lib/), band's scanner when the Jauge strip is open
-// and band sits beside it, reads veille's files; it never blocks, rewrites or adds to a prompt. Refresh only while the
-// pane is the one shown.
+// Opens by itself at session start (like filetree; userConfig `start`) on this conversation. Read-only: it runs
+// factory's scanner (copied in lib/) and reads veille's files; it never blocks, rewrites or adds to a prompt. Refresh
+// only while the pane is the one shown.
 import { deepMerge, scanArgs, pickSession, repoOf } from '../lib/factory/hooks/logic.mjs'
 import { waitingArgs } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
-import { gaugeModel } from '../lib/band/hooks/gauge.ts'
 import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
-import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession } from './nav.mjs'
+import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
 
 const PANE = 'cockpit'
@@ -21,7 +19,7 @@ let CFG = null // cockpit.config.json (+ user file)
 let FCFG = null // factory.config.json (lib copy, + ~/.claude/effort-board/factory.config.json)
 const D = {
   scan: null, nav: null, self: null, busy: false, error: '', at: 0, open: false, filter: 'all', strips: null,
-  usage: null, usageRaw: null, gauge: null, compactAt: null, compactAtAt: 0, band: null, bandCfg: null, bandMissing: false, veille: null, columns: 0,
+  usage: null, usageRaw: null, veille: null, columns: 0,
 }
 
 const norm = (p) => String(p || '').replace(/\\/g, '/')
@@ -88,60 +86,15 @@ async function rescan($) {
   $.ui.invalidate('ui.render')
 }
 
-// The usage card and the gauge: the engine's figures ($.session.usage, cheap), band's scanner for the rates and the
-// context growth only while the Jauge strip is open and band sits beside cockpit.
+// « Claude global »: the usage card from the engine's figures ($.session.usage, cheap) and veille's files. The context
+// gauge lives in band, above the prompt (where Julian looks), not here.
 async function refreshStrips($) {
   const now = await $.clock.now()
   try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
-  if (now - D.compactAtAt > 300000) {
-    D.compactAtAt = now
-    try {
-      const u = await $.session.usage({ breakdown: 'summary' })
-      const b = u && u.context && u.context.breakdown
-      D.compactAt = b && b.isAutoCompactEnabled !== false ? b.autoCompactThreshold || null : null
-    } catch { D.compactAt = null }
-  }
   const me = D.scan ? findSession(D.scan, D.self) : null
   D.usage = usageCard(D.usageRaw, me, FCFG || {}, now)
-  if (D.strips && D.strips.jauge) await bandScan($, now)
-  const ctx = (D.usageRaw && D.usageRaw.context) || {}
-  const bc = D.bandCfg || {}
-  const tokens = ctx.tokens ?? (me ? me.ctx : undefined)
-  const window = ctx.window || ((bc.context || {}).window_fallback) || FCFG.context_window || 200000
-  const compactAt = D.compactAt || Math.round((window * (((bc.context || {}).autocompact_pct_fallback) || 92)) / 100)
-  const growth = D.band && D.band.conv ? D.band.conv.growthTpm : undefined
-  const rates = []
-  for (const id of ((bc.gauge || {}).scopes) || ['conv']) {
-    const row = D.band && (D.band.scopes || []).find((r) => r.id === id)
-    const rate = row && (row.rates.find((x) => x.w === bc.band_window_s) || row.rates[0])
-    if (rate) rates.push(`${((bc.labels || {})[id]) || id} ${Math.round(rate.tps)} tok/s`)
-  }
-  const week = ((D.usageRaw && D.usageRaw.rateLimits) || []).find((l) => l.kind === 'seven_day')
-  D.gauge = tokens === undefined ? null : gaugeModel({
-    tokens, window, compactAt, handoffAt: ((bc.context || {}).handoff_tokens) || ((FCFG.thresholds || {}).handoff_tokens) || 250000,
-    etaMin: growth && growth > 0 && tokens < compactAt ? (compactAt - tokens) / growth : undefined, rates,
-    ...(week && Number.isFinite(week.percentUsed) ? { week: week.percentUsed } : {}),
-  }, (bc.gauge || {}).labels || {})
-  if (D.strips && D.strips.veille) await loadVeille($)
+  await loadVeille($)
   $.ui.invalidate('ui.render')
-}
-
-async function bandScan($, now) {
-  const dir = sibling($, 'band')
-  try { D.bandMissing = !(await $.fs.exists(dir + '/scanner/scan.mjs')) } catch { D.bandMissing = true }
-  if (D.bandMissing) return
-  const home = await homeDir($)
-  D.bandCfg = (await readJson($, dir + '/band.config.json')) || {}
-  const bc = D.bandCfg
-  let cwd = ''
-  try { cwd = await $.session.cwd() } catch { /* none */ }
-  const req = { projects_root: expand(bc.projects_root || '~/.claude/projects', home), cache_file: home + '/.claude/cockpit/band-cache.json',
-    session: D.self || '', cwd, now, cfg: bc }
-  try {
-    const r = await $.process.run([bc.node || 'node', dir + '/scanner/scan.mjs'], { stdin: JSON.stringify(req), timeoutMs: 120000 })
-    const v = JSON.parse(r.stdout)
-    D.band = v && !v.error ? v : D.band
-  } catch { /* keep the last reading */ }
 }
 
 async function loadVeille($) {
@@ -181,13 +134,20 @@ function actions($) {
     select: (node) => {
       const before = D.nav && D.nav.conv
       D.nav = select(D.nav || { level: 'mega' }, node)
+      const sec = sectionFor(node)
+      if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
       redraw()
       if (D.nav.conv && D.nav.conv !== before && !(D.scan && D.scan.detail && D.scan.detail.cli === D.nav.conv)) void rescan($)
     },
     refresh: () => { void rescan($).then(() => refreshStrips($)) },
     filter: (k) => { D.filter = k; redraw() },
-    toggle: (id) => { D.strips = { ...(D.strips || {}), [id]: !(D.strips || {})[id] }; redraw(); void refreshStrips($) },
+    toggle: (id) => {
+      D.strips = { ...(D.strips || {}), [id]: !(D.strips || {})[id] }
+      redraw()
+      if (id === 'global' && D.strips.global) void refreshStrips($)
+    },
     files: () => { void $.command.run({ command: 'filetree' }).catch(() => $.ui.toast('filetree non chargé : ajoute vendor/filetree à CLAUDE_CODE_PLUGIN_DIRS')) },
+    machine: () => { void $.command.run({ command: 'machine' }).catch(() => $.ui.toast('machine non chargé : ajoute mods/machine à CLAUDE_CODE_PLUGIN_DIRS')) },
   }
 }
 
@@ -244,6 +204,10 @@ export function register(on, opts) {
       else if (repo) D.nav = select(D.nav, { kind: 'project', id: repo })
     }
     if (level && D.nav) D.nav = zoomTo(D.nav, level) // a level whose subject is unknown (micro without an agent) stays put
+    if ((level || rest) && D.nav) {
+      const sec = { mega: 'all', macro: 'project', medium: 'conv', micro: 'conv' }[D.nav.level]
+      if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
+    }
     await rescan($)
     await refreshStrips($).catch(() => undefined)
     return {}
@@ -257,8 +221,7 @@ export function register(on, opts) {
     D.columns = Number(e.props && e.props.bodyColumns) || 0
     return drawCockpit(el, {
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
-      busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, gauge: D.gauge, bandCfg: D.bandCfg,
-      bandMissing: D.bandMissing, veille: D.veille, open: D.strips || {}, act: actions($),
+      busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
     })
   })
 }
