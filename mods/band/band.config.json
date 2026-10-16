@@ -1,0 +1,84 @@
+{
+  "_doc": "band mod (Jauge) settings. Override any key with your own JSON file (userConfig 'config', deep merge; keys starting with _ are ignored). Dollars are list-price ESTIMATES from token counts x these rates.",
+  "projects_root": "~/.claude/projects",
+  "cache_file": "~/.claude/band/scan-cache.json",
+  "node": "node",
+  "refresh_s": 15,
+  "windows_s": [60, 600],
+  "band_window_s": 60,
+  "spark_min": 30,
+  "bucket_s": 60,
+  "top_n": 5,
+  "_count": "fresh: input + cache write + output tokens per response (what the model newly processes); all: + cache reads (each call re-reads the cached context, far larger).",
+  "count": "fresh",
+  "compact_history_hours": 24,
+  "first_read_mb": 64,
+  "worktree_markers": ["/.claude/worktrees/", "/.worktrees/"],
+  "band": {
+    "_items": "in order: ctx, compact, relay, idle, rates, week. rates draws one entry per scope listed in scopes.",
+    "items": ["ctx", "compact", "relay", "idle", "rates", "week"],
+    "_scopes": "conv (this conversation, main thread), conv_all (main + its subagents), agents (its subagents and Workflow agents), workflows (its Workflow agents), project (every session in the same repo, worktrees included), all (the PC)",
+    "scopes": ["conv", "project", "all"]
+  },
+  "status_line": {
+    "items": ["ctx", "rates"],
+    "scopes": ["conv", "all"]
+  },
+  "context": {
+    "window_fallback": 200000,
+    "_autocompact_pct_fallback": "used only when the engine gives no autoCompactThreshold",
+    "autocompact_pct_fallback": 92,
+    "warn_tokens": 200000,
+    "handoff_tokens": 250000,
+    "handoff_near_tokens": 225000,
+    "growth_window_s": 600
+  },
+  "idle_compact": {
+    "_doc": "Compaction at rest (Claude Code 2.1.299): a conversation over min_tokens left inactive about idle_min minutes. Figures from the release notes as relayed, non vérifié in the docs.",
+    "min_tokens": 200000,
+    "idle_min": 54,
+    "show_after_idle_min": 5
+  },
+  "colors": {
+    "ok": "success",
+    "warn": "warning",
+    "bad": "error",
+    "dim": "inactive",
+    "this": "claude"
+  },
+  "labels": {
+    "ctx": "ctx",
+    "compact_at": "compact à",
+    "left": "reste",
+    "compact_in": "compactage dans",
+    "relay_near": "relais bientôt (RESUME)",
+    "relay_over": "relais : écrire RESUME",
+    "idle_compact_in": "compact au repos dans",
+    "week": "semaine",
+    "conv": "cette conv",
+    "conv_all": "conv + agents",
+    "agents": "agents",
+    "workflows": "workflows",
+    "project": "projet",
+    "all": "tout",
+    "trigger_auto": "auto",
+    "trigger_manual": "/compact",
+    "trigger_idle": "au repos (déduit)",
+    "trigger_unknown": "inconnu",
+    "pane_title": "Jauge"
+  },
+  "_shared_lib": "auto: per-line usage and prices from mods/usage/lib (its parser and prices.json) when that mod sits beside this one; off: band's own parser and the rates below.",
+  "shared_lib": "auto",
+  "rates_source": "Fallback only (shared_lib off or mods/usage absent): USD per million tokens, list prices as in mods/factory/factory.config.json (claude.com/pricing). Cache writes priced at the 5-minute rate.",
+  "rates": {
+    "claude-fable-5-1": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5 },
+    "claude-opus-5-5": { "in": 4, "out": 20, "cache_read": 0.4, "cache_write_5m": 5 },
+    "claude-sonnet-5-5": { "in": 2, "out": 10, "cache_read": 0.2, "cache_write_5m": 2.5 },
+    "claude-haiku-5-5": { "in": 1, "out": 5, "cache_read": 0.1, "cache_write_5m": 1.25 },
+    "fable": { "in": 10, "out": 50, "cache_read": 1, "cache_write_5m": 12.5 },
+    "opus": { "in": 5, "out": 25, "cache_read": 0.5, "cache_write_5m": 6.25 },
+    "sonnet": { "in": 2, "out": 10, "cache_read": 0.2, "cache_write_5m": 2.5 },
+    "haiku": { "in": 1, "out": 5, "cache_read": 0.1, "cache_write_5m": 1.25 },
+    "default": { "in": 5, "out": 25, "cache_read": 0.5, "cache_write_5m": 6.25 }
+  }
+}

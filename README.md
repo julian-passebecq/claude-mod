@@ -13,6 +13,7 @@ Needs **Claude Code 2.1.287 or later** (function-hook mods, panes, `Svg` element
 | [`ci`](mods/ci) | `/ci [refresh]`, `/ci route <repo\|session\|here> <backend-id>`, `/ci clear <target>` | CI routing: the CI backends from your config (GitHub Actions, GitLab.com shared runners, a self-hosted runner, VM runners still coming), whether each is usable now (token present yes/no, runners online, running/pending jobs, Actions per routed repo), and which repo or conversation uses which. A lead conversation or you set the route; each conversation sees its route in the status line and as a short note in its system prompt. |
 | [`scenarios`](mods/scenarios) | `/scenarios [S1..] [prompt\|agent\|workflow\|frontmatter\|env]` | Scénarios d'agents: presets of roles -> model, effort, unit (session, sub-conversation, Workflow `agent()`, Agent subagent) and max parallel (S1 Standard V6, S2 Économe, S3 Qualité max, S4 Nuit, S5 Plein régime, plus yours from a JSON file). For each role, the exact settings (Agent call, `agent()` opts, agent-file frontmatter, env vars) and the documented limits, each with its doc URL and "non vérifié" where the docs say nothing; a Copy button for a ready-to-paste snippet. Warn-only toast when an Agent call names no model. |
 | [`usage`](mods/usage) | `/conso [aujourdhui\|semaine\|prevision\|scenarios\|plein] [refresh]` | Consommation, in French: tokens and list-price cost equivalent today and over the week, per hour (heatmap), project, model, kind (main thread, Agent subagent, Workflow agent, sub-conversation), app surface, effort, skill and MCP server, top 10 sessions. Forecast of the 5-hour and weekly limits from the official % (`$.session.usage()`) and the measured pace (last 2 h, today, 7 days) with calme / normal / intense projections; which scenario (S1-S5) fits the quota left before the reset; suggests S5 "Plein régime" when much of the week would be left. Optional status-line entry. Its parser and price table are a shared module (`mods/usage/lib`). |
+| [`band`](mods/band) | `/jauge [refresh]` | Jauge, always visible above the prompt (French labels): this conversation's context in tokens and % of the window, where auto-compact sits and how far it is (with « compactage dans ~N min » at the current context growth), markers when it nears the RESUME hand-off threshold (250 K) or a compaction at rest, the burn rate in tok/s at the scopes you pick (this conversation, + its subagents, its Workflow agents, the project with its worktrees, the whole PC) and « semaine X % » when the account reports its 7-day limit. `/jauge` adds the per-scope table (tok/s, /min, /h, list-price $/h, over 60 s and 10 min), the 5 hottest sessions with their compactions, projects, 30-minute sparklines with compaction markers, and each conversation's compactions (time, auto / `/compact` / at rest, context before → after). Optional status-line entry. |
 | [`guide`](mods/guide) | `/mods-guide [onglet ou section]` | Mode d'emploi des mods, in French: tabs (Sommaire, Bases, Événements, Interface, Configuration, Installer et activer, Tester, Écrire un mod pas à pas, Référence API, Nos mods, FAQ), foldable categories, and one card per mod of this repo built live from its `plugin.json` and hooks module. Same content in [`MODE-EMPLOI.md`](mods/guide/MODE-EMPLOI.md). |
 
 `factory` and `control` read local files only (transcripts under `~/.claude/projects`, the desktop app's session files, your settings) through a Python scanner (standard library) and draw the result. Dollar figures are **estimates** from token counts and the rate table in each mod's config.
@@ -26,7 +27,7 @@ What was kept from the earlier mods when this repo was set up (V6, Oct 2026). On
 | factory | **keep** | The only view of the agent tree with models, efforts and cost. Next: feed it from hook events (`agent.spawn`, `turn.start`) instead of scanning files. |
 | control | **keep** | The "nothing hidden" proof: every rule source, env variable and blocker in one place. Its metrics and practices still follow the V5 rules and are being rewritten for V6. |
 | coordinator | merge into factory | Linked sub-conversations remove most lane collisions; only the "green PR not merged" and "waiting on you" rows are worth keeping, as a strip in factory. |
-| context band (cc-control band, context-meter) | merge into a V6 band | Small and correct: context size against the hand-off threshold, read-only. Not written yet. |
+| context band (cc-control band, context-meter) | merged into **band** (built, Oct 2026) | Small and correct: context size against the hand-off threshold, read-only. Now `band` (Jauge), with burn rates and compactions. |
 | cc-control guards | drop | They refused and rewrote tool calls (send caps, spawn caps, rewrites). Blocking hooks are out. |
 | ci | **new** (Oct 2026) | Which CI backend a repo or conversation should use, and whether it works right now, in one place instead of in rules text. |
 | scenarios | **new** (Oct 2026) | Which model, effort and unit each role uses, with the doc that says so, instead of rules text that drifts. |
@@ -50,7 +51,7 @@ ln -s "$PWD/claude-mod/mods/factory" ~/.claude/mods/factory
 Then load it, either for every session with the environment (in `~/.claude/settings.json` under `env`, folders separated by `;` on Windows, `:` elsewhere):
 
 ```json
-"CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/factory;~/.claude/mods/control;~/.claude/mods/ci;~/.claude/mods/scenarios;~/.claude/mods/guide"
+"CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/factory;~/.claude/mods/control;~/.claude/mods/ci;~/.claude/mods/scenarios;~/.claude/mods/guide;~/.claude/mods/band"
 ```
 
 or as a dev-mod in the desktop app for one session. Python 3 must be on `PATH` (the scanners); `gh` / `glab` are used, when present, for PR/MR and CI state.
@@ -70,6 +71,13 @@ python -I ~/.claude/mods/ci/scanner/ci.py route ~/code/my-repo gitlab-local --by
 - Routing file: `routing_file` (default `~/.claude/ci-routing.json`), one entry per repo path or session id with backend, who set it and when. A session route wins over a repo route; a worktree inside a routed repo follows the repo. `status_line` and `prompt_note` in the config turn the status-line entry and the system-prompt note off.
 - Needs Python 3 on `PATH`; `gh` and `glab` are optional.
 
+### band
+
+- Context, auto-compact threshold and the 7-day limit come from the engine (`$.session.usage()`, `session.measure`: the status line's figures, [statusline](https://code.claude.com/docs/en/statusline)). The threshold is the breakdown's `autoCompactThreshold` (a local `summary` breakdown, no request); without it the band uses `context.autocompact_pct_fallback` and the pane says « non vérifié ».
+- Rates come from `scanner/scan.mjs` (Node 22.18+, no dependency), run every `refresh_s`: it reads only the bytes appended to `~/.claude/projects/**/*.jsonl` since its last run (main transcripts, `subagents/`, `subagents/workflows/`), counts each API response once, and keeps its offsets and the last 30 minutes in `cache_file`. `count: fresh` (default) counts input + cache write + output; `all` adds cache reads. A worktree under `.claude/worktrees/` (or a git worktree) counts as its repo.
+- Compactions: the transcripts' `system` / `compact_boundary` entries (`compactMetadata.trigger`, `preTokens`, `postTokens`). « au repos » is deduced from the inactivity before an auto compaction, and the at-rest rule (> 200 K, ~54 min idle, 2.1.299) is « non vérifié » in the docs; both are settings.
+- Everything is in `band.config.json`: windows, scopes and items of the band and of the status line, thresholds (warn 200 K, hand-off 250 K), colors (theme names), labels, rates. userConfig `config` points to your override file; `band` and `status_line` switch the band and the status-line entry.
+
 ## Rules for every mod here
 
 - Show and warn, never block: no `deny`, no rewriting of tool calls or prompts.
@@ -83,7 +91,7 @@ python -I ~/.claude/mods/ci/scanner/ci.py route ~/code/my-repo gitlab-local --by
 ```sh
 python -I -m unittest discover -s mods/control/tests -p "test_*.py"
 python -I -m unittest discover -s mods/ci/tests -p "test_*.py"
-node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs
+node --test mods/factory/tests/logic.test.mjs mods/scenarios/tests/logic.test.mjs mods/guide/tests/guide.test.mjs mods/usage/tests/logic.test.mjs mods/band/tests/logic.test.mjs
 node mods/guide/scripts/build.mjs   # regenerate MODE-EMPLOI.md (table of contents, Nos mods cards)
 # hook and pane tests, with the Claude Code test kit:
 claude plugin test mods/factory
@@ -92,6 +100,7 @@ claude plugin test mods/ci
 claude plugin test mods/scenarios
 claude plugin test mods/guide
 claude plugin test mods/usage
+claude plugin test mods/band
 # before every push (public repo): no private paths, tokens, e-mails or transcripts
 python -I tools/confidentiality_scan.py .
 ```
