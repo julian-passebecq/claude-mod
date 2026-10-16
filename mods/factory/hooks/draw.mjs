@@ -66,10 +66,20 @@ export function drawPane(el, V) {
   ]
   if (V.error) top.push(h.T(`scanner : ${V.error}`, { color: 'bad' }))
   if (!V.scan) return h.col([...top, h.T(L.scanning, { dim: true })])
-  const body = {
-    mission: drawMission, focus: drawFocus, arbre: drawTree, pipeline: drawPipeline, quotas: drawQuotas, systeme: drawSystem, journal: drawJournal,
-  }[tab](h, V, cfg, L, lay)
-  return h.col([...top, ...body])
+  return h.col([...top, ...drawScreen(el, V, tab)])
+}
+
+const SCREENS = {
+  mission: drawMission, focus: drawFocus, arbre: drawTree, pipeline: drawPipeline, quotas: drawQuotas, systeme: drawSystem, journal: drawJournal,
+}
+
+// One screen's body (the sections under the tabs), for a mod that composes factory screens in its own pane (cockpit).
+// V as for drawPane; V.embedded hides the Arbre's « Cette conversation / Choisir » row (the host picks the conversation).
+export function drawScreen(el, V, tab) {
+  const cfg = V.cfg || {}
+  const draw = SCREENS[tab]
+  if (!draw || !V.scan) return []
+  return draw(mk(el, cfg), V, cfg, screensConfig(cfg).labels, layout(V.columns, cfg))
 }
 
 // ---- Mission ---------------------------------------------------------------------------------------------------------
@@ -238,7 +248,7 @@ function nodeBox(h, n, cfg, L, lay, indent, inWorkflow) {
 
 function drawTree(h, V, cfg, L, lay) {
   const out = []
-  out.push(h.row([
+  if (!V.embedded) out.push(h.row([
     h.btn(L.this_conv, () => V.act.go(null), !V.target),
     h.btn(L.pick, () => V.act.pick(), Boolean(V.picking)),
   ], { marginBottom: 1 }))

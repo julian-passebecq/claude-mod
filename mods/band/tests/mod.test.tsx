@@ -72,7 +72,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
     expect(await band.find({ type: 'Text', text: /ctx 41 %/ })).toBeDefined()
     expect(await band.find({ type: 'Text', text: /cette conv 120 tok\/s/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /projet 2,1 k tok\/s/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^ctx 41 % \(164 k\)$/ })).toBeDefined() // the gauge's title
+    expect(await band.find({ type: 'Text', text: /projet 2,1 k tok\/s/ })).toBeUndefined() // gauge.scopes: conv and all only
     expect(await band.find({ type: 'Text', text: /tout 3,1 k tok\/s/ })).toBeDefined()
     expect(await band.find({ type: 'Text', text: /semaine 37 %/ })).toBeDefined()
     await band.unmount()

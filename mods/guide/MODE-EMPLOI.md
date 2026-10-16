@@ -32,6 +32,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
   - [Panneaux](#panneaux)
     - [Ouvrir un panneau](#ouvrir-un-panneau)
     - [Ouvrir le panneau d'un autre mod](#ouvrir-le-panneau-dun-autre-mod)
+    - [Plusieurs panneaux dans une colonne](#plusieurs-panneaux-dans-une-colonne)
     - [Dessiner un panneau](#dessiner-un-panneau)
     - [Les éléments](#les-éléments)
   - [Commandes slash](#commandes-slash)
@@ -100,6 +101,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [sante](#sante)
     - [veille](#veille)
     - [menage](#menage)
+    - [cockpit](#cockpit)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -217,6 +219,10 @@ Ce que l'on voit : panneaux, commandes, petits messages.
 #### Ouvrir le panneau d'un autre mod
 
 Un mod n'ouvre ni ne ferme le panneau d'un autre : `$.ui.open` et `$.ui.close` n'agissent que sur les panneaux du mod qui appelle, et `$.ui.panes()` ne liste que les siens. Il peut en revanche lancer la commande slash de l'autre avec `$.command.run({ command, args })`, « comme si la personne l'avait tapée » ; elle attend la fin du tour en cours. C'est ce que fait la barre Mods de la Jauge : `/conso` ouvre, `/conso close` ferme. ([api](https://code.claude.com/docs/en/plugins/mods/api), [interface](https://code.claude.com/docs/en/plugins/mods/interface))
+
+#### Plusieurs panneaux dans une colonne
+
+Quand plusieurs panneaux sont ouverts, un seul est affiché et chacun a un onglet avec son titre : ils ne s'empilent pas. Un panneau peut s'ouvrir seul au démarrage (`$.ui.open` dans `session.start`), comme filetree et cockpit ; dans un terminal il attend 144 colonnes (110 si on l'a déjà ouvert). Un mod ne dessine pas dans le panneau d'un autre et n'importe aucun fichier hors de son dossier : pour composer plusieurs mods dans un panneau, cockpit copie leurs libs pures (`scripts/sync-libs.mjs`, test de dérive). Où Desktop range exactement la colonne et quelle largeur il donne : non vérifié dans la doc. ([interface](https://code.claude.com/docs/en/plugins/mods/interface), [create](https://code.claude.com/docs/en/plugins/mods/create))
 
 #### Dessiner un panneau
 
@@ -477,7 +483,7 @@ Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux,
 
 #### band
 
-Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge
+Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation en barre fine (repère du relais RESUME 250 K et de l'auto-compact, vert → orange → rouge) avec une ligne courte « compactage dans ~N min · tok/s · semaine % », débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge
 
 - **État** : en construction · version 0.2.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc. Lien « ouvrir le fichier » (file://) vers RESUME : ouverture par la surface non vérifiée ; « relais lancés » = /handoff vus dans cette session seulement.
 - **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
@@ -544,6 +550,16 @@ Ménage : ce que le travail de Claude laisse traîner sur ce PC, en lecture seul
 - **Fonctionnalités** : commandes `/menage` · affiche : panneau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/menage` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/menage`
 - **Tests** : `node --test mods/menage/tests/logic.test.mjs` · `claude plugin test mods/menage`
+
+#### cockpit
+
+Cockpit, un seul panneau latéral qui zoome, en lecture seule : Méga (tous les projets du PC) › Projet (lead et sous-conversations, en arbre) › Conversation (Workflows et agents) › Agent (modèle, effort, tokens, journal). Fil d'Ariane, arbre cliquable dessiné, détail de la sélection (écrans de factory), bandes Jauge, Usage, Veille et Fichiers. S'ouvre seul au démarrage, à côté de filetree. /cockpit [niveau] [projet ou conversation]
+
+- **État** : en construction · version 0.1.0 · Un seul panneau, quatre niveaux : Méga (tous les projets), Projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt), Conversation (Workflows et agents), Agent (modèle, effort, tokens, coût, journal). Le détail sous l'arbre réutilise les écrans de factory (Mission, Focus + Pipeline, Arbre). Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour la Jauge et l'Usage ; le scanner de band quand la bande Jauge est ouverte et que band est à côté ; les fichiers de veille (~/.claude/veille) quand la bande Veille est ouverte. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché. · aucun blocage
+- **Fonctionnalités** : commandes `/cockpit` · affiche : panneau, toasts · options userConfig : start « Open at start » (on | off), défaut "on" ; config « Settings file », défaut ""
+- **Activer** : `<dépôt>/mods/cockpit` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/cockpit`
+- **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
 
 ### Archivés / rejetés
 

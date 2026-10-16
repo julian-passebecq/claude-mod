@@ -1,7 +1,7 @@
 {
   "name": "band",
   "version": "0.2.0",
-  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge",
+  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation en barre fine (repère du relais RESUME 250 K et de l'auto-compact, vert → orange → rouge) avec une ligne courte « compactage dans ~N min · tok/s · semaine % », débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, une ligne orange « Passation conseillée » (boutons Préparer RESUME et Ouvrir RESUME, rien ne se lance seul), plus une barre Mods qui ouvre et ferme les autres mods. /jauge",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

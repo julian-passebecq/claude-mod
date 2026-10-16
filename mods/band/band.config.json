@@ -14,6 +14,15 @@
   "compact_history_hours": 24,
   "first_read_mb": 64,
   "worktree_markers": ["/.claude/worktrees/", "/.worktrees/"],
+  "gauge": {
+    "_doc": "Style of the band above the prompt. gauge (default): a thin rounded context bar with a mark at the hand-off threshold (context.handoff_tokens) and one at auto-compact, green -> orange -> red, then one short line (compaction ETA, the rates of `scopes`, week %). text: the older single line of band.items. The desktop draws the bar as an Svg, the terminal as text (text_width cells). Same gauge in cockpit's Jauge strip.",
+    "style": "gauge",
+    "scopes": ["conv", "all"],
+    "width": 320,
+    "text_width": 30,
+    "colors": { "ok": "#3fb950", "warn": "#d29922", "bad": "#f85149", "track": "#8b949e55", "mark": "#8b949e", "text": "#8b949e" },
+    "labels": { "ctx": "ctx", "compact_in": "compactage dans", "week": "semaine", "handoff_mark": "relais", "compact_mark": "compact", "no_reading": "pas encore de mesure" }
+  },
   "band": {
     "_items": "in order: ctx, compact, relay, idle, rates, week. rates draws one entry per scope listed in scopes.",
     "items": ["ctx", "compact", "relay", "idle", "rates", "week"],
@@ -37,7 +46,8 @@
       { "label": "Guide", "mod": "guide", "command": "mods-guide" },
       { "label": "Santé", "mod": "sante", "command": "sante" },
       { "label": "Veille", "mod": "veille", "command": "veille" },
-      { "label": "Ménage", "mod": "menage", "command": "menage" }
+      { "label": "Ménage", "mod": "menage", "command": "menage" },
+      { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" }
     ]
   },
   "handoff": {

@@ -37,6 +37,34 @@ import {
   toggleOpen,
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
+import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
+import type { Gauge } from './gauge'
+
+// The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
+const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number | undefined): Gauge => {
+  const lb = c.labels
+  const rates: string[] = []
+  for (const id of ((c as any).gauge?.scopes as string[] | undefined) ?? c.band.scopes) {
+    const row = v?.scopes.find(r => r.id === id)
+    if (!row) continue
+    const r = row.rates.find(x => x.w === c.band_window_s) ?? row.rates[0]
+    if (r) rates.push(`${lb[id] ?? id} ${fmtTok(r.tps)} tok/s`)
+  }
+  const idle = ctx?.idleEtaMin !== undefined && (ctx.idleMin ?? 0) >= c.idle_compact.show_after_idle_min ? ctx.idleEtaMin : undefined
+  return gaugeModel(
+    {
+      tokens: ctx?.tokens,
+      window: ctx?.window ?? c.context.window_fallback,
+      compactAt: ctx?.threshold,
+      handoffAt: c.context.handoff_tokens,
+      etaMin: ctx?.etaMin ?? idle,
+      level: ctx?.level,
+      rates,
+      ...(week !== undefined ? { week } : {}),
+    },
+    (c as any).gauge?.labels ?? {},
+  )
+}
 
 const PANE = { id: 'jauge' }
 const viewAtom = atom({ plugin: 'band', key: 'view' } as const, null)
@@ -367,9 +395,23 @@ export const register: Register = (on, raw) => {
     // What the mods after this one draw (veille's line, machine's entry) stays, below the gauge and the Mods bar.
     const theirs = await next(e)
     if (!parts.length && !buttons.length && !advice.show) return theirs
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button } = els
+    const Svg = e.surface === 'terminal' ? undefined : (els as any).Svg
     const color = (p: BandPart) => (p.tone ? c.colors[p.tone] : undefined)
     const isWorking = e.props.isWorking
+    const gaugeStyle = ((c as any).gauge?.style ?? 'gauge') === 'gauge'
+    const g = gaugeStyle ? gaugeOf(c, ctx, v ?? null, en?.week) : undefined
+    const gaugeEl = g ? (
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+          <Text color={c.colors[g.level]}>{g.title}</Text>
+          {Svg ? null : <Text color={c.colors[g.level]}>{gaugeText(g, (c as any).gauge?.text_width ?? 30)}</Text>}
+        </Box>
+        {Svg && g.hasReading ? <Svg source={gaugeSvg(g, (c as any).gauge?.colors ?? {}, (c as any).gauge?.width ?? 320)} alt={`${g.title}${g.marks.map(m => ' · ' + m.label).join('')}`} /> : null}
+        {g.line ? <Text dimColor>{g.line}</Text> : null}
+      </Box>
+    ) : null
     let relay = null
     if (advice.show && c.handoff) {
       const hs = await read($, handoffAtom)
@@ -389,7 +431,8 @@ export const register: Register = (on, raw) => {
     }
     return (
       <Box flexDirection="column">
-        {parts.length ? (
+        {gaugeEl}
+        {!gaugeStyle && parts.length ? (
           <Box flexDirection="row" flexWrap="wrap">
             {parts.map((p, i) => (
               <Text key={`b${i}`} {...(color(p) ? { color: color(p) } : { dimColor: true })}>
