@@ -1,0 +1,87 @@
+{
+  "_doc": "a-faire mod (À faire par Julian) settings. Override any key in ~/.claude/a-faire/config.json (deep merge; keys starting with _ are ignored). Every source can be turned off with enabled: false; a missing file is skipped silently. Paths accept ~.",
+  "home": "~/.claude/a-faire",
+  "node": "node",
+  "refresh_min": 5,
+  "snooze_days": 1,
+  "_login_match": "A line or alert matching this goes to « Connexions / 2FA ».",
+  "login_match": "\\b(login|log in|sign[- ]?in|connexion|se connecter|2FA|MFA|OTP|tenant|Cloudflare Access|accès cloud|cloud access|mot de passe|password|identifiants?|credentials?)\\b",
+  "categories": {
+    "config": "Configuration",
+    "decisions": "Décisions",
+    "logins": "Connexions / 2FA",
+    "secrets": "Secrets à ranger",
+    "manual": "Tests manuels",
+    "questions": "Questions des conversations"
+  },
+  "order": ["config", "decisions", "logins", "secrets", "manual", "questions"],
+  "_open": "Categories unfolded when the pane opens: nonempty (every category with something to do), all, none, or a list of ids.",
+  "open": "nonempty",
+  "priorities": {
+    "now": "bloque une conversation",
+    "feature": "bloque une fonction",
+    "comfort": "confort"
+  },
+  "sources": {
+    "manual_checks": { "enabled": true, "file": "~/.claude/effort-board/manual-checks.md" },
+    "questions": {
+      "enabled": true,
+      "file": "~/.claude/effort-board/questions.md",
+      "_match": "Only lines matching this wait for Julian (the rest are choices agents already made).",
+      "match": "\\b(pour|à|for|ask|asks|attend|waits? (?:on|for)|needs?) Julian\\b|\\bJulian (?:doit|must|to decide|décide|decides|to approve)\\b|\\bQUESTION JULIAN\\b"
+    },
+    "decisions": {
+      "enabled": true,
+      "_files": "Markdown backlogs of pending decisions: open table rows « | n | decision | facts | R | » and « ⚠ **Your action:** » lines; parsing stops at a heading matching stop. Set your own in ~/.claude/a-faire/config.json.",
+      "files": [],
+      "stop": "already decided|resolved since|déjà décid|réglées? depuis"
+    },
+    "prs": {
+      "enabled": true,
+      "_doc": "Your open PRs (gh search prs --author @me) that carry one of labels, or one sentence of the title or body naming Julian (name) and a verb (verbs). Cached ttl_min minutes; tokens stay with gh.",
+      "labels": ["needs-julian", "julian", "needs-decision"],
+      "name": "\\bJulian\\b",
+      "verbs": "approv|decid|décid|valid|tranch",
+      "ttl_min": 30,
+      "limit": 100
+    },
+    "veille": { "enabled": true, "home": "~/.claude/veille" },
+    "smtp": { "enabled": true },
+    "task": { "enabled": true, "name": "ClaudeVeille", "fire_every_min": 5 },
+    "mods": {
+      "enabled": true,
+      "_roots": "Folders holding mod folders (each with .claude-plugin/plugin.json). Empty: the folder this mod sits in.",
+      "roots": [],
+      "ignore": [],
+      "settings": "~/.claude/settings.json"
+    },
+    "secrets": { "enabled": true, "registry": "~/.claude/tests-reels/registry.json", "match": "ranger" }
+  },
+  "veille_feed": {
+    "_doc": "The veille watcher pushes new items of these priorities once each (Windows notification, and the e-mail digest when smtp.json works).",
+    "enabled": true,
+    "prios": ["now", "feature"],
+    "max_per_tour": 5
+  },
+  "colors": { "now": "#f85149", "feature": "#d29922", "comfort": "#8b949e", "bad": "#f85149", "ok": "#3fb950", "dim": "#8b949e" },
+  "labels": {
+    "title": "À faire par Julian",
+    "counter": "À toi",
+    "none": "Rien n'attend Julian.",
+    "empty_cat": "rien",
+    "done": "Fait",
+    "later": "Plus tard",
+    "source": "Voir la source",
+    "copy": "Copier",
+    "copied": "copié",
+    "copy_failed": "copie refusée",
+    "refresh": "Rafraîchir",
+    "since": "depuis",
+    "snoozed": "Reporté(s)",
+    "unsnooze": "Tout réafficher",
+    "unread": "Sources non lues",
+    "scanning": "Lecture des sources…",
+    "never": "jamais lu",
+    "feed_prefix": "À faire"
+  }
+}

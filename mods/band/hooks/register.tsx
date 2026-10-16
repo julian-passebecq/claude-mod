@@ -57,6 +57,7 @@ import {
   veilleLine,
   julianCounter,
   alertText,
+  todoBadge,
 } from './sections'
 import type { BandUi, SectionsCfg } from './sections'
 
@@ -94,6 +95,7 @@ const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { comman
 const handoffAtom = atom({ plugin: 'band', key: 'handoff' } as const, { ran: [], show: false })
 const uiAtom = atom({ plugin: 'band', key: 'ui' } as const, { expanded: false, open: [] })
 const veilleAtom = atom({ plugin: 'band', key: 'veille' } as const, null)
+const todoAtom = atom({ plugin: 'band', key: 'todo' } as const, null)
 const STORE_KEY = 'sections'
 
 const secCfg = (c: Config): SectionsCfg => sectionsCfg((c as any).sections)
@@ -155,6 +157,23 @@ const seeVeille = async ($: EngineInterface, c: Config) => {
     })
     .filter(Boolean)
   await update($, veilleAtom, () => veilleSummary(state, acks))
+}
+
+// a-faire's counts (its scanner writes summary.json, counts only): the red « À toi : N » of line 1. Off with todo_home "".
+const seeTodo = async ($: EngineInterface, c: Config) => {
+  const raw = (secCfg(c) as any).todo_home
+  if (raw === '' || raw === false) return
+  let dir = ''
+  try {
+    dir = (await $.env.get('AFAIRE_HOME')) ?? ''
+  } catch {}
+  dir = (dir || expandHome(raw ?? '~/.claude/a-faire', await home($))).replace(/\\/g, '/')
+  const t = await readText($, `${dir}/summary.json`)
+  let sum: any = null
+  try {
+    sum = t ? JSON.parse(t.replace(/^﻿/, '')) : null
+  } catch {}
+  await update($, todoAtom, () => sum)
 }
 
 type Options = { config?: string; band?: string; status_line?: string }
@@ -421,6 +440,7 @@ const refresh = async ($: EngineInterface) => {
     await seeCommands($)
     await seeResume($, c)
     await seeVeille($, c)
+    await seeTodo($, c)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -520,6 +540,7 @@ export const register: Register = (on, raw) => {
       const head = headLine({ ctxPct: g.pct, etaMin: ctx?.etaMin, tps: rate?.tps, limits: en?.limits }, L)
       const tone = c.colors[g.level]
       const marks = g.marks.map(m => m.label).join(' · ')
+      const todo = todoBadge(await read($, todoAtom), L)
       const line1 = (
         <Box key="band-line" flexDirection="row" gap={1} alignItems="center" flexWrap="nowrap">
           {julianCounter(ve, L) ? (
@@ -530,6 +551,7 @@ export const register: Register = (on, raw) => {
           ) : (
             <Text key="band-gauge-t" color={tone}>{gaugeText(g, (c as any).gauge?.text_width ?? 12)}</Text>
           )}
+          {todo ? <Text key="band-todo" color={c.colors.bad} bold>{todo}</Text> : null}
           <Text key="band-head" color={tone} wrap="truncate-end">{head}</Text>
           <Button key="band-toggle" onPress={() => toggleUi($, 'band')}>
             {ui.expanded ? '▾' : '▸'}

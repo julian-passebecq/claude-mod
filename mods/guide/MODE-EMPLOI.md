@@ -102,6 +102,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [veille](#veille)
     - [menage](#menage)
     - [cockpit](#cockpit)
+    - [a-faire](#a-faire)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -560,6 +561,16 @@ Cockpit, un seul panneau latéral en lecture seule, rangé par périmètre, chaq
 - **Fonctionnalités** : commandes `/cockpit` · affiche : panneau, toasts · options userConfig : start « Open at start » (on | off), défaut "on" ; config « Settings file », défaut ""
 - **Activer** : `<dépôt>/mods/cockpit` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/cockpit`
 - **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
+
+#### a-faire
+
+À faire par Julian : tout ce qui attend une action que seul toi peux faire, pour que rien ne se perde. Configuration (smtp.json de la veille, mods installés pas chargés, tâche ClaudeVeille), décisions (DECISIONS-PENDING, PR qui attendent ton accord, questions.md), connexions et 2FA, secrets de tests réels à ranger, tests manuels (manual-checks.md), questions des conversations (alertes « attend Julian » de la veille). Pour chacune : pourquoi elle bloque, les étapes exactes avec Copier, depuis quand, la source ; Fait (revérifie quand c'est possible), Plus tard (1 jour). Lecture seule, sans tokens. /afaire
+
+- **État** : en construction · version 0.1.0 · lecture seule sauf son propre état (Fait, Plus tard) ; aucune source n'est modifiée, aucune commande montrée n'est lancée, aucun texte envoyé au modèle. Fait sur une ligne mesurée (smtp.json, mods, tâche, secrets) revérifie et refuse tant que la cause est là. Non vérifié : format de ~/.claude/tests-reels/registry.json (le mod tests-reels est en construction : un tableau ou {items|secrets|entries} dont status/state/category contient « ranger »). La copie installée de la veille (~/.claude/veille/bin) ne prend le flux qu'après node veille.mjs install.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : ~/.claude/effort-board/manual-checks.md et questions.md, les fichiers de décisions listés dans sources.decisions.files, gh search prs --author @me (titre, corps, étiquettes ; cache 30 min, jetons gardés par gh), ~/.claude/veille (state.json, acks.jsonl, heartbeat.json, smtp.json : présence et champs, jamais le mot de passe), schtasks /Query ClaudeVeille, CLAUDE_CODE_PLUGIN_DIRS de ~/.claude/settings.json et les dossiers de mods à côté, ~/.claude/tests-reels/registry.json (comptes « à ranger ») ; écrit seulement ~/.claude/a-faire (state.json, items.json, summary.json, notified.json, prs-cache.json) · aucun blocage
+- **Fonctionnalités** : commandes `/afaire` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/a-faire` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/a-faire`
+- **Tests** : `node --test mods/a-faire/tests/logic.test.mjs` · `claude plugin test mods/a-faire` · `claude plugin validate mods/a-faire`
 
 ### Archivés / rejetés
 

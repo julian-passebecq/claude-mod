@@ -1,0 +1,8 @@
+{
+  "name": "a-faire",
+  "version": "0.1.0",
+  "description": "À faire par Julian : tout ce qui attend une action que seul toi peux faire, pour que rien ne se perde. Configuration (smtp.json de la veille, mods installés pas chargés, tâche ClaudeVeille), décisions (DECISIONS-PENDING, PR qui attendent ton accord, questions.md), connexions et 2FA, secrets de tests réels à ranger, tests manuels (manual-checks.md), questions des conversations (alertes « attend Julian » de la veille). Pour chacune : pourquoi elle bloque, les étapes exactes avec Copier, depuis quand, la source ; Fait (revérifie quand c'est possible), Plus tard (1 jour). Lecture seule, sans tokens. /afaire",
+  "author": { "name": "Julian Passebecq" },
+  "license": "MIT",
+  "keywords": ["mod", "pane", "todo", "julian", "decisions", "setup"]
+}

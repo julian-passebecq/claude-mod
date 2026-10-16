@@ -34,7 +34,9 @@
     "running_s": 120,
     "usage_bar_width": 120,
     "veille_home": "~/.claude/veille",
-    "labels": { "conv": "Cette conversation", "usage": "Usage", "veille": "Veille", "five": "5 h", "week": "sem", "compact": "compact" }
+    "_todo_home": "a-faire mod's folder: its summary.json (counts only) gives the red « À toi : N » at the start of line 1 when N > 0. \"\" turns it off.",
+    "todo_home": "~/.claude/a-faire",
+    "labels": { "conv": "Cette conversation", "usage": "Usage", "veille": "Veille", "five": "5 h", "week": "sem", "compact": "compact", "todo": "À toi" }
   },
   "band": {
     "_items": "in order: ctx, compact, relay, idle, rates, week. rates draws one entry per scope listed in scopes.",
@@ -61,7 +63,8 @@
       { "label": "Veille", "mod": "veille", "command": "veille" },
       { "label": "Fil", "mod": "veille", "command": "veille", "args": "fil", "key": "veille-fil" },
       { "label": "Ménage", "mod": "menage", "command": "menage" },
-      { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" }
+      { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" },
+      { "label": "À faire", "mod": "a-faire", "command": "afaire" }
     ]
   },
   "handoff": {

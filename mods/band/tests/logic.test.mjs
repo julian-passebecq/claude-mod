@@ -247,13 +247,13 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
 
 test('launcher: default bar, loaded vs not loaded, open/close toggle', () => {
   const L = CFG.launcher
-  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Fil=veille', 'Ménage=menage', 'Cockpit=cockpit'])
+  assert.deepEqual(L.items.map(i => i.label + '=' + i.mod), ['Usine=factory', 'Conso=usage', 'Scénarios=scenarios', 'CI=ci', 'Control=control', 'Guide=guide', 'Santé=sante', 'Veille=veille', 'Fil=veille', 'Ménage=menage', 'Cockpit=cockpit', 'À faire=a-faire'])
   const cmds = [{ name: 'conso', plugin: 'usage' }, { name: 'factory' }, { name: 'ci', plugin: 'other' }, { name: 'control', plugin: 'control@local' }]
   assert.equal(isLoaded(L.items[3], cmds), false, 'a ci command from another plugin does not count')
   assert.equal(isLoaded(L.items[4], cmds), true)
   let open = []
   let bs = launcherButtons(L, cmds, open, CFG.labels)
-  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false, false, false])
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, false, false, true, false, false, false, false, false, false, false])
   assert.equal(bs[5].hint, 'non chargé : ajouter mods/guide à CLAUDE_CODE_PLUGIN_DIRS')
   assert.deepEqual(launcherPress(bs[5]), { toast: bs[5].hint })
   const a = launcherPress(bs[1], L.close_args)
@@ -437,4 +437,14 @@ test('scanner view: this conversation\'s agents (running within running_s), its 
   const v = buildView([ev(10, 'me', { a: 'x', w: 'wf_1' }), ev(30, 'me', { a: 'y' }), ev(900, 'me', { a: 'z' }), ev(5, 'other', { a: 'q' })], sessions, cfg, { now, session: 'me' })
   assert.deepEqual(v.conv.agents, { running: 2, total: 3, workflow: 'wf_1' })
   assert.equal(v.conv.pr.number, 7)
+})
+
+test('band line 1: the red « À toi : N » from a-faire summary.json, nothing at 0 or without the file', async () => {
+  const S = await import('../hooks/sections.ts')
+  const L = S.sectionsCfg(CFG.sections).labels
+  assert.equal(CFG.sections.todo_home, '~/.claude/a-faire')
+  assert.equal(S.todoBadge({ open: 3, high: 1, by_cat: {} }, L), 'À toi : 3')
+  assert.equal(S.todoBadge({ open: 0 }, L), '')
+  assert.equal(S.todoBadge(null, L), '')
+  assert.equal(S.todoBadge({ open: 'x' }, L), '')
 })
