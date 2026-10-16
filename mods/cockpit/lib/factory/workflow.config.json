@@ -1,0 +1,17 @@
+{
+  "_doc": "Settings of factory's Workflow screen (/factory workflow). Merged as `workflow` under factory.config.json; override any key in ~/.claude/effort-board/factory.config.json → workflow (deep merge). Every default and every French label is in WORKFLOW_DEFAULTS of hooks/workflow.mjs. Minutes unless named _s/_h/_days. stuck_min: a running agent with no transcript line for that long is shown as stuck. min_samples: past agents needed before an estimate is shown (else « pas assez d'historique »). limits: the rules' caps (≤ 4 CI pipelines, ≤ 3 npm ci/tsc at once), counted from each running agent's last shell command with ci_match / npm_match. complexity: badge thresholds on agents × phases × median past tokens per agent (millions). speed.cap = min(cap_max, CPUs − cpu_reserve); seq_gap_s: an agent that starts within this many seconds after another of the same phase ended, without overlap, is flagged « aurait pu tourner en parallèle » (heuristic: no dependency is visible in the files). gantt.min_bar: under this many columns for the bars the Gantt turns vertical (time goes down).",
+  "tab_after": "arbre",
+  "scope": "conversation",
+  "hours": 36,
+  "stale_h": 6,
+  "history_days": 30,
+  "stuck_min": 15,
+  "min_samples": 3,
+  "max_runs": 12,
+  "refresh_s": 20,
+  "limits": { "ci": 4, "npm": 3 },
+  "complexity": { "m": 1, "l": 5, "xl": 20 },
+  "speed": { "cap_max": 16, "cpu_reserve": 2, "session_guideline": 10, "seq_gap_s": 90, "buckets": 24 },
+  "gantt": { "min_bar": 16, "label_w": 14 },
+  "open_finished": false
+}

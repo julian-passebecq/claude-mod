@@ -1,21 +1,59 @@
 # cockpit
 
-**Cockpit** is one side pane over all your agents, read-only, with French labels, ordered by scope: this conversation first, then its project, then every project, then Claude as a whole. Each section folds; closed, it is one summary line.
+**Cockpit** is the one zoomable view over all your agents (méga › projet › conversation › agent), read-only, French labels. It absorbs **Usine** (factory's screens) and **Machine** (PC and runner load) as tabs of the same pane:
 
 ```
+[Cockpit] [Mission] [Focus] [Arbre] [Pipeline] [Workflow] [Journal] [Machine]
 [Méga] › [eta] › [Galaxy finalisation…] [↻] 18:54
-[▾ Cette conversation]
- opus 5.5 ▮▮▯▯ medium ctx 27 % en cours
- ● [Galaxy finalisation autonome (cette conversation)]
-   └ ◇ [workflow package-wave]
-     └ ● [coder · build]
- [+ 3 terminé(s)]
- PR #29 · open · CI running
+╭ Qui consomme                                                   [Voir] ╮
+│ aujourd’hui $461 · MODS 1 41 % · projet claude-control 52 %           │
+│ T’attend  attend Julian : 2 · Ça t’attend : 1 · Fabric handoff [Voir] │
+│ À toi     À toi : 5                                            [Voir] │
+│ CI        2 pipelines en cours (Claude 1 · Codex 1), 1 rouge dans     │
+│           app-c (job lint), runner local à 3/18                [Voir] │
+│ Quota     Claude 5 h 24 % · semaine 14 % | Codex 5 h 10 % · semaine ? │
+│ Problèmes du jour  2 vu(s) aujourd’hui · 1 ouvert(s) · en tête : …    │
+│ En cours  • Workflow package-wave : fin vers 19:40                    │
+│           • Pipeline app-b (codex/y) · Codex, depuis 2 min : vert ou  │
+│             rouge vers 18:58                                          │
+╰──────────────────────────────────────────────────────────────────────╯
+[▾ Cette conversation] …
 [▸ Ce projet · eta] 4 conv · 1 en cours · $7.00 aujourd’hui
 [▸ Tous les projets] 2 en cours · 3 au repos · 1 attend Julian · $424
 [▸ Qui consomme] aujourd’hui $461 · MODS 1 41 % · claude-control 52 %
 [▸ Claude global] 5 h 24 % · sem 14 % · 1 alerte(s)
 ```
+
+## Cards (tab « Cockpit »)
+
+One line per topic, and a **Voir** button that runs the detail's command (`$.command.run`: a mod cannot open another mod's pane). The first target loaded in this session wins (`$.command.list()`, the same check band uses to grey a button); none loaded: a toast says which mod to add.
+
+| Card | Line | Source | Voir |
+|---|---|---|---|
+| Qui consomme | top conversation and project of the window | usage's `classement.json` (same ranking code, `lib/usage`) | `/conso classement` |
+| T’attend | « attend Julian : N » (veille) · « Ça t’attend : N » (factory's rows) · top of the Fil | `lib/core/veille.mjs`, `lib/core/waiting.mjs` | `/veille fil` |
+| À toi | « À toi : N » | `lib/core/veille.mjs` (a-faire's `summary.json`) | `/afaire` |
+| CI | the ci Diagramme's sentence: pipelines running (Claude / Codex split), red lanes with their red jobs, runner N/concurrent | ci's `~/.claude/ci-pipelines-cache.json`, `lib/core/runner.mjs` | `/reference ci diagramme`, else `/ci diagramme` |
+| Quota | 5 h, semaine, run-out date, Claude and Codex | `lib/core/usage.mjs` (the same numbers as band and usage) | `/conso` |
+| Problèmes du jour | how many seen today, open, the top one | problemes' `register.jsonl` (read-only) | `/registres problemes`, else `/problemes` |
+| En cours | each running Workflow and pipeline as a plain sentence + ETA | factory's Workflow scanner + estimates, ci's ETA, else `lib/core/estimate.mjs` (≥ 3 past successes, else « pas assez d’historique ») | the Workflow tab |
+
+The card data comes from `scanner/cards.mjs`, run with Node because the hooks module has no Node: it imports `lib/core` (usage, veille, runner, estimate). `lib/cards.mjs` holds the pure helpers `lib/core` lacks (the ci sentence from the cache, live pipelines, problems of the day).
+
+## Tabs
+
+- **Mission · Focus · Arbre · Pipeline · Journal**: factory's screens, drawn by the synced copies in `lib/factory` (a click on a conversation opens it in Arbre).
+- **Workflow**: factory's Workflow screen (phases, agents, estimates, Gantt and Vitesse). Its Gantt is `lib/core/gantt.mjs`, the same renderer and symbols as the ci mod's Diagramme.
+- **Machine**: this PC (CPU, RAM, disks, GPU, process families) from the machine mod's sampler (`lib/machine/scanner/machine.py`, a synced copy) and the runner load from `lib/core/runner.mjs`.
+- factory's **Quotas** and **Système** are not here: the Quota card and Machine replace them.
+
+## Commands
+
+`/cockpit [conv|projet|mega|agent] [projet ou conversation]` zooms the « Cockpit » tab; `/cockpit mission|focus|arbre|pipeline|journal|machine` opens that tab; `/cockpit workflow [all]` the Workflow tab (this conversation, or every Workflow of the PC); `/cockpit close`.
+
+**/factory** and **/machine** keep working. While their own mod is loaded it answers. When it is not, cockpit registers the name as an alias a few seconds after the session starts (`aliases.delay_s`, so the other mods have registered theirs): `/factory [onglet]` opens that tab (`quotas` → Cockpit, `systeme` → Machine), `/factory workflow [all]` the Workflow tab, `/machine` the Machine tab.
+
+## Sections
 
 | Section | Default | Shows |
 |---|---|---|
@@ -23,7 +61,7 @@
 | **Ce projet** | closed | the project's conversations as a tree (the app's `spawnedFrom` link, even lanes launched in another repo), then factory's **Focus** and **Pipeline** for that project |
 | **Tous les projets** | closed | two lines per project: name and cost today, then counters (conv, en cours, attend Julian, agents, ctx max) |
 | **Qui consomme** | closed | Toggle 1 h / aujourd’hui / 7 j (`qui_consomme.presets`), the top 3 conversations with cost and share, the top project, and **Classement complet** which runs `/conso classement` (the full ranking in the usage mod). Reads usage's `classement.json`; when it is older than `rescan_min` (10 min) and the section is open, runs usage's incremental scanner once. Same ranking code as usage (`lib/usage/lib/classement.mjs`, a synced copy). |
-| **Claude global** | closed | Session (5 h), Semaine, Semaine Fable with bars and « reset dans … », cloud credits, this session's cost / model share / cache hit, Veille's open alerts, a `/machine` button. What the API does not give says « non lisible depuis un mod ». |
+| **Claude global** | closed | Session (5 h), Semaine, Semaine Fable with bars and « reset dans … », cloud credits, this session's cost / model share / cache hit, Veille's open alerts, a button to the Machine tab. What the API does not give says « non lisible depuis un mod ». |
 
 The breadcrumb (one small row) zooms out; a click on a node drills down and unfolds the section that shows it. The context gauge is not here: it is band's, above the prompt, where you look. A button at the bottom runs `/filetree`.
 
@@ -35,6 +73,10 @@ Both open by themselves at session start. The desktop shows **one pane at a time
 
 `cockpit.config.json` (deep-merged with your own file: userConfig `config`, else `~/.claude/effort-board/cockpit.config.json`):
 
+- `tabs.order` / `tabs.enabled` / `tabs.labels`: the tabs (`home` always first);
+- `cards.order` / `cards.enabled` / `cards.buttons` / `cards.max_encours`: the cards and the targets their button tries in order;
+- `aliases`: `/factory` and `/machine` as aliases when their mod is not loaded (`delay_s`, `names`);
+- `machine_refresh_s`, `gpu_every`: the Machine tab's sampling;
 - `sections.order` / `sections.enabled` / `sections.open`: which sections (`breadcrumb`, `conv`, `project`, `all`, `global`, `fichiers`), in which order, which start unfolded (default `conv` only);
 - `default_level`: `medium` (default: this conversation selected), `macro` or `mega`;
 - `diagram.enabled`: the project tree also drawn as an SVG in « Ce projet » (off: it repeated the rows);
@@ -46,11 +88,11 @@ Prices, thresholds and the detail screens' labels are factory's (`lib/factory/fa
 
 ## Shared libs
 
-A mod may import only files inside its own folder (`claude plugin validate`: « cannot import … it is outside the plugin's folder »). So `lib/` holds byte copies of factory's view models, renderers and scanner, band's gauge and veille's view model; the owners stay the source of truth:
+A mod may import only files inside its own folder (`claude plugin validate`: « cannot import … it is outside the plugin's folder »). So `lib/` holds byte copies, listed in the repo's `lib/core/targets.json`: `lib/core` (the canonical shared readers), factory's view models, renderers and scanners (Workflow included, with its own `lib/factory/lib/core` estimate and Gantt), machine's sampler, band's gauge, veille's view model and usage's ranking. The owners stay the source of truth; never edit a copy:
 
 ```sh
-node mods/cockpit/scripts/sync-libs.mjs          # after changing factory, band's gauge or veille's view
-node mods/cockpit/scripts/sync-libs.mjs --check  # what CI checks (tests/nav.test.mjs too)
+node scripts/sync-libs.mjs          # after changing a source
+node scripts/sync-libs.mjs --check  # what CI checks
 ```
 
 ## Preview
@@ -64,8 +106,9 @@ prints the four levels as text (every section unfolded) at a side-panel width fr
 ## Tests
 
 ```sh
-node --test mods/cockpit/tests/nav.test.mjs   # navigation, breadcrumb, tree from fixture sessions, sections, lib drift
-claude plugin test mods/cockpit               # auto-open, /cockpit, clicks, both surfaces
+node --test mods/cockpit/tests/nav.test.mjs     # navigation, breadcrumb, tree from fixture sessions, sections, lib drift
+node --test mods/cockpit/tests/cards.test.mjs   # cards, tabs, aliases, scanner/cards.mjs over invented files
+claude plugin test mods/cockpit               # auto-open, /cockpit, clicks, card buttons, tabs, /factory and /machine aliases, both surfaces
 claude plugin validate mods/cockpit
 ```
 

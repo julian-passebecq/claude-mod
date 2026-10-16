@@ -291,3 +291,20 @@ export function model(aggr, cfg, { now, live = [], samples = [], scenarios = [] 
 export const fmtTokens = n => (n >= 1e9 ? `${(n / 1e9).toFixed(2)} G` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)} k` : `${Math.round(n)}`)
 export const fmtUsd = n => `${n >= 100 ? Math.round(n) : n.toFixed(2)} $`
 export const fmtPct = n => (n === undefined || !Number.isFinite(n) ? '?' : `${n < 10 ? n.toFixed(1) : Math.round(n)} %`)
+
+// « Claude 5 h 24 % · semaine 14 % · épuisé ven 14:00 | Codex 5 h ? · semaine 18 % »: lib/core/usage.mjs readQuotas
+// (scanner/usage_scan.mjs quotas) as one line; band and cockpit read the same windows, so the three print the same %.
+const QDAYS = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam']
+const qAt = ms => { const d = new Date(ms); return `${QDAYS[d.getDay()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+export function quotaPart(p) {
+  if (!p || (!p.five && !p.week)) return ''
+  const pct = w => (w ? `${Math.round(w.pct)} %` : '?')
+  const bits = [`5 h ${pct(p.five)}`, `semaine ${pct(p.week)}`]
+  const out = [p.five, p.week].filter(w => w && w.runOutAt).sort((a, b) => a.runOutAt - b.runOutAt)[0]
+  if (out) bits.push(`épuisé ${qAt(out.runOutAt)}`)
+  return bits.join(' · ')
+}
+export function quotaLine(q, unknown = 'non lu') {
+  if (!q) return ''
+  return `Claude ${quotaPart(q.claude) || unknown} | Codex ${quotaPart(q.codex) || unknown}`
+}

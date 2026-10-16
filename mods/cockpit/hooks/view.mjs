@@ -7,11 +7,12 @@
 //   ▸ Qui consomme               top 3 conversations + top project of a window (usage's classement.json), full view button
 //   ▸ Claude global              quotas (band's bar, lib/band/hooks/gauge.ts), Veille alerts, a /machine button
 import { drawScreen } from '../lib/factory/hooks/draw.mjs'
+import { drawWorkflowBody } from '../lib/factory/hooks/workflow_draw.mjs'
 import { layout, clip } from '../lib/factory/hooks/screens.mjs'
 import { barSvg } from '../lib/band/hooks/gauge.ts'
 import {
   cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
-  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary,
+  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf,
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
 
@@ -43,18 +44,62 @@ function kit(el, cfg) {
   return { T, row, col, box, btn, svg, lr, c }
 }
 
-// V = { cfg, fcfg, scan, nav, self, busy, error, at, columns, filter, usage, veille, open, act }
+// V = { cfg, fcfg, scan, nav, self, busy, error, at, columns, filter, usage, veille, open, act, tab, cards, wf…, machine }
 export function drawCockpit(el, V0) {
   const V = { ...V0, el }
   const h = kit(el, V.cfg)
   const L = h.c.labels
-  const out = []
-  for (const s of sectionsOf(V.cfg)) {
+  const tabs = tabsOf(V.cfg)
+  const tab = tabs.some((t) => t.id === V.tab) ? V.tab : 'home'
+  const out = [h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 })]
+  if (tab !== 'home') return h.col([...out, ...drawTab(h, V, L, tab)])
+  const secs = sectionsOf(V.cfg)
+  if (secs[0] !== 'breadcrumb') out.push(drawCards(h, V, L))
+  for (const s of secs) {
     const part = { breadcrumb: drawCrumbs, conv: drawConv, project: drawProject, all: drawAll, conso: drawConso, global: drawGlobal, fichiers: drawFiles }[s](h, V, L)
     if (part) out.push(part)
+    if (s === 'breadcrumb') out.push(drawCards(h, V, L)) // the cards right under the breadcrumb, above the sections
   }
-  if (V.error) out.splice(1, 0, h.T(`scanner : ${V.error}`, { tone: 'bad' }))
+  if (V.error) out.push(h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'scan-error' }))
   return h.col(out)
+}
+
+// ---- 0. the summary cards: one line each, a button to the detail ----------------------------------------------------
+
+function drawCards(h, V, L) {
+  const list = V.cards || []
+  if (!list.length) return null
+  const rows = list.map((c) => h.col([
+    h.row([
+      h.T(c.title, { bold: true, wrap: 'truncate-end' }),
+      h.btn(L.card_open || 'Voir', () => V.act.card(c), false, 'card-btn-' + c.id),
+    ], { justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }),
+    h.T(c.line, { tone: c.tone || undefined, dim: c.tone === 'dim', wrap: 'wrap', key: 'card-line-' + c.id }),
+    ...(c.items || []).map((it, i) => h.T(`• ${it.text}`, { dim: true, key: `card-${c.id}-${i}`, wrap: 'wrap' })),
+    c.more ? h.T(`+ ${c.more}`, { dim: true, key: `card-${c.id}-more` }) : null,
+  ], { key: 'card-' + c.id, marginBottom: 1 }))
+  if (V.cardsError) rows.push(h.T(`cartes : ${V.cardsError}`, { tone: 'bad', key: 'cards-error' }))
+  return h.box(null, rows, { key: 'cards' })
+}
+
+// ---- factory's screens and Machine, as tabs of the same pane --------------------------------------------------------
+
+function drawTab(h, V, L, tab) {
+  const head = h.row([h.btn((tab === 'workflow' ? V.wfBusy : V.busy) ? '…' : '↻', () => V.act.refresh(), false, 'tab-refresh'),
+    h.T(V.at ? hhmm(tab === 'workflow' ? V.wfAt || V.at : V.at).slice(0, 5) : '--:--', { dim: true, key: 'tab-time' })], { key: 'tab-head', alignItems: 'center', marginBottom: 1 })
+  const base = { cfg: V.fcfg, at: V.at, busy: V.busy, error: V.error, columns: V.columns, filter: V.filter || 'all', jfilter: V.jfilter || 'all', jproject: V.jproject || '',
+    picking: false, live: [], quotas: null, machine: V.machine || {}, embedded: true, target: V.nav && V.nav.conv, scan: V.scan,
+    wf: V.wf, wfAt: V.wfAt, wfBusy: V.wfBusy, wfError: V.wfError, wfScope: V.wfScope, wfOpen: V.wfOpen,
+    act: { tab: (id) => V.act.tab(id), go: (cli) => V.act.go(cli), refresh: () => V.act.refresh(), filter: (k) => V.act.filter(k), jfilter: (k) => V.act.jfilter(k),
+      jproject: (p) => V.act.jproject(p), pick: () => V.act.pick(), wfScope: (k) => V.act.wfScope(k), wfToggle: (k, o) => V.act.wfToggle(k, o) } }
+  if (tab === 'workflow') return [head, ...drawWorkflowBody(V.el, base)]
+  if (tab === 'machine') {
+    const m = V.machine || {}
+    const body = m.sample ? drawScreen(V.el, { ...base, scan: V.scan || { sessions: [] } }, 'systeme') : [h.T(m.error ? `machine : ${m.error}` : L.scanning, { tone: m.error ? 'bad' : undefined, dim: !m.error, key: 'm-wait' })]
+    return [head, ...body]
+  }
+  if (!V.scan) return [head, V.error ? h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'tab-err' }) : null, h.T(L.scanning, { dim: true, key: 'tab-scan' })].filter(Boolean)
+  return [head, ...drawScreen(V.el, base, tab)]
 }
 
 // One small row: Méga › projet › conversation › agent, then refresh and the time.

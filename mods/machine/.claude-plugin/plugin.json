@@ -1,7 +1,7 @@
 {
   "name": "machine",
-  "version": "0.1.0",
-  "description": "Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RAM, disques, GPU, top 5 processus CPU et mémoire (claude, node, python, git en couleur), charge du runner GitLab local (via le mod ci) et « agents en parallèle conseillés maintenant : N ». /machine",
+  "version": "0.1.1",
+  "description": "Maintenant dans Cockpit (onglet Machine, /cockpit machine : charge du PC par ce même échantillonneur, charge du runner par lib/core/runner.mjs) ; ce mod reste utilisable seul, et quand il n'est pas chargé Cockpit répond à /machine. Machine : vue en direct de ce PC, en lecture seule. CPU (total et par cœur), RAM, disques, GPU, top 5 processus CPU et mémoire (claude, node, python, git en couleur), charge du runner GitLab local (via le mod ci) et « agents en parallèle conseillés maintenant : N ». /machine",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",

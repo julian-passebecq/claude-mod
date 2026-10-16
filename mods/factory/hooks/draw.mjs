@@ -373,7 +373,7 @@ function drawQuotas(h, V, cfg, L, lay) {
         h.T(bar(w.pct, lay.bar), { color: w.pct >= 80 ? 'bad' : 'ok' }),
       ], { key: 'cx' + i })),
       ...(q.codex.missing || []).map((x) => h.T(`${x} : ${L.unavailable}`, { dim: true })),
-      h.T(`aujourd’hui ${fmtTokens(q.codex.today || 0)} tokens`, { dim: true }),
+      Number.isFinite(q.codex.today) ? h.T(`aujourd’hui ${fmtTokens(q.codex.today)} tokens`, { dim: true }) : null,
     ] : [h.T(`${L.unavailable} (${q.codex.reason})`, { dim: true })], { key: 'codex' }))
   }
   const maxM = Math.max(0.01, ...q.byModel.map((x) => x.cost))

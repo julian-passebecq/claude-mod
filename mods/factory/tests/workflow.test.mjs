@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { deepMerge } from '../hooks/logic.mjs'
 import {
-  workflowConfig, estimator, remainingOf, quantiles, runView, limitsView, workflowScreen, speed, capOf, gantt, scrub,
+  workflowConfig, estimator, remainingOf, quantiles, runView, limitsView, workflowScreen, speed, capOf, gantt, ganttLegend, scrub,
   parseWorkflowArgs, workflowArgs, frTokens, frUsd, frDur,
 } from '../hooks/workflow.mjs'
 import { drawFactoryPane, allTabs } from '../hooks/workflow_draw.mjs'
@@ -150,6 +150,16 @@ test('gantt: horizontal with a now line and a dashed estimated tail when wide, v
   assert.equal(nv.mode, 'vertical')
   assert.ok(nv.rows.some((r) => r.kind === 'now'))
   assert.deepEqual(nv.rows.map((r) => r.ts), [...nv.rows.map((r) => r.ts)].sort((a, b) => a - b))
+})
+
+test('gantt: drawn by lib/core/gantt.mjs (same symbols and legend as the ci Diagramme)', async () => {
+  const core = await import('../lib/core/gantt.mjs')
+  const v = runView(RUN, estimator(HISTORY, CFG), CFG, NOW)
+  const g = gantt(v, NOW, 70, CFG)
+  const glyphs = new Set(g.groups.flatMap((x) => x.rows.flatMap((r) => r.cells.flatMap((c) => [...c.text]))))
+  const allowed = new Set(Object.values(core.SYMBOLS))
+  assert.ok([...glyphs].every((c) => allowed.has(c)), [...glyphs].join(''))
+  assert.equal(ganttLegend(), core.legend())
 })
 
 test('scrub: tokens, passwords, e-mails and home folders masked, one line, ≤ 100 characters', () => {
