@@ -105,6 +105,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [a-faire](#a-faire)
     - [problemes](#problemes)
     - [export-eta](#export-eta)
+    - [tests-reels](#tests-reels)
   - [Archivés / rejetés](#archivés--rejetés)
 - [FAQ et pièges](#faq-et-pièges)
   - [Pièges](#pièges)
@@ -593,6 +594,16 @@ Export eta : exporte des conversations Claude Code en Markdown vers le dépôt e
 - **Fonctionnalités** : commandes aucune · affiche : panneau, bandeau · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/export-eta` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/export-eta`
 - **Tests** : `node --test mods/export-eta/tests/logic.test.mjs` · `node --test mods/veille/tests/export.test.mjs` · `claude plugin test mods/export-eta` · `claude plugin validate mods/export-eta`
+
+#### tests-reels
+
+Tests réels : le registre des tests hors CI par application (tenant de test, Cloudflare Access et Workers, Power BI Desktop / SSAS / Docker en local, automatisation d'interface, vérifications manuelles), en lecture seule. Par appli : environnements, comptes de test masqués (seulement l'endroit où le secret est rangé, jamais sa valeur), procédures et derniers essais (vert, rouge, jamais), « jamais testé en réel », et la liste « À ranger ». Données locales dans ~/.claude/tests-reels. /tests
+
+- **État** : en construction · version 0.1.0 · aucun mot de passe, jeton, clé ni cookie stocké ni affiché : seulement une référence (Gestionnaire d'identification Windows : cible). Ids de tenant, de workspace et URL privées seulement dans le dossier local, jamais dans le dépôt. Aucun texte envoyé au modèle. Non vérifié : format des transcripts (non documenté) ; détection des secrets heuristique (formats forts et paires mot de passe=… dont la valeur a l'air aléatoire).
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.render` · lit : ~/.claude/tests-reels (registry.json écrit par cli.mjs add, runs.jsonl par cli.mjs run-log, recovered.json par le scan de récupération) ; le scan lit les transcripts ~/.claude/projects, effort-board/manual-checks.md, handoff/*.md et reports/* des dépôts sous repo_roots, et les dossiers extra_roots · aucun blocage
+- **Fonctionnalités** : commandes `/tests` · affiche : panneau · options userConfig : aucune
+- **Activer** : `<dépôt>/mods/tests-reels` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/tests-reels`
+- **Tests** : `node --test mods/tests-reels/tests/logic.test.mjs` · `claude plugin test mods/tests-reels` · `claude plugin validate mods/tests-reels`
 
 ### Archivés / rejetés
 
