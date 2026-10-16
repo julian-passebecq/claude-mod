@@ -327,6 +327,7 @@ export function register(on) {
     await loadConfig($)
     try { D.self = (await $.session.id()) || D.self } catch { /* keep the last one */ }
     const q = String(e.args || '').trim()
+    if (q.toLowerCase() === 'close') { D.open = false; await $.ui.close({ id: 'factory' }); return {} }
     await openPane($)
     if (!q) { await go($, 'all'); return {} }
     if (!D.scan) await rescan($)

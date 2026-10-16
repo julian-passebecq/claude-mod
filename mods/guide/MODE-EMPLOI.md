@@ -31,6 +31,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
 - [Interface](#interface)
   - [Panneaux](#panneaux)
     - [Ouvrir un panneau](#ouvrir-un-panneau)
+    - [Ouvrir le panneau d'un autre mod](#ouvrir-le-panneau-dun-autre-mod)
     - [Dessiner un panneau](#dessiner-un-panneau)
     - [Les éléments](#les-éléments)
   - [Commandes slash](#commandes-slash)
@@ -104,6 +105,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
   - [Questions](#questions)
     - [Un mod est-il isolé](#un-mod-est-il-isolé)
     - [Un mod consomme-t-il des jetons](#un-mod-consomme-t-il-des-jetons)
+    - [Ouvrir un autre mod depuis la Jauge](#ouvrir-un-autre-mod-depuis-la-jauge)
 <!-- toc:end -->
 
 ## Bases
@@ -205,6 +207,10 @@ Ce que l'on voit : panneaux, commandes, petits messages.
 
 `$.ui.open({ id, title })` ; il répond `{ isPlaced }`. Un panneau ouvert sans geste de l'utilisateur n'est placé qu'à partir de 144 colonnes de terminal ; dans Desktop il se range à droite dès 800 px, sinon il s'affiche dans le fil (12 lignes). ([interface](https://code.claude.com/docs/en/plugins/mods/interface), [reference](https://code.claude.com/docs/en/plugins/mods/reference))
 
+#### Ouvrir le panneau d'un autre mod
+
+Un mod n'ouvre ni ne ferme le panneau d'un autre : `$.ui.open` et `$.ui.close` n'agissent que sur les panneaux du mod qui appelle, et `$.ui.panes()` ne liste que les siens. Il peut en revanche lancer la commande slash de l'autre avec `$.command.run({ command, args })`, « comme si la personne l'avait tapée » ; elle attend la fin du tour en cours. C'est ce que fait la barre Mods de la Jauge : `/conso` ouvre, `/conso close` ferme. ([api](https://code.claude.com/docs/en/plugins/mods/api), [interface](https://code.claude.com/docs/en/plugins/mods/interface))
+
 #### Dessiner un panneau
 
 Un hook `on('ui.render', { component: 'Pane', requestId: '<id>' }, …)` rend un arbre JSX. Les éléments viennent de `$.ui.resolve(e)`, pas de globals. Les valeurs lues avec `read($, atom)` redessinent le panneau quand elles changent ; 10 redessins par seconde au plus. ([reference](https://code.claude.com/docs/en/plugins/mods/reference))
@@ -276,7 +282,7 @@ Trois chemins : un dossier, une marketplace, ou l'app Desktop.
 Pour les sessions qu'on ne lance pas soi-même (app Desktop, SDK) : chemins absolus séparés par `;` sous Windows (`:` ailleurs), dans l'environnement ou dans le bloc `env` de `~/.claude/settings.json`. Exemple pour ce dépôt :
 
 ```json
-"env": { "CLAUDE_CODE_PLUGIN_DIRS": "<dépôt>/mods/factory;<dépôt>/mods/control;<dépôt>/mods/ci;<dépôt>/mods/scenarios;<dépôt>/mods/guide" }
+"env": { "CLAUDE_CODE_PLUGIN_DIRS": "<dépôt>/mods/factory;<dépôt>/mods/control;<dépôt>/mods/ci;<dépôt>/mods/scenarios;<dépôt>/mods/guide;<dépôt>/mods/usage;<dépôt>/mods/band" }
 ```
 
 Une session longue non interactive recharge aussi à la sauvegarde avec `CLAUDE_CODE_PLUGIN_DIR_WATCH=1`. ([reference](https://code.claude.com/docs/en/plugins/mods/reference))
@@ -426,7 +432,7 @@ Claude Control panes: SETUP (everything that shapes a session, hidden rules flag
 
 CI routing: which CI backends exist (from a config file), whether they are usable (token, runners, jobs), and which repo or conversation uses which. /ci, /ci route, /ci clear
 
-- **État** : en construction · version 0.1.0
+- **État** : en construction · version 0.1.0 · note dans le prompt système désactivée par défaut (prompt_note: false) ; /ci close ferme le panneau
 - **Fonctionnement** : événements `session.start`, `command.run`, `prompt.compose`, `ui.render` · lit : ~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners) · aucun blocage
 - **Fonctionnalités** : commandes `/ci` · affiche : panneau, ligne de statut, note dans le prompt système · options userConfig : aucune
 - **Activer** : `<dépôt>/mods/ci` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/ci`
@@ -464,11 +470,11 @@ Mode d'emploi des mods, en français : ce qu'est un mod, événements, panneaux,
 
 #### band
 
-Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages. /jauge
+Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, plus une barre Mods qui ouvre et ferme les autres mods. /jauge
 
 - **État** : en construction · version 0.1.0 · bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.
-- **Fonctionnement** : événements `session.start`, `session.measure`, `command.run`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
-- **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
+- **Fonctionnement** : événements `session.start`, `command.run`, `session.measure`, `ui.render` · lit : $.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json · aucun blocage
+- **Fonctionnalités** : commandes `/jauge` · affiche : panneau, bandeau, ligne de statut, toasts · options userConfig : config « Settings file », défaut "" ; band « Band above the prompt » (on | off), défaut "on" ; status_line « Status line entry » (on | off), défaut "off"
 - **Activer** : `<dépôt>/mods/band` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/band`
 - **Tests** : `node --test mods/band/tests/logic.test.mjs` · `claude plugin test mods/band`
 
@@ -516,4 +522,8 @@ Non : il tourne avec les droits de l'utilisateur. Lis le code d'un mod avant de 
 
 #### Un mod consomme-t-il des jetons
 
-Pas par lui-même. Seulement s'il appelle `$.model.complete`, lance un agent, ou ajoute du texte au prompt système (`prompt.compose`). ([api](https://code.claude.com/docs/en/plugins/mods/api))
+Pas par lui-même. Seulement s'il appelle `$.model.complete`, lance un agent, ou ajoute du texte au prompt système (`prompt.compose`). ([api](https://code.claude.com/docs/en/plugins/mods/api)) Dans ce dépôt, aucun mod n'en ajoute par défaut : la note de route de `ci` ne s'active qu'avec `prompt_note: true`. Une commande lancée (à la main ou par la barre Mods) laisse sa courte réponse dans le fil, que Claude lit au tour suivant.
+
+#### Ouvrir un autre mod depuis la Jauge
+
+La ligne « Mods : » sous la Jauge a un bouton par mod (`launcher` dans `band.config.json`). Un clic lance sa commande et ouvre son panneau, le bouton devient « Conso ✕ » ; un second clic le ferme. Un bouton grisé = mod non chargé : ajouter `<dépôt>/mods/<x>` à `CLAUDE_CODE_PLUGIN_DIRS` et ouvrir une nouvelle session.

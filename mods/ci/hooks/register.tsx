@@ -85,7 +85,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'ci',
       description: 'CI routing: backends, their status, and which repo or conversation uses which (route / clear)',
-      argumentHint: '[refresh] | route <repo|session|here> <backend-id> | clear <repo|session|here>',
+      argumentHint: '[refresh] | close | route <repo|session|here> <backend-id> | clear <repo|session|here>',
     })
     const ran = await next(e)
     // the route for the status line and the prompt note; cache only, no network at start
@@ -94,6 +94,10 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'ci' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      await $.ui.close({ id: PANE.id })
+      return {}
+    }
     const p = parseArgs(e.args ?? '')
     if (p.kind === 'usage') return { text: p.text }
     const { cwd, id } = await where($)
@@ -118,11 +122,12 @@ export const register: Register = on => {
     return { text: summary(p.refresh ? { ...s, stale: true } : s) }
   })
 
-  // The route as information for the model; nothing is blocked or rewritten.
+  // The route as information for the model, only when the config sets prompt_note: true (default off: it would add
+  // text to every request). Nothing is blocked or rewritten.
   on('prompt.compose', async ($, e, next) => {
     const result = await next(e)
     const s = parseSnapshot(await read($, snapshot))
-    const note = s && s.options?.prompt_note !== false ? promptNote(s) : undefined
+    const note = s && s.options?.prompt_note === true ? promptNote(s) : undefined
     if (!note) return result
     return { ...result, sections: [...result.sections, { id: 'ci:route', text: note, scope: 'session' as const }] }
   })

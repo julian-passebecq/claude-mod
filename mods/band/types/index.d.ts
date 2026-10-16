@@ -98,6 +98,8 @@ declare module 'claude-code' {
       engine: EngineFigures | null
       /** last scanner error line, '' when fine */
       error: string
+      /** the Mods button bar: slash commands seen in this session ($.command.list()) and the mods it opened */
+      launcher: { commands: { name: string; plugin?: string }[]; open: string[] }
     }
   }
 }

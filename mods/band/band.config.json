@@ -24,6 +24,19 @@
     "items": ["ctx", "rates"],
     "scopes": ["conv", "all"]
   },
+  "launcher": {
+    "_doc": "Mods button bar in the band. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash. A press runs /<command> (the mod opens its own pane); a second press, or its ✕, runs /<command> <close_args>. A mod whose command is not in this session greys out. Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
+    "enabled": true,
+    "close_args": "close",
+    "items": [
+      { "label": "Usine", "mod": "factory", "command": "factory" },
+      { "label": "Conso", "mod": "usage", "command": "conso" },
+      { "label": "Scénarios", "mod": "scenarios", "command": "scenarios" },
+      { "label": "CI", "mod": "ci", "command": "ci" },
+      { "label": "Control", "mod": "control", "command": "control" },
+      { "label": "Guide", "mod": "guide", "command": "mods-guide" }
+    ]
+  },
   "context": {
     "window_fallback": 200000,
     "_autocompact_pct_fallback": "used only when the engine gives no autoCompactThreshold",
@@ -65,7 +78,10 @@
     "trigger_manual": "/compact",
     "trigger_idle": "au repos (déduit)",
     "trigger_unknown": "inconnu",
-    "pane_title": "Jauge"
+    "pane_title": "Jauge",
+    "launcher": "Mods",
+    "launcher_missing": "non chargé : ajouter mods/{mod} à CLAUDE_CODE_PLUGIN_DIRS",
+    "launcher_queued": "en file : s'ouvre quand Claude a fini son tour"
   },
   "_shared_lib": "auto: per-line usage and prices from mods/usage/lib (its parser and prices.json) when that mod sits beside this one; off: band's own parser and the rates below.",
   "shared_lib": "auto",

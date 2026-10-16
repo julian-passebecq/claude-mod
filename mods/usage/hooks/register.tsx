@@ -101,7 +101,7 @@ export const register: Register = (on, raw) => {
     await $.command.register({
       name: 'conso',
       description: 'Consommation : tokens, coût équivalent, prévision des limites 5 h et semaine, scénarios (args: [aujourdhui|semaine|prevision|scenarios|plein] [refresh])',
-      argumentHint: '[aujourdhui|semaine|prevision|scenarios|plein] [refresh]',
+      argumentHint: '[aujourdhui|semaine|prevision|scenarios|plein] [refresh] | close',
     })
     const { cfg } = await context($, options)
     if (cfg.status_line === 'on') $.clock.after(2000, () => rescan($, options))
@@ -109,6 +109,10 @@ export const register: Register = (on, raw) => {
   })
 
   on('command.run', { command: 'conso' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      await $.ui.close({ id: 'usage' })
+      return {}
+    }
     const words = String(e.args ?? '').toLowerCase().split(/\s+/).filter(Boolean)
     const want = words.map(w => ALIASES[w.normalize('NFD').replace(/[̀-ͯ']/g, '')]).find(Boolean)
     if (want) await update($, tab, () => want)

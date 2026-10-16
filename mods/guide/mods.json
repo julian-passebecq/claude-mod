@@ -18,6 +18,7 @@
       "dir": "ci",
       "state": "building",
       "data": "~/.claude/ci.config.json, fichier de routage, gh/glab auth status, API GitLab (runners)",
+      "note": "note dans le prompt système désactivée par défaut (prompt_note: false) ; /ci close ferme le panneau",
       "tests": ["python -I -m unittest discover -s mods/ci/tests -p \"test_*.py\"", "claude plugin test mods/ci"]
     },
     {
@@ -43,7 +44,7 @@
       "dir": "band",
       "name": "band (Jauge, bandeau V6)",
       "state": "building",
-      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Reprend context-meter et le bandeau de cc-control.",
+      "description": "Jauge au-dessus du prompt, en lecture seule : contexte de la conversation face à l'auto-compact et au seuil de relais (RESUME), débit en tok/s par périmètre (conversation, ses agents, projet, tout le PC), compactages. Sous la jauge, une barre Mods : un bouton par mod (Usine, Conso, Scénarios, CI, Control, Guide) qui lance sa commande pour ouvrir son panneau, un second clic le ferme ; grisé si le mod n'est pas chargé. Reprend context-meter et le bandeau de cc-control.",
       "data": "$.session.usage() et session.measure (chiffres de la status line), transcripts ~/.claude/projects lus en incrémental par scanner/scan.mjs (Node 22.18+), cache ~/.claude/band/scan-cache.json",
       "note": "bandeau V6 prévu dans ce guide : construit. Seuil d'auto-compact lu dans le breakdown du moteur ; compaction au repos (2.1.299) et son délai non vérifiés dans la doc.",
       "tests": ["node --test mods/band/tests/logic.test.mjs", "claude plugin test mods/band"]

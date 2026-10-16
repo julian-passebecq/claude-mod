@@ -98,3 +98,53 @@ test('band off: the engine draws its own', { options: { band: 'off' } } as any, 
   expect(await band.find({ type: 'Text', text: /engine/ })).toBeDefined()
   await band.unmount()
 })
+
+// The Mods button bar: usage and factory are loaded (their commands are listed), ci is not.
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`launcher: a press opens a loaded mod, a second press closes it, a missing mod is greyed (${surface})`, async ($, on) => {
+    world(on)
+    const ran: string[] = []
+    const toasts: string[] = []
+    on('command.list', () => ({
+      value: [
+        { name: 'conso', description: '', source: 'plugin', plugin: 'usage' },
+        { name: 'factory', description: '', source: 'plugin', plugin: 'factory' },
+        { name: 'ci', description: '', source: 'plugin', plugin: 'someone-else' },
+      ],
+    }))
+    on('command.run', { command: 'conso' }, ($: any, e: any) => (ran.push(`conso ${e.args ?? ''}`.trim()), {}))
+    on('ui.toast', ($: any, e: any) => (toasts.push(String(e.text)), { value: undefined }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+    expect(await band.find({ type: 'Text', text: /^Mods :$/ })).toBeDefined()
+    await band.press({ key: 'mod-usage' })
+    expect(ran).toEqual(['conso'])
+    expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeDefined()
+    await band.press({ key: 'mod-usage' })
+    expect(ran).toEqual(['conso', 'conso close'])
+    expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeUndefined()
+    await band.press({ key: 'mod-ci' })
+    expect(ran.length).toBe(2)
+    expect(toasts.at(-1)).toBe('non chargé : ajouter mods/ci à CLAUDE_CODE_PLUGIN_DIRS')
+    await band.unmount()
+    const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface, viewport: { columns: 160, rows: 120 }, props: PANE } as any)
+    expect(await pane.find({ type: 'Text', text: /mods\/scenarios à CLAUDE_CODE_PLUGIN_DIRS/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '/factory' })).toBeDefined()
+    await pane.unmount()
+  })
+}
+
+test('launcher: the person typing /conso close keeps the button in step', async ($, on) => {
+  world(on)
+  on('command.list', () => ({ value: [{ name: 'conso', description: '', source: 'plugin', plugin: 'usage' }] }))
+  on('command.run', { command: 'conso' }, () => ({}))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  await $.command.run({ command: 'conso', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await band.find({ type: 'Button', text: 'Conso ✕' })).toBeDefined()
+  await band.unmount()
+  await $.command.run({ command: 'conso', args: 'close' } as any)
+  const again = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 160, rows: 40 }, props: BAND } as any)
+  expect(await again.find({ type: 'Button', text: 'Conso ✕' })).toBeUndefined()
+  await again.unmount()
+})

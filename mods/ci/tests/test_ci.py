@@ -188,6 +188,12 @@ class CheckTest(Base):
         self.assertEqual(out['routes'][0]['set_by'], 'lead')
         self.assertEqual(out['labels']['title'], 'CI routing')
 
+    def test_prompt_note_off_by_default(self):
+        # The note would add text to every request: off unless the config says prompt_note: true.
+        self.assertFalse(ci.show(self.cfg, self.tmp, [])['options']['prompt_note'])
+        cfg = {k: v for k, v in self.cfg.items() if k != 'prompt_note'}
+        self.assertFalse(ci.show(cfg, self.tmp, [])['options']['prompt_note'])
+
 
 if __name__ == '__main__':
     unittest.main()

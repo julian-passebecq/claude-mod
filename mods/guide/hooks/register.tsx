@@ -73,12 +73,16 @@ export const register: Register = on => {
     await $.command.register({
       name: 'mods-guide',
       description: "Mode d'emploi des mods : onglets Bases, Événements, Interface, Configuration, Installer, Tester, Écrire un mod, Référence, Nos mods, FAQ",
-      argumentHint: '[onglet ou section]',
+      argumentHint: '[onglet ou section] | close',
     })
     return next(e)
   })
 
   on('command.run', { command: 'mods-guide' }, async ($, e) => {
+    if ((e.args ?? '').trim().toLowerCase() === 'close') {
+      await $.ui.close({ id: PANE.id })
+      return {}
+    }
     const { doc, problem } = await loadDoc($)
     if (problem) return { text: `mods-guide: ${problem}` }
     const args = (e.args ?? '').trim()

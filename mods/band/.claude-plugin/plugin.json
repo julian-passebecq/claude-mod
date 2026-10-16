@@ -1,7 +1,7 @@
 {
   "name": "band",
   "version": "0.1.0",
-  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages. /jauge",
+  "description": "Jauge : bandeau toujours visible au-dessus du prompt, en lecture seule. Contexte de cette conversation face à l'auto-compact et au seuil de relais RESUME, débit en tok/s (cette conversation, ses agents, le projet, tout le PC) et compactages, plus une barre Mods qui ouvre et ferme les autres mods. /jauge",
   "author": { "name": "Julian Passebecq" },
   "license": "MIT",
   "types": "./types/index.d.ts",
