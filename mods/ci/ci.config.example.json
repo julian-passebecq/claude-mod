@@ -1,0 +1,79 @@
+{
+  "_readme": "Copy to ci.config.json next to this file or to ~/.claude/ci.config.json and fill the <PLACEHOLDERS>. A value still in <angle brackets> is treated as unset. Labels, statuses and colors are yours to change.",
+  "routing_file": "~/.claude/ci-routing.json",
+  "status_cache": "~/.claude/ci-status-cache.json",
+  "cache_minutes": 10,
+  "timeout_seconds": 8,
+  "max_repo_checks": 10,
+  "status_line": true,
+  "prompt_note": true,
+  "hosts": {
+    "github.com": { "kind": "github", "cli": "gh", "token_env": ["GH_TOKEN", "GITHUB_TOKEN"] },
+    "gitlab.com": { "kind": "gitlab", "cli": "glab", "token_env": ["GITLAB_TOKEN"], "api": "https://gitlab.com/api/v4" }
+  },
+  "labels": {
+    "title": "CI routing",
+    "backends": "Backends",
+    "routes": "Routes",
+    "here": "This conversation",
+    "no_route": "no route: the repo's own CI applies",
+    "usable": { "yes": "usable", "no": "not usable", "unknown": "unknown" },
+    "status": { "active": "active", "coming-soon": "coming soon", "disabled": "disabled" },
+    "colors": { "yes": "success", "no": "error", "unknown": "subtle", "coming-soon": "subtle", "disabled": "subtle" }
+  },
+  "backends": [
+    {
+      "id": "github-hosted",
+      "label": "GitHub Actions (hosted)",
+      "kind": "github",
+      "host": "github.com",
+      "runner_tag": "ubuntu-latest",
+      "status": "active",
+      "public_only": true,
+      "notes": "Works for public repos only; private repos are refused for billing."
+    },
+    {
+      "id": "gitlab-saas",
+      "label": "GitLab.com shared runners",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "group": "<GITLAB_GROUP>",
+      "runner_tag": "",
+      "check_runners": false,
+      "minutes_month": 400,
+      "status": "active",
+      "notes": "Shared SaaS runners, 400 CI minutes a month for the group. Untagged jobs land here."
+    },
+    {
+      "id": "gitlab-local",
+      "label": "GitLab runner on this PC",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "group": "<GITLAB_GROUP>",
+      "runner_tag": "local-windows",
+      "concurrent": "<CONCURRENT>",
+      "pending_projects": [],
+      "status": "active",
+      "notes": "Self-hosted runner on your own PC; jobs must carry the local-windows tag. Also runs CI for private GitHub repos through a GitLab mirror."
+    },
+    {
+      "id": "gitlab-oracle-vm",
+      "label": "GitLab runner on the Oracle VM",
+      "kind": "gitlab",
+      "host": "gitlab.com",
+      "group": "<GITLAB_GROUP>",
+      "runner_tag": "<ORACLE_VM_TAG>",
+      "status": "coming-soon",
+      "notes": "Self-hosted GitLab runner on an Oracle VM; not set up yet."
+    },
+    {
+      "id": "github-oracle-vm",
+      "label": "GitHub runner on the Oracle VM",
+      "kind": "github",
+      "host": "github.com",
+      "runner_tag": "<ORACLE_VM_TAG>",
+      "status": "coming-soon",
+      "notes": "Self-hosted GitHub Actions runner on an Oracle VM; not set up yet."
+    }
+  ]
+}
