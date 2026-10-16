@@ -53,10 +53,14 @@ export function render(n, width) {
   if (p.flexDirection === 'row') {
     const gap = p.gap ?? 1
     if (kids.some((k) => k.props && k.props.flexGrow)) {
-      const w = Math.floor((inner - gap * (kids.length - 1)) / kids.length)
-      const cols = kids.map((k) => render(k, w))
+      // a child with a fixed `width` keeps it; the others share what is left
+      const fixed = kids.reduce((a, k) => a + ((k.props && k.props.width) || 0), 0)
+      const free = kids.filter((k) => !(k.props && k.props.width)).length || 1
+      const w = Math.max(4, Math.floor((inner - fixed - gap * (kids.length - 1)) / free))
+      const ws = kids.map((k) => (k.props && k.props.width) || w)
+      const cols = kids.map((k, i) => render(k, ws[i]))
       const h = Math.max(...cols.map((c) => c.length))
-      for (let i = 0; i < h; i++) lines.push(cols.map((c) => pad(c[i] || '', w)).join(' '.repeat(gap)).trimEnd())
+      for (let i = 0; i < h; i++) lines.push(cols.map((c, j) => pad(c[i] || '', ws[j])).join(' '.repeat(gap)).trimEnd())
     } else {
       let cur = ''
       for (const k of kids) {

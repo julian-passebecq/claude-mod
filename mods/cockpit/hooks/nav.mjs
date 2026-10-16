@@ -10,14 +10,31 @@ import { rank } from '../lib/usage/lib/classement.mjs'
 export const LEVELS = ['mega', 'macro', 'medium', 'micro']
 // Tabs of the one pane: « Cockpit » (cards + the scoped sections), then factory's screens (synced copies in
 // lib/factory) and Machine. factory's Quotas and Système are not here: the Quota card and Machine replace them.
-export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine']
+// relais = Claude ↔ Codex, galerie = the Reference Gallery views (Équipe, Carte, Codex), nuit = « Bilan avant la nuit »
+// (opened by the Nuit button of the Cockpit tab; listed in tabs.order only if you add it).
+export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie', 'nuit']
+const DEFAULT_TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie']
 // Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
 export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers']
 export const FOLDABLE = ['conv', 'project', 'all', 'conso', 'global']
 
 export const DEFAULTS = {
   sections: { order: SECTIONS, enabled: SECTIONS, open: ['conv'] },
-  tabs: { order: TABS, enabled: TABS, labels: { home: 'Cockpit', mission: 'Mission', focus: 'Focus', arbre: 'Arbre', pipeline: 'Pipeline', workflow: 'Workflow', journal: 'Journal', machine: 'Machine' } },
+  tabs: { order: DEFAULT_TABS, enabled: TABS, labels: { home: 'Cockpit', mission: 'Mission', focus: 'Focus', arbre: 'Arbre', pipeline: 'Pipeline', workflow: 'Workflow', journal: 'Journal', machine: 'Machine', relais: 'Claude ↔ Codex', galerie: 'Galerie', nuit: 'Nuit' } },
+  // The vertical menu at the left of the pane: the 6 entries of the band's bar. A press runs the entry's command (a mod
+  // cannot open another mod's pane); self: true = this pane (goes to the Cockpit tab). Under min_columns the menu is
+  // one row on top instead. position: left | top | off.
+  menu: {
+    position: 'left', min_columns: 50, width: 12,
+    items: [
+      { label: 'Jauge', command: 'jauge' }, { label: 'Cockpit', self: true }, { label: 'Veille', command: 'veille' },
+      { label: 'À toi', command: 'afaire' }, { label: 'Registres', command: 'registres' }, { label: 'Référence', command: 'reference' },
+    ],
+  },
+  // The Nuit / Jour row of the Cockpit tab: Nuit opens « Bilan avant la nuit », Jour runs /veille jour. repos: extra
+  // repo folders whose handoff/ROADMAP.md and packets are read for « Prêt à lancer » (the recent conversations' folders
+  // are always read). The screen's own settings (wake time, regexes, launch command) are under `nuit` (lib/decide.mjs).
+  day_night: { enabled: true, repos: [], recent_days: 7 },
   machine_refresh_s: 10,
   gpu_every: 6,
   aliases: { enabled: true, delay_s: 4, names: ['factory', 'machine'] },
@@ -81,6 +98,11 @@ export const DEFAULTS = {
     machine: 'Machine',
     machine_button: 'Onglet Machine',
     card_open: 'Voir',
+    night_button: 'Nuit',
+    day_button: 'Jour',
+    codex_on: 'Codex ✓',
+    codex_off: 'Codex',
+    menu_missing: '{command} non chargé : ajoute son mod à CLAUDE_CODE_PLUGIN_DIRS',
     states: { working: 'en cours', julian: 'attend Julian', blocked: 'bloquée', done: 'terminée', idle: 'au repos', archived: 'archivée' },
     today: 'aujourd’hui',
     show_done: '+ {n} terminé(s)',
@@ -546,11 +568,43 @@ export function tabsOf(cfg) {
   return (ids.includes('home') ? ids : ['home', ...ids]).map((id) => ({ id, label: (c.labels || {})[id] || id }))
 }
 
+// A tab id the pane can show: one of the tab bar, or the Nuit screen (opened by its button) while enabled.
+export function tabValid(cfg, id) {
+  const c = cockpitConfig(cfg).tabs
+  return tabsOf(cfg).some((t) => t.id === id) || (id === 'nuit' && c.enabled.includes('nuit'))
+}
+
+// The menu's layout at a width: {position: left|top|off, items, width}.
+export function menuOf(cfg, columns) {
+  const m = cockpitConfig(cfg).menu || {}
+  const items = (m.items || []).filter((x) => x && x.label && (x.self || x.command))
+  if (m.position === 'off' || !items.length) return { position: 'off', items: [], width: 0 }
+  const left = m.position === 'left' && (!columns || columns >= (Number(m.min_columns) || 0))
+  return { position: left ? 'left' : 'top', items, width: left ? Math.max(8, Number(m.width) || 12) : 0 }
+}
+
+// The folders whose handoff/ROADMAP.md and packets « Bilan avant la nuit » reads: the recent conversations' folders
+// (not archived, active in the last recent_days) and day_night.repos.
+export function nightRepos(scan, cfg, nowMs) {
+  const c = cockpitConfig(cfg).day_night || {}
+  const since = nowMs - (Number(c.recent_days) || 7) * 86400000
+  const out = []
+  for (const s of (scan && scan.sessions) || []) {
+    if (s.archived) continue
+    if (tsMs(s.last_activity) < since) continue
+    const p = String(s.origin || s.cwd || '').replace(/\\/g, '/')
+    if (p) out.push(p)
+  }
+  for (const p of c.repos || []) if (p) out.push(String(p))
+  return [...new Set(out)]
+}
+
 const TAB_WORDS = {
   home: 'home', accueil: 'home', cartes: 'home', cockpit: 'home',
   mission: 'mission', focus: 'focus', arbre: 'arbre', tree: 'arbre', pipeline: 'pipeline', journal: 'journal',
   workflow: 'workflow', workflows: 'workflow', wf: 'workflow',
   machine: 'machine', systeme: 'machine', 'système': 'machine', system: 'machine',
+  nuit: 'nuit', night: 'nuit', bilan: 'nuit', relais: 'relais', codex: 'relais', galerie: 'galerie', gallery: 'galerie', vues: 'galerie',
 }
 const LEVEL_WORDS = { mega: 'mega', 'méga': 'mega', macro: 'macro', projet: 'macro', project: 'macro', medium: 'medium', conversation: 'medium', conv: 'medium', micro: 'micro', agent: 'micro' }
 const SCOPE_WORDS = { all: 'all', tout: 'all', toutes: 'all', conv: 'conversation', conversation: 'conversation' }

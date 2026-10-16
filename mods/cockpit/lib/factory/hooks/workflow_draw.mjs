@@ -7,7 +7,7 @@ import { hhmm, short, family } from './logic.mjs'
 import { screensConfig, tabsOf, layout, clip } from './screens.mjs'
 import { drawScreen } from './draw.mjs'
 import {
-  workflowConfig, workflowScreen, gantt, axis, ganttLegend, fill, frTokens, frUsd, frDur, clock,
+  workflowConfig, workflowScreen, gantt, axis, ganttLegend, fill, frTokens, frUsd, frDur, clock, loneAgents,
 } from './workflow.mjs'
 
 function mk(el, cfg) {
@@ -118,6 +118,13 @@ export function drawWorkflow(h, V, cfg, lay) {
   if (s.runs.length) out.push(speedBlock(h, V, W, s.speed, 'scope', fill(WL.speed_scope, { scope: scope === 'all' ? WL.scope_all.toLowerCase() : WL.scope_conv.toLowerCase() }), false))
   if (!s.runs.length) out.push(h.T(fill(scope === 'all' ? WL.none_all : WL.none, { hours: W.hours }), { dim: true }))
   for (const v of s.runs) out.push(runBlock(h, V, cfg, W, lay, v, now))
+  // Agent-tool agents launched outside a Workflow (factory's scan), with their ETA
+  if (W.lone && W.lone.enabled !== false && V.scan) {
+    const lone = loneAgents(V.scan, cfg, V.at || now, { scope, cli: V.target || V.self })
+    out.push(h.section(`${WL.lone} (${lone.length})`, lone.length
+      ? lone.map((a) => h.T(`● ${a.text}`, { color: a.eta && a.eta.overrun ? 'warn' : 'running' }))
+      : [h.T(WL.lone_none, { dim: true })], { key: 'lone', color: lone.length ? 'running' : 'dim' }))
+  }
   out.push(h.T(WL.glossary, { dim: true }))
   return out
 }

@@ -2,33 +2,223 @@
   "_doc": "cockpit settings. Your own JSON (userConfig 'config', else ~/.claude/effort-board/cockpit.config.json) is deep-merged over this file; keys starting with _ are ignored. Prices, thresholds and screen labels of the detail views are factory's (lib/factory/factory.config.json + ~/.claude/effort-board/factory.config.json).",
   "_sections": "order: top to bottom, by scope. enabled: which show. open: which foldable sections start unfolded (a closed one shows a one-line summary). breadcrumb = Méga › Projet › Conversation › Agent on one small row; conv = Cette conversation (status line, its tree lead → sub-conversations → Workflows → agents, step, PR/CI; the agent card when an agent is selected); project = Ce projet (its conversations as a tree, factory's Focus and Pipeline); all = Tous les projets (one or two lines per project); conso = Qui consomme (top 3 conversations and the top project of 1 h / aujourd'hui / 7 j, from the usage mod's classement.json; a button opens the full Classement, /conso classement); global = Claude global (quotas, Veille, a /machine button); fichiers = a button that opens filetree's own tab.",
   "sections": {
-    "order": ["breadcrumb", "conv", "project", "all", "conso", "global", "fichiers"],
-    "enabled": ["breadcrumb", "conv", "project", "all", "conso", "global", "fichiers"],
-    "open": ["conv"]
+    "order": [
+      "breadcrumb",
+      "conv",
+      "project",
+      "all",
+      "conso",
+      "global",
+      "fichiers"
+    ],
+    "enabled": [
+      "breadcrumb",
+      "conv",
+      "project",
+      "all",
+      "conso",
+      "global",
+      "fichiers"
+    ],
+    "open": [
+      "conv"
+    ]
   },
-  "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them.",
+  "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them. relais = Claude ↔ Codex (the ci mod's ~/.claude/ci-cache/interactions.json: who opened, fixed, merged, hand-offs, dependencies, green rate per agent); galerie = the Reference Gallery views (Équipe: lead → advisor / worker / explorer / researcher lanes and return to lead; Carte: the control layers; Codex: approvals and cost); nuit = « Bilan avant la nuit », opened by the Nuit button of the Cockpit tab (add it to order to get a tab button too).",
   "tabs": {
-    "order": ["home", "mission", "focus", "arbre", "pipeline", "workflow", "journal", "machine"],
-    "enabled": ["home", "mission", "focus", "arbre", "pipeline", "workflow", "journal", "machine"],
-    "labels": { "home": "Cockpit", "mission": "Mission", "focus": "Focus", "arbre": "Arbre", "pipeline": "Pipeline", "workflow": "Workflow", "journal": "Journal", "machine": "Machine" }
-  },
-  "_cards": "Summary cards under the breadcrumb, one line each and a « Voir » button. buttons: per card, the targets tried in order; the first command loaded in this session ($.command.list()) runs, a {tab} target opens one of cockpit's own tabs. Data: scanner/cards.mjs (Node) over lib/core (usage, veille, runner, estimate), the ci mod's pipelines cache and the problemes register (read-only). max_encours: lines of « En cours ».",
-  "cards": {
-    "order": ["conso", "attend", "atoi", "ci", "quota", "problemes", "encours"],
-    "enabled": ["conso", "attend", "atoi", "ci", "quota", "problemes", "encours"],
-    "max_encours": 4,
-    "buttons": {
-      "conso": [{ "command": "conso", "args": "classement" }],
-      "attend": [{ "command": "veille", "args": "fil" }],
-      "atoi": [{ "command": "afaire" }],
-      "ci": [{ "command": "reference", "args": "ci diagramme" }, { "command": "ci", "args": "diagramme" }],
-      "quota": [{ "command": "conso" }],
-      "problemes": [{ "command": "registres", "args": "problemes" }, { "command": "problemes" }],
-      "encours": [{ "tab": "workflow" }]
+    "order": [
+      "home",
+      "mission",
+      "focus",
+      "arbre",
+      "pipeline",
+      "workflow",
+      "journal",
+      "machine",
+      "relais",
+      "galerie"
+    ],
+    "enabled": [
+      "home",
+      "mission",
+      "focus",
+      "arbre",
+      "pipeline",
+      "workflow",
+      "journal",
+      "machine",
+      "relais",
+      "galerie",
+      "nuit"
+    ],
+    "labels": {
+      "home": "Cockpit",
+      "mission": "Mission",
+      "focus": "Focus",
+      "arbre": "Arbre",
+      "pipeline": "Pipeline",
+      "workflow": "Workflow",
+      "journal": "Journal",
+      "machine": "Machine",
+      "relais": "Claude ↔ Codex",
+      "galerie": "Galerie",
+      "nuit": "Nuit"
     }
   },
+  "_menu": "The vertical menu at the left of the pane: the band's 6 entries. A press runs the entry's command (a mod cannot open another mod's pane), greyed by a toast when its mod is not loaded; self: true = this pane's Cockpit tab. Under min_columns (the pane's width in columns) it is one row on top. position: left | top | off; width: the menu's columns.",
+  "menu": {
+    "position": "left",
+    "min_columns": 50,
+    "width": 12,
+    "items": [
+      {
+        "label": "Jauge",
+        "command": "jauge"
+      },
+      {
+        "label": "Cockpit",
+        "self": true
+      },
+      {
+        "label": "Veille",
+        "command": "veille"
+      },
+      {
+        "label": "À toi",
+        "command": "afaire"
+      },
+      {
+        "label": "Registres",
+        "command": "registres"
+      },
+      {
+        "label": "Référence",
+        "command": "reference"
+      }
+    ]
+  },
+  "_day_night": "The Nuit · Jour · Codex row of the Cockpit tab. Nuit opens « Bilan avant la nuit » (what runs with its end time, unused night hours until nuit.wake, the week quota left and what the night would burn at the current pace, lanes and packets ready to start; then Nuit active = /veille nuit, Lancer = shows the command, never starts anything, Rien = back here). Jour runs /veille jour. repos: extra repo folders read for « Prêt à lancer » besides the folders of the conversations active in the last recent_days.",
+  "day_night": {
+    "enabled": true,
+    "repos": [],
+    "recent_days": 7
+  },
+  "_nuit": "« Bilan avant la nuit » (lib/decide.mjs DECIDE_DEFAULTS.nuit has every default and label): wake = HH:MM; ready_match = what a handoff/ROADMAP.md line must match to be « prêt » (outside the sections matching skip_sections); packet_match = packet file names under packet_dirs; launch / launch_prompt / launch_model / launch_effort = the command « Lancer » shows.",
+  "nuit": {
+    "wake": "07:30",
+    "max_ready": 8,
+    "per_repo": 3,
+    "launch_model": "opus",
+    "launch_effort": "medium"
+  },
+  "_relais": "Claude ↔ Codex tab: max_repos, max_prs shown; labels in lib/decide.mjs DECIDE_DEFAULTS.relais.",
+  "relais": {
+    "max_repos": 8,
+    "max_prs": 8
+  },
+  "_galerie": "Galerie tab: views (equipe, carte, codex) in order; roles = the agent types of each lane of Équipe (anything else: Autres); codex_prices = list price per million tokens by model id prefix (API equivalent, cached input not deducted; unknown model: « tarif inconnu »); codex_days = the window of the Codex view.",
+  "galerie": {
+    "views": [
+      "equipe",
+      "carte",
+      "codex"
+    ],
+    "codex_days": 7
+  },
+  "_controle": "« Claude Control » card: the open to-dos of file (`- [ ] YYYY-MM-DD · priorité · quoi · …`, « — » = no date), soonest deadline first; warn under warn_days, red under bad_days; max = lines shown.",
+  "controle": {
+    "file": "~/.claude/a-faire/claude-control.md",
+    "max": 3,
+    "warn_days": 7,
+    "bad_days": 1
+  },
+  "_cards": "Summary cards under the breadcrumb, one line each and a « Voir » button. buttons: per card, the targets tried in order; the first command loaded in this session ($.command.list()) runs, a {tab} target opens one of cockpit's own tabs. Data: scanner/cards.mjs (Node) over lib/core (usage, veille, runner, estimate), the ci mod's pipelines cache and the problemes register (read-only). max_encours: lines of « En cours ». who: claude (default: CI, Quota and En cours count Claude only) or all; the « Codex » button of the Cockpit tab switches for the session. controle = the Claude Control to-dos (settings under `controle`). En cours also lists Agent-tool agents launched outside a Workflow, with their ETA.",
+  "cards": {
+    "order": [
+      "conso",
+      "attend",
+      "atoi",
+      "controle",
+      "ci",
+      "quota",
+      "problemes",
+      "encours"
+    ],
+    "enabled": [
+      "conso",
+      "attend",
+      "atoi",
+      "controle",
+      "ci",
+      "quota",
+      "problemes",
+      "encours"
+    ],
+    "max_encours": 4,
+    "buttons": {
+      "conso": [
+        {
+          "command": "conso",
+          "args": "classement"
+        }
+      ],
+      "attend": [
+        {
+          "command": "veille",
+          "args": "fil"
+        }
+      ],
+      "atoi": [
+        {
+          "command": "afaire"
+        }
+      ],
+      "controle": [
+        {
+          "command": "afaire"
+        }
+      ],
+      "ci": [
+        {
+          "command": "reference",
+          "args": "ci diagramme"
+        },
+        {
+          "command": "ci",
+          "args": "diagramme"
+        }
+      ],
+      "quota": [
+        {
+          "command": "conso"
+        }
+      ],
+      "problemes": [
+        {
+          "command": "registres",
+          "args": "problemes"
+        },
+        {
+          "command": "problemes"
+        }
+      ],
+      "encours": [
+        {
+          "tab": "workflow"
+        }
+      ]
+    },
+    "who": "claude"
+  },
   "_aliases": "Old commands kept for habits: after delay_s seconds (other mods register their commands at session start), each name absent from $.command.list() is registered as an alias of /cockpit (/factory [onglet] -> that tab, quotas -> Cockpit, systeme -> Machine; /machine -> Machine). A name that a loaded mod has is left to it.",
-  "aliases": { "enabled": true, "delay_s": 4, "names": ["factory", "machine"] },
+  "aliases": {
+    "enabled": true,
+    "delay_s": 4,
+    "names": [
+      "factory",
+      "machine"
+    ]
+  },
   "_machine": "Machine tab: seconds between PC samples (only while it shows); gpu_every: one GPU read every N samples.",
   "machine_refresh_s": 10,
   "gpu_every": 6,
@@ -40,19 +230,71 @@
   "refresh_s": 20,
   "strips_refresh_s": 60,
   "_diagram": "the project tree drawn as an SVG under its clickable rows in « Ce projet » (desktop only). Off by default: it repeated the rows.",
-  "diagram": { "enabled": false, "width": 340, "row_h": 22, "max_rows": 40 },
-  "tree": { "max_convs": 30, "max_agents": 20, "show_done_agents": true },
+  "diagram": {
+    "enabled": false,
+    "width": 340,
+    "row_h": 22,
+    "max_rows": 40
+  },
+  "tree": {
+    "max_convs": 30,
+    "max_agents": 20,
+    "show_done_agents": true
+  },
   "_qui_consomme": "« Qui consomme » card. presets: the toggle (id, label, hours or since: midnight, same shape as usage's classement.presets). top: conversations shown. basis: cost (list-price equivalent) or tokens. rescan_min: when classement.json is older and the section is open, cockpit runs usage's incremental scanner once. data_dir: empty = usage's data_dir. command/args: what the full-view button runs.",
   "qui_consomme": {
-    "presets": [{ "id": "1h", "label": "1 h", "hours": 1 }, { "id": "today", "label": "aujourd’hui", "since": "midnight" }, { "id": "7d", "label": "7 j", "hours": 168 }],
-    "default": "today", "top": 3, "basis": "cost", "rescan_min": 10, "data_dir": "", "command": "conso", "args": "classement"
+    "presets": [
+      {
+        "id": "1h",
+        "label": "1 h",
+        "hours": 1
+      },
+      {
+        "id": "today",
+        "label": "aujourd’hui",
+        "since": "midnight"
+      },
+      {
+        "id": "7d",
+        "label": "7 j",
+        "hours": 168
+      }
+    ],
+    "default": "today",
+    "top": 3,
+    "basis": "cost",
+    "rescan_min": 10,
+    "data_dir": "",
+    "command": "conso",
+    "args": "classement"
   },
   "usage_bar_width": 160,
   "_colors": "SVG colours (the drawing is an image: theme keys do not reach it). term_colors: theme keys for text.",
-  "colors": { "running": "#58a6ff", "ok": "#3fb950", "warn": "#d29922", "bad": "#f85149", "dim": "#8b949e", "line": "#8b949e88", "text": "#808890", "selected": "#d2a8ff", "usage": "#2f81f7" },
-  "term_colors": { "running": "claude", "ok": "success", "warn": "warning", "bad": "error", "dim": "inactive" },
+  "colors": {
+    "running": "#58a6ff",
+    "ok": "#3fb950",
+    "warn": "#d29922",
+    "bad": "#f85149",
+    "dim": "#8b949e",
+    "line": "#8b949e88",
+    "text": "#808890",
+    "selected": "#d2a8ff",
+    "usage": "#2f81f7"
+  },
+  "term_colors": {
+    "running": "claude",
+    "ok": "success",
+    "warn": "warning",
+    "bad": "error",
+    "dim": "inactive"
+  },
   "labels": {
     "title": "Cockpit",
-    "levels": { "mega": "Méga", "macro": "Projet", "medium": "Conversation", "micro": "Agent" }
+    "levels": {
+      "mega": "Méga",
+      "macro": "Projet",
+      "medium": "Conversation",
+      "micro": "Agent"
+    }
   }
 }

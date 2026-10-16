@@ -1,7 +1,7 @@
 """Factory scanner: incremental, read-only summary of Claude Code conversations for the `factory` mod.
 
 Usage: python factory_scan.py --cache FILE [--hours 36] [--detail CLI_ID] [--projects DIR] [--app DIR]
-                              [--board DIR] [--ci-ttl 600] [--live-s 180] [--now EPOCH] [--cli]
+                              [--board DIR] [--ci-ttl 600] [--live-s 180] [--bg-stale-h 2] [--now EPOCH] [--cli]
                               [--waiting] [--pr-ttl 180] [--pr-max-age-days 14] [--pr-max-checks 25] [--gl-host HOST]
                               [--recent N]
 Prints one JSON document: {generated, sessions: [...], detail: {...} | null, reviews: {...} | null}.
@@ -53,6 +53,7 @@ HOURS = float(arg('--hours', '36'))
 DETAIL = arg('--detail')
 CI_TTL = float(arg('--ci-ttl', '600'))
 LIVE_S = float(arg('--live-s', '180'))
+BG_STALE_H = float(arg('--bg-stale-h', '2'))
 NOW = float(arg('--now', str(time.time())))
 CLI = '--cli' in sys.argv
 WAITING = '--waiting' in sys.argv
@@ -242,6 +243,9 @@ def feed(a, d, sub):
             if not d.get('isSidechain') or sub:
                 a['ctx'] = v[0] + v[2] + v[3] + v[4]
         for b in m.get('content') or []:
+            if isinstance(b, dict) and b.get('type') in ('tool_use', 'server_tool_use') and 'advisor' in str(b.get('name') or '').lower():
+                a['advisor'] = a.get('advisor', 0) + 1  # /advisor: a stronger model consulted by this one
+                a['advisor_ts'] = ts
             if not isinstance(b, dict) or b.get('type') != 'tool_use':
                 continue
             name, inp = b.get('name') or '?', b.get('input') or {}
@@ -351,13 +355,15 @@ def slim(a, keep_detail):
                            'readonly', 'last_tool', 'loops', 'pr', 'compacts', 'ask_open', 'stop', 'api_error', 'prompt',
                            'ask_ts', 'ask_q')}
     o['days'] = a['days']
+    o['advisor'] = a.get('advisor', 0)
+    o['advisor_ts'] = a.get('advisor_ts')
     o['last_error'] = a['errors'][-1] if a['errors'] else None
     if keep_detail:
         o.update(turns=a['turns'], events=a['events'], errors=a['errors'], calls=a['calls'])
     return o
 
 
-def agent_status(agg, mtime, parent_call, parent_notifs):
+def agent_status(agg, mtime, parent_call, parent_notifs, lone=True):
     tid = parent_call.get('id') if parent_call else None
     if tid and tid in parent_notifs:
         s = parent_notifs[tid]
@@ -367,6 +373,10 @@ def agent_status(agg, mtime, parent_call, parent_notifs):
     if parent_call and parent_call.get('result') in ('completed', 'done') and not parent_call.get('bg'):
         return 'done'
     if NOW - mtime < LIVE_S:
+        return 'running'
+    # a background Agent call with no completion notice yet is still running while it waits on a long tool call
+    # (CI watch, build), up to --bg-stale-h hours after its last line
+    if lone and parent_call and parent_call.get('bg') and agg.get('stop') != 'end_turn' and NOW - mtime < BG_STALE_H * 3600:
         return 'running'
     if agg.get('api_error'):
         return 'failed'
@@ -623,7 +633,7 @@ def main():
                 parent = next((c for c in a['calls'] if c.get('agentId') == aid), None)
             wf = os.path.basename(os.path.dirname(sp)) if os.sep + 'workflows' + os.sep in sp else None
             sa = se['agg']
-            status = agent_status(sa, se['mtime'], parent, a['notifs'])
+            status = agent_status(sa, se['mtime'], parent, a['notifs'], lone=wf is None)
             subs.append({
                 'id': os.path.basename(sp)[6:-6], 'type': meta.get('agentType') or 'agent', 'workflow': wf,
                 'phase': meta.get('workflowPhase'), 'desc': one_line(meta.get('description') or '', 70),
@@ -647,7 +657,7 @@ def main():
             status_detail=(app.get('postTurnSummary') or {}).get('status_detail') or '',
             resume_md=bool(cwd) and os.path.isfile(os.path.join(cwd, 'handoff', 'RESUME.md')),
             subs=[{k: s[k] for k in ('id', 'type', 'status', 'model', 'explicit_model', 'effort', 'desc', 'phase', 'models', 'days',
-                                     'readonly', 'tools', 'workflow', 'loops', 'last_ts')} for s in subs],
+                                     'readonly', 'tools', 'workflow', 'loops', 'ts', 'last_ts', 'bg')} for s in subs],
             recent=a['events'][-RECENT:] if RECENT > 0 else [],
             merged_prs=sum(1 for p in (app.get('prs') or []) if isinstance(p, dict) and str(p.get('state') or '').upper() == 'MERGED'),
             guards=guards.get(cli, []) + guards.get(app.get('sessionId') or '-', []),

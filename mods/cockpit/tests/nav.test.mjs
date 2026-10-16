@@ -154,7 +154,9 @@ test('diagram: one node per row, elbows to the parent, the selection highlighted
 })
 
 const noop = () => {}
-const VIEW = (nav, open, extra = {}) => ({ cfg: CCFG, fcfg: FCFG, scan: SCAN, nav, self: 'lead-cli', busy: false, error: '', at: NOW, columns: 75, filter: 'all',
+// the left menu is tested in decide.test.mjs; these layout tests draw the pane without it
+const NOMENU = { ...CCFG, menu: { ...CCFG.menu, position: 'off' } }
+const VIEW = (nav, open, extra = {}) => ({ cfg: NOMENU, fcfg: FCFG, scan: SCAN, nav, self: 'lead-cli', busy: false, error: '', at: NOW, columns: 75, filter: 'all',
   usage: usageCard({ rateLimits: [{ kind: 'five_hour', percentUsed: 21 }, { kind: 'seven_day', percentUsed: 14 }] }, LEAD, FCFG, NOW), veille: null, open,
   act: { crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop, machine: noop }, ...extra })
 const DEFAULT_OPEN = Object.fromEntries(cockpitConfig(CCFG).sections.open.map((k) => [k, true]))
