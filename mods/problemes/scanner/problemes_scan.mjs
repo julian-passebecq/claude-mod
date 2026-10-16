@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import {
   appOf, deepMerge, expand, fold, hitsOfRecord, hitsOfSession, isSet, nextId, parseLines, planLines, seedFromFindings,
   seedFromIncidents, seedFromMarkdown, seedLines, slash, STATUSES, totals,
+  hitsOfHealth, hitsOfSante,
 } from '../lib/core.mjs'
 import { writeHealth } from './health.mjs'
 import { registerFiles, staleOf } from '../lib/export.mjs'
@@ -222,6 +223,14 @@ export function collect(cfg, { force = false, now = Date.now() } = {}) {
       if (!h.at || h.at >= backfill) hits.push(h)
     }
   }
+  // Santé and veille errors: the shared health records and santé's report, each error once (keys like session files).
+  let health = 0
+  for (const h of healthHits(cfg)) {
+    health++
+    if (seenKeys.has(h.key)) continue
+    seenKeys.add(h.key)
+    hits.push(h)
+  }
   for (const h of hits) h.app = appOf(h.cwd, roots, C.worktree_dirs)
   const problems = fold(readLedger(cfg), cfg.timeline_max ?? 60)
   const plan = planLines(hits, problems, cfg.rules?.list ?? [], now, { maxEvidence: C.max_evidence ?? 3, reopen: C.reopen_fixed !== false })
@@ -229,9 +238,32 @@ export function collect(cfg, { force = false, now = Date.now() } = {}) {
   // Drop cursors of files gone for good; keep the last 5000 session keys.
   for (const k of Object.keys(files)) if (!fs.existsSync(k)) delete files[k]
   writeAtomic(P.cursor, { v: 1, last_run: now, files, session_keys: [...seenKeys].slice(-5000) })
-  const stats = { at: now, files: read, sessions, hits: hits.length, new: plan.added.length, ignored: plan.ignored, unmatched: plan.unmatched.slice(0, 15) }
+  const stats = { at: now, files: read, sessions, health, hits: hits.length, new: plan.added.length, ignored: plan.ignored, unmatched: plan.unmatched.slice(0, 15) }
   snapshot(cfg, stats, now)
   return stats
+}
+
+/** Hits from ~/.claude/mods-health/*.json (MODS_HEALTH_DIR or collect.health_dir) and santé's report (collect.sante_report). */
+export function healthHits(cfg) {
+  const C = cfg.collect ?? {}
+  const out = []
+  const dir = cfg.env?.MODS_HEALTH_DIR || expand(C.health_dir ?? '~/.claude/mods-health', cfg.env)
+  if (isSet(dir) && C.health !== false) {
+    let names = []
+    try { names = fs.readdirSync(dir).filter(n => n.endsWith('.json')) } catch { /* no records yet */ }
+    for (const n of names) {
+      const file = path.join(dir, n)
+      let rec, invalid = ''
+      try { rec = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')) } catch (e) { invalid = e?.code === 'ENOENT' ? '' : String(e?.message ?? e).slice(0, 120) }
+      out.push(...hitsOfHealth(rec, n.replace(/\.json$/, ''), slash(file), invalid))
+    }
+  }
+  const rep = isSet(C.sante_report) ? expand(C.sante_report, cfg.env) : ''
+  if (rep && C.health !== false) {
+    const j = readJson(rep, null)
+    if (j) out.push(...hitsOfSante(j, slash(rep)))
+  }
+  return out
 }
 
 // ---- seeds ------------------------------------------------------------------------------------------------------------
