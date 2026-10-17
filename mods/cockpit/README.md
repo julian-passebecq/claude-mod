@@ -37,7 +37,23 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**, every sec
  1. Lane alpha · tableau de bord 3.6M · $12.00
  … top 15, autres (n), Total, then Workflows actifs and the bars (5 h, Semaine, Codex semaine while Codex is on, tok/s)
 [▾ Graphe des conversations]
- emplacement réservé : le graphe des conversations arrive ici
+ À toi de cliquer (1)
+ ◆ [Lane beta]
+   Choisir la version · depuis 2 h
+ ● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · coord = lance des
+ sessions · ⇢ message envoyé · un titre ouvre la conversation
+ [Projet : tous] [Actives seulement]
+ [24 h] [7 j] [tout] [Archivées]
+ ★ proj-one · 4
+ ● [Lane alpha · tableau de bord ★ (ici)]
+ │ travaille · coordinateur · 3.6M tok auj. · ctx 30 %
+ ├ ● [Package two]
+ │ │ travaille · coordinateur
+ │ │ ┄┄⇢ PM BETA
+ │ └ ○ [Package two · verify]
+ │     inactive depuis 9 h · lane
+ └ ✓ [Package one: a rather long lane title that must be cut]
+     finie · lane
 Autres vues, par /cockpit … : cartes · mission · focus · arbre · pipeline · workflow · journal · machine · relais · galerie · depuis · nuit
 ```
 
@@ -45,7 +61,7 @@ Autres vues, par /cockpit … : cartes · mission · focus · arbre · pipeline 
 - **Cette conversation** is a factory view (the Reference Gallery's style), drawn in box-drawing characters (`lib/panel_conv.mjs`): the lead's box (title, model · effort ▮▮▯▯, state), the layer of Workflows and background agents (one foldable row per Workflow, one for the Agent-tool agents), one card per agent (label, model, effort, state, tokens, tok/s = its tokens over its own run time), the « retour au lead · review + merge » box, then the session log: the last `panel.conv.log_max` (6) events, agent started / finished, PR opened (the scan's PR link), PR merged (a `gh pr merge` / `glab mr merge` the conversation ran).
 - **Contexte de cette conversation**: the engine's context figure (else the scan's), a text bar with the hand-off threshold marked `┃` (`panel.contexte.handoff_tokens`, 250 000), tokens over the window, what is left before the hand-off or that it is passed.
 - **Toutes les conversations** is one table, not a factory view: the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days. Under it: Workflows actifs (every Workflow of the PC, each unfolds to its agents) and the bars (5 h, Semaine, Codex semaine while « Codex » is on, tok/s of all conversations).
-- **Graphe des conversations** is a reserved slot for the next package: `lib/graphe.mjs` `grapheModel(scan, self, cfg, nowMs)` (pure) feeds `hooks/graphe_view.mjs` `drawGraphe(h, model, labels, width)` (also exported by `hooks/panel_view.mjs`).
+- **Graphe des conversations** answers « who is active, who consumes, who coordinates, who is blocked or idle, what must I click » (Julian, 17 Oct). On top, **À toi de cliquer**: the conversations waiting for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with a short reason. Then a legend, the filters (Projet, Actives seulement, 24 h / 7 j / tout, Archivées; default: last 24 h, archived hidden; kept in `$.store` with the Panneau's) and one group per project like the app's sidebar (folder name of `originCwd`, worktrees folded into their repo; starred first). Inside a group the children (`spawnedFrom`) sit under their parent with `├ └`, a peer message is a dashed `┄┄⇢ <short title>` note. Each conversation: state dot + word (travaille under `panel.graphe.working_min` = 2 min, t'attend, bloquée, finie when a PR merged and idle, inactive depuis N h, archivée), role (coordinateur = spawned ≥ 1 session or a title matching `panel.graphe.coord_match` PM|COORD|VEILLE|ARCHI|MODS; lane = spawned by another; agent), tokens today (usage's `classement.json`, as section 4) and context % (factory's scan). **A title is a button that opens that conversation in the desktop app** (the `claude://claude.ai/epitaxy/<id>` link « Depuis » already uses). Data: `scanner/cards.mjs` part `graphe` over `lib/core/sessions.mjs` `graphRow`, which keeps a fixed list of session-file fields (ids, title, folders, archived/starred, times, model, effort, spawnedFrom.sessionId, peerReceipts target + sentAt, interruptedAwaitingPerson, prs, branch) and never the prompts or settings; read at most every `panel.graphe.refresh_s` (60 s) while the section is open. Code: `lib/graphe.mjs` (pure model), `hooks/graphe_view.mjs` (drawing).
 - The old views (Cockpit cards, Mission, Focus, Arbre, Pipeline, Workflow, Journal, Machine, Claude ↔ Codex, Galerie, Depuis, Nuit) open with `/cockpit <word>` (`/cockpit cartes` for the cards); on any of them the tab row shows, « Panneau » first, so the way back is one press. The left menu is not drawn on the Panneau (the band's buttons above the prompt do that job). `/cockpit panneau` opens it; `panel.enabled: false` makes the Cockpit tab the default again. Labels, order, limits: `panel` in `cockpit.config.json`.
 
 **One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).

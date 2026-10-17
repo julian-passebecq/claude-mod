@@ -85,3 +85,40 @@ export function readSessions(cfg = {}, env = process.env) {
   }
   return linkChildren(rows).sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0))
 }
+
+// ---- the cockpit's « Graphe des conversations » -------------------------------------------------------------------------
+// ONLY these fields of a session file are kept (Julian, 17 Oct): ids, title, folders, archived / starred, times, model,
+// effort, spawnedFrom.sessionId, peerReceipts[].targetSessionId + sentAt, interruptedAwaitingPerson, prs, branch. Never
+// promptAppendSnapshot, remoteMcpServersConfig, sessionSettings or any other key.
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+
+/** One session file's JSON -> the graph's row (the whitelisted fields above), or null without a CLI session id. */
+export function graphRow(j) {
+  if (!j || typeof j !== 'object' || !j.cliSessionId) return null
+  const cwd = String(j.cwd || '')
+  const origin = String(j.originCwd || cwd)
+  const peers = (Array.isArray(j.peerReceipts) ? j.peerReceipts : [])
+    .filter((p) => p && p.targetSessionId)
+    .map((p) => ({ target: String(p.targetSessionId), at: num(typeof p.sentAt === 'string' ? Date.parse(p.sentAt) : p.sentAt) }))
+  return {
+    sid: String(j.sessionId || ''), cli: String(j.cliSessionId), title: String(j.title || ''), cwd, origin,
+    repo: repoOfCwd(origin), archived: Boolean(j.isArchived), starred: Boolean(j.isStarred),
+    last_activity: num(j.lastActivityAt), created: num(j.createdAt), model: String(j.model || ''), effort: String(j.effort || ''),
+    parent: String((j.spawnedFrom && j.spawnedFrom.sessionId) || ''), peers, awaiting: Boolean(j.interruptedAwaitingPerson),
+    prs: (Array.isArray(j.prs) ? j.prs : []).filter((p) => p && typeof p === 'object')
+      .map((p) => ({ number: p.prNumber, state: String(p.state || '').toLowerCase() })),
+    branch: String(j.branch || ''),
+  }
+}
+
+/** Every session of this PC as graph rows, newest activity first. */
+export function readGraphRows(cfg = {}, env = process.env) {
+  const rows = []
+  for (const f of sessionFiles(appDir(cfg, env), cfg.depth ?? 2)) {
+    let j
+    try { j = JSON.parse(fs.readFileSync(f, 'utf8')) } catch { continue }
+    const r = graphRow(j)
+    if (r) rows.push(r)
+  }
+  return rows.sort((a, b) => b.last_activity - a.last_activity)
+}
