@@ -1,8 +1,8 @@
 // node --test mods/cockpit/tests/panel.test.mjs - the Panneau's pure parts (invented fixtures only).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews } from '../lib/panel.mjs'
-import { convFactory, factoryLines } from '../lib/panel_conv.mjs'
+import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews, textBar, durText } from '../lib/panel.mjs'
+import { convFactory, convFactorySummary } from '../lib/panel_conv.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 
 const NOW = Date.parse('2026-10-16T16:30:00Z')
@@ -19,13 +19,13 @@ const SCAN = { sessions: [
   { cli: 'b', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
 ] }
 
-test('defaults: five sections, all open, Claude only, top 15, hand-off at 250 k', () => {
+test('defaults: five sections, Fichiers folded, Claude only, top 15, hand-off at 250 k', () => {
   const c = panelConfig({})
-  assert.deepEqual(c.order, ['fichiers', 'conv', 'contexte', 'convs', 'graphe'])
-  assert.deepEqual(c.open, ['fichiers', 'conv', 'contexte', 'convs', 'graphe'])
+  assert.deepEqual(c.order, ['fichiers', 'conv', 'convs', 'barres', 'graphe'])
+  assert.deepEqual(c.open, ['conv', 'convs', 'barres', 'graphe']) // the file tree starts folded (Julian, 17 Oct)
   assert.equal(c.contexte.handoff_tokens, 250000)
-  // an order written for the old four-section Panneau reads as the new default
-  assert.deepEqual(panelConfig({ panel: { order: ['fichiers', 'conv', 'convs', 'barres'] } }).order, c.order)
+  // an order written with « contexte » (now in the lead's card) gets « barres » back after « convs »
+  assert.deepEqual(panelConfig({ panel: { order: ['fichiers', 'conv', 'contexte', 'convs', 'graphe'] } }).order, c.order)
   assert.equal(c.convs.who, 'claude')
   assert.equal(c.convs.top, 15)
   assert.equal(c.fichiers.attach_selection, true)
@@ -86,6 +86,9 @@ test('bars: engine figures first, quotas file second, Codex only when toggled, u
   const q = { usage: { rateLimits: [{ kind: 'five_hour', percentUsed: 21 }] }, quotas: { claude: { week: { pct: 14 } }, codex: { week: { pct: 30 } } }, tps: 434.4 }
   assert.deepEqual(barsOf({ ...q, codex: true }, {}).map((x) => [x.id, x.text]), [['five', '21 %'], ['week', '14 %'], ['codex_week', '30 %'], ['tps', '434 tok/s']])
   assert.deepEqual(barsOf(q, {}).map((x) => x.id), ['five', 'week', 'tps'])
+  // the usage card's reset texts as the grey detail, credits only when the engine reads them
+  const card = { windows: [{ when: 'reset dans 2 h' }, { when: 'reset dim 20:30' }], credits: { available: true, pct: 12 } }
+  assert.deepEqual(barsOf({ ...q, card }, {}).map((x) => [x.id, x.detail]).slice(0, 3), [['five', 'reset dans 2 h'], ['week', 'reset dim 20:30'], ['credits', '']])
   assert.equal(barsOf({}, {})[0].text, 'non lu')
 })
 
@@ -114,7 +117,10 @@ test('contexte: %, tokens, the hand-off threshold marked on the bar, over the th
   assert.equal(x.text, '25 % · 100K / 400K tokens')
   assert.equal(x.note, 'seuil de relais 250K · reste 150K')
   assert.equal([...x.bar].length, 40)
-  assert.equal([...x.bar].indexOf('┃'), 25) // 250 k of 400 k
+  assert.equal([...x.bar].indexOf('|'), 25) // 250 k of 400 k
+  assert.equal(x.markPct, 62.5)
+  assert.equal(x.detail, '100K / 400K · relais 250K')
+  assert.doesNotMatch(x.bar, /[█░┃]/)
   const over = contexteOf({ usage: { context: { percent: 70 } }, ctxTokens: 280000, fwin: 400000 }, {})
   assert.equal(over.over, true)
   assert.match(over.note, /dépassé/)
@@ -143,35 +149,62 @@ const FSCAN = {
   },
 }
 
-test('factory view: lead, one layer per Workflow + background agents, cards with model, effort, state, tokens, tok/s, log', () => {
+test('thin bars and durations as Claude writes them', () => {
+  assert.equal(textBar(50, 10, {}), '▰▰▰▰▰▱▱▱▱▱')
+  assert.equal(textBar(0, 4, {}, 50), '▱▱|▱')
+  assert.equal(durText(6 * 3600000 + 54 * 60000 + 13000), '6h 54m 13s')
+  assert.equal(durText(4 * 60000 + 2000), '4m 02s')
+  assert.equal(durText(12000), '12s')
+})
+
+test('Cette conversation: the lead card (stats), one card per Workflow + background agents, finished ones apart, log', () => {
   const m = convFactory(FSCAN, 'me', {}, {}, NOW)
   assert.equal(m.available, true)
   assert.equal(m.lead.title, 'Lane alpha')
-  assert.equal(m.lead.bars, '▮▮▮▯')
-  assert.deepEqual(m.layers.map((l) => [l.key, l.title, l.count, l.running]), [['pfw-wf_1', 'Workflow package-wave', 2, 1], ['pfw-bg', 'Agents en arrière-plan', 1, 0]])
-  const coder = m.layers[0].agents[0]
-  assert.equal(coder.label, 'coder · build')
-  assert.equal(coder.bars, '▮▮▯▯')
+  assert.equal(m.lead.model, 'Opus 5.5')
+  assert.equal(m.lead.effort, 'high')
+  assert.equal(m.stats.tokens, 1660)
+  assert.equal(m.stats.agents, 3)
+  assert.equal(m.stats.running, 1)
+  // the running Workflow is a card; the finished background agents go under « Terminés »
+  assert.deepEqual(m.cards.map((l) => [l.key, l.title, l.count, l.running]), [['pfw-wf_1', 'package-wave', 2, 1]])
+  assert.deepEqual(m.finished.cards.map((l) => [l.key, l.title]), [['pfw-bg', 'Agents en arrière-plan']])
+  assert.equal(m.finished.open, false)
+  assert.equal(convFactory(FSCAN, 'me', {}, {}, NOW, { 'pfw-finished': false }).finished.open, true)
+  // without factory's Workflow screen: one phase holding the agents, running first
+  const ph = m.cards[0].phases
+  assert.equal(ph.length, 1)
+  assert.equal(ph[0].open, true)
+  assert.deepEqual(ph[0].dots, ['failed', 'running'])
+  const coder = ph[0].agents[0]
+  assert.equal(coder.label, 'coder · build') // the label, never just « general-purpose »
   assert.equal(coder.stateLabel, 'en cours')
   assert.equal(coder.tokens, 1000)
   assert.ok(Math.abs(coder.tps - 1000 / 3600) < 1e-9) // running: up to now
-  assert.ok(Math.abs(m.layers[0].agents[1].tps - 600 / 600) < 1e-9) // failed: its own 10 minutes
+  assert.ok(Math.abs(ph[0].agents[1].tps - 600 / 600) < 1e-9) // failed: its own 10 minutes
   // the last 6 events, oldest first: agents started / finished, PR opened, PR merged; a plain tool call is not one
   assert.deepEqual(m.log.map((e) => e.text), ['▶ explore-fast démarré', '✓ explore-fast terminé', '▶ verify démarré', '✗ verify en échec', 'PR #7 ouverte', 'PR #6 mergée'])
+  assert.match(convFactorySummary(m), /^Opus 5\.5 · high · .*agents 1\/3$/)
   assert.equal(convFactory(FSCAN, 'nobody', {}, {}, NOW).available, false)
 })
 
-test('factory view as text: boxes and connectors, a folded layer hides its cards, every line fits', () => {
-  for (const w of [40, 60, 75]) {
-    const lines = factoryLines(convFactory(FSCAN, 'me', {}, {}, NOW), w, {})
-    const line = (l) => l.text + (l.fold ? ' [' + l.label + ']' : '')
-    const text = lines.map(line).join('\n')
-    for (const k of ['╭─ Lead', '├─ Workflows · agents en arrière-plan', '▾ ◇ Workflow package-wave', '╭─ ● coder · build', '▾ ● Agents en arrière-plan', 'retour au lead · review + merge', 'Journal de la session']) assert.ok(text.includes(k), k + '\n' + text)
-    assert.ok(lines.every((l) => [...line(l)].length <= w), text)
-  }
-  const folded = factoryLines(convFactory(FSCAN, 'me', {}, {}, NOW, { 'pfw-wf_1': true }), 60, {})
-  assert.ok(folded.some((l) => l.fold === 'pfw-wf_1' && l.label.startsWith('▸')))
-  assert.ok(!folded.some((l) => l.text.includes('coder · build')))
+test('Cette conversation with factory\'s Workflow run: its phases, ETA and cost; a done phase starts folded', () => {
+  const run = { id: 'wf_1', cli: 'me', name: 'package-wave', live: true, elapsed: 3000000, cost: 2.5, estimate: { enough: true, eta: { mid: NOW + 600000 } },
+    agents: [{ id: 'r1', label: 'general-purpose', type: 'general-purpose', desc: '', phase: 'A', model: 'claude-sonnet-5-5', status: 'done', start: T0, end: T0 + 60000, durMs: 60000, tokens: 10, cost: 1 },
+      { id: 'r2', label: 'coder: pkg-one', phase: 'B', model: 'claude-opus-5-5', effort: 'medium', status: 'running', start: T0, durMs: 120000, tokens: 20, cost: 1.5 }],
+    phases: [{ title: 'A', status: 'done', agents: [{ id: 'r1' }] }, { title: 'B', status: 'running', agents: [{ id: 'r2' }] }] }
+  const m = convFactory(FSCAN, 'me', {}, {}, NOW, {}, { runs: [run], tps: 12 })
+  const k = m.cards[0]
+  assert.equal(k.cost, 2.5)
+  assert.equal(k.elapsed, 3000000)
+  assert.match(k.eta, /^\d\d:\d\d$/)
+  assert.deepEqual(k.phases.map((p) => [p.title, p.done, p.count, p.open]), [['A', 1, 1, false], ['B', 0, 1, true]])
+  assert.equal(k.phases[1].agents[0].label, 'coder: pkg-one')
+  assert.equal(k.phases[1].agents[0].ms, 120000)
+  assert.equal(m.stats.tps, 12)
+  // the viewer's own fold wins over the default
+  const m2 = convFactory(FSCAN, 'me', {}, {}, NOW, { 'pfw-wf_1-ph0': false, 'pfw-wf_1-ph1': true }, { runs: [run] })
+  assert.deepEqual(m2.cards[0].phases.map((p) => p.open), [true, false])
 })
 
 // ---- the drawing at the two widths Julian uses (the fixtures preview.mjs --panneau draws) --------------------------
@@ -182,10 +215,12 @@ import { widest } from '../lib/factory/scanner/textrender.mjs'
 import { panneauText } from '../scripts/fixtures/panneau.mjs'
 
 const PREVIEW = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'preview.mjs')
-const HEADERS = ['▾ Fichiers', '▾ Cette conversation', '▾ Contexte de cette conversation', '▾ Toutes les conversations', '▾ Graphe des conversations']
+const HEADERS = ['▸ Fichiers', '▾ Cette conversation', '▾ Toutes les conversations', '▾ Barres', '▾ Graphe des conversations']
+// box-drawing borders and connectors (Julian, 17 Oct: they look weird and eat the width)
+const BOX = /[─│╭╮╰╯├└┬┴┼┃┄█░]/
 
-for (const columns of [60, 75]) {
-  test(`preview --panneau at ${columns} columns: the 5 section headers in order, no tab bar, nothing wider than the pane`, () => {
+for (const columns of [45, 60, 75]) {
+  test(`preview --panneau at ${columns} columns: the 5 section headers in order, no tab bar, no box drawing, nothing wider than the pane`, () => {
     const text = execFileSync(process.execPath, [PREVIEW, '--panneau', '--cols', String(columns)], { encoding: 'utf8' })
     const at = HEADERS.map((k) => text.indexOf(k))
     assert.ok(at.every((i) => i >= 0), text)
@@ -194,23 +229,39 @@ for (const columns of [60, 75]) {
     assert.doesNotMatch(text, /\[Panneau\]|\[Plus ▾|\[Moins ▴|\[Mission\]|\[Cockpit\]|\[Journal\]|\[Jauge\]|\[Registres\]/)
     // the old views by their command, one grey line at the very bottom
     const body = text.split('\n').slice(1).join('\n').trimEnd()
-    assert.match(body.slice(body.lastIndexOf('Autres vues')), /^Autres vues, par \/cockpit … : cartes · mission/)
+    assert.match(body.slice(body.lastIndexOf('Autres vues')).replace(/\s+/g, ' '), /^Autres vues, par \/cockpit … : cartes · mission/)
     assert.ok(body.indexOf('Autres vues') > body.indexOf('▾ Graphe des conversations'))
     assert.ok(widest(body) <= columns, `${widest(body)} columns\n${body}`)
+    assert.doesNotMatch(body, BOX, body)
   })
 }
 
-test('Panneau: the factory view, the context and the conversations graph are drawn', () => {
+test('the numbers are never cut at 45 columns: titles are', () => {
+  const text = panneauText(45)
+  for (const k of ['30 %', '$9.50', '5.1M', '80 %', '40m 00s', '1/1', '20m 00s', '1.5M tok', '1250 tok/s', '3.6M', '71 %', '21 %', '85 %', '852 tok/s', '3.6M · ctx 30 %']) assert.ok(text.includes(k), k + '\n' + text)
+  assert.match(text, /Lane alpha · tableau de… 3\.6M/) // the title is the part that gives way
+})
+
+test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, bars, the graph', () => {
   const text = panneauText(75)
-  for (const k of ['╭─ Lead', '▮▮▯▯ medium', '◇ Workflow package-wave', '╭─ ● coder · build the panel', 'tok/s', 'retour au lead · review + merge', 'PR #42 ouverte', 'PR #41 mergée',
-    '┃', '30 % · 120K / 400K tokens', 'seuil de relais 250K · reste 130K', '1. Lane alpha', 'Workflows actifs', '5 h', 'Semaine', 'tok/s toutes conv', 'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
+  for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · en cours', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
+    'Modèles : Opus 100 %', 'Ce qui contribue', 'package-wave', 'Workflow fin vers', '2 agents  1.9M tokens  $9.40', 'Phases', '[Wave A ›] 1/1 ■', '[Wave B ⌄] 0/1 ■',
+    '● coder: cockpit-claude-style 20m 00s', 'Opus 5.5 · medium · 1.5M tok · 1250 tok/s · en cours', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
+    '● Lane alpha · tableau de bord 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits 12 %', 'tok/s toutes conv',
+    'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
+  assert.doesNotMatch(text, /general-purpose/)
   assert.doesNotMatch(text, /Codex semaine/) // only while Codex is toggled
   assert.match(panneauText(75, { who: 'codex' }), /Codex semaine/)
+  // « Terminés » unfolds to the finished background agents
+  assert.match(panneauText(75, { closed: { 'pfw-finished': false } }), /Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
 })
 
 test('Panneau folded: one header line per section with its summary', () => {
   const text = panneauText(75, { open: {} })
   for (const k of HEADERS) assert.ok(text.includes(k.replace('▾', '▸')), text)
-  assert.match(text, /▸ Contexte de cette conversation\]? 30 %/)
-  assert.doesNotMatch(text, /Workflows actifs|╭─ Lead/)
+  // the file tree, unfolded on demand
+  assert.match(panneauText(60, { open: { fichiers: true } }), /▾ Fichiers\][\s\S]*proj-one · main/)
+  assert.match(text, /▸ Cette conversation\] Opus 5\.5 · medium · ctx 30 %/)
+  assert.match(text, /▸ Barres\] Session 5 h 21 %/)
+  assert.doesNotMatch(text, /Workflows actifs|Cache hit/)
 })

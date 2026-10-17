@@ -337,15 +337,21 @@ async function loadPanelState($) {
   const pc = panelConfig(CFG || {})
   let saved = null
   try { saved = (await $.store.get('panel')) || null } catch { saved = null }
-  // sections added since the viewer's last save start as the config says
-  D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...(saved && saved.open && typeof saved.open === 'object' ? saved.open : {}) }
+  // sections added since the viewer's last save start as the config says. Saves before v2 held every section's
+  // default too: their « fichiers » is dropped so the file tree starts folded (Julian, 17 Oct); since v2 only the
+  // sections the viewer toggled are kept.
+  const prev = saved && saved.open && typeof saved.open === 'object' ? { ...saved.open } : {}
+  if (!saved || !(saved.v >= 2)) delete prev.fichiers
+  D.ptouched = Object.fromEntries(Object.keys(prev).map((k) => [k, true]))
+  D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...prev }
   D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
   D.pf = { period: '', project: '', state: '', who: pc.convs.who, ...((saved && saved.filter) || {}) }
   D.pg = grapheFilter(saved && saved.graphe, CFG || {})
 }
 
 function savePanelState($) {
-  try { void Promise.resolve($.store.set('panel', { open: D.popen || {}, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
+  const open = Object.fromEntries(Object.entries(D.popen || {}).filter(([k]) => (D.ptouched || {})[k]))
+  try { void Promise.resolve($.store.set('panel', { v: 2, open, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
 }
 
 const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
@@ -428,7 +434,8 @@ async function refreshPanel($) {
   const now = await $.clock.now()
   try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
   await loadConso($, now).catch(() => undefined)
-  if ((D.popen || {}).convs) await loadCards($).catch(() => undefined)
+  // the quotas file and every Workflow of the PC (phases, ETA, cost of this conversation's Workflows too)
+  if ((D.popen || {}).convs || (D.popen || {}).conv || (D.popen || {}).barres) await loadCards($).catch(() => undefined)
   if ((D.popen || {}).graphe && now - D.grapheAt >= Math.max(10, panelConfig(CFG || {}).graphe.refresh_s) * 1000) {
     D.grapheAt = now
     await loadPart($, 'graphe').catch(() => undefined)
@@ -441,14 +448,18 @@ function panelView(now) {
   const pc = panelConfig(CFG || {})
   const F = D.F
   const fr = filesRows(F, (pc.fichiers.max_rows || 30) + D.fLimit)
-  // Cette conversation: the factory view of this session (lead → Workflows / background agents → agent cards → log)
-  const factory = D.scan && D.self ? convFactory(D.scan, D.self, FCFG || {}, CFG || {}, D.at || now, D.pclosed) : null
-  const me = D.scan && D.self ? findSession(D.scan, D.self) : null
   const f = D.pf
   const syn = synthesis(D.consoData, D.scan, D.codexData, { ...f, fcfg: FCFG || {} }, CFG || {}, now)
-  const tps = f.who === 'codex' ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '' }, CFG || {}, now).tps : syn.tps
+  const claudeAll = f.who === 'codex' || f.project || f.state ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '' }, CFG || {}, now) : syn
+  const tps = claudeAll.tps
   let wfScreen = null
   try { wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null } catch { wfScreen = null }
+  // Cette conversation: the lead's Usage-like card and one Background-tasks-like card per Workflow / background agents
+  const me = D.scan && D.self ? findSession(D.scan, D.self) : null
+  const card = usageCard(D.usageRaw, me, FCFG || {}, now)
+  const contexte = contexteOf({ usage: D.usageRaw, ctxTokens: me ? me.ctx : NaN, fwin: (FCFG || {}).context_window }, CFG || {})
+  const factory = D.scan && D.self ? convFactory(D.scan, D.self, FCFG || {}, CFG || {}, D.at || now, D.pclosed,
+    { runs: (wfScreen && wfScreen.runs) || [], card, contexte, tps: (claudeAll.tpsById || {})[D.self] }) : null
   let graphe = null
   try {
     graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
@@ -457,9 +468,8 @@ function panelView(now) {
     open: D.popen || {}, closed: D.pclosed,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
-    contexte: contexteOf({ usage: D.usageRaw, ctxTokens: me ? me.ctx : NaN, fwin: (FCFG || {}).context_window }, CFG || {}),
     syn, filter: f,
-    bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, codex: f.who === 'codex' }, CFG || {}),
+    bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, codex: f.who === 'codex', card }, CFG || {}),
     workflows: activeWorkflows(wfScreen, CFG || {}),
     graphe,
   }
@@ -523,9 +533,10 @@ function actions($) {
     // the Panneau
     ptoggle: (id) => {
       D.popen = { ...(D.popen || {}), [id]: !(D.popen || {})[id] }
+      D.ptouched = { ...(D.ptouched || {}), [id]: true }
       savePanelState($)
       redraw()
-      if (D.popen[id] && (id === 'fichiers' || id === 'convs' || id === 'contexte' || id === 'graphe')) void refreshPanel($)
+      if (D.popen[id] && (id === 'fichiers' || id === 'conv' || id === 'convs' || id === 'barres' || id === 'graphe')) void refreshPanel($)
     },
     gfilter: (k, v) => { D.pg = grapheFilter({ ...(D.pg || {}), [k]: v }, CFG || {}); savePanelState($); redraw() },
     gcycle: async (k) => {
@@ -535,7 +546,8 @@ function actions($) {
       savePanelState($)
       redraw()
     },
-    nodeToggle: (key) => { D.pclosed = { ...D.pclosed, [key]: !D.pclosed[key] }; savePanelState($); redraw() },
+    // open: whether the node is unfolded now (nodes with a default of their own, e.g. a running phase); without it, flip
+    nodeToggle: (key, open) => { D.pclosed = { ...D.pclosed, [key]: open === undefined ? !D.pclosed[key] : Boolean(open) }; savePanelState($); redraw() },
     pfilter: (k, v) => {
       D.pf = { ...D.pf, [k]: v }
       if (k === 'who') D.pf = { ...D.pf, project: '', state: '' }

@@ -285,28 +285,31 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
 for (const surface of ['terminal', 'desktop'] as const) {
   for (const columns of [60, 75]) {
-    test(`Panneau by default: Fichiers, Cette conversation, Contexte, Toutes les conversations, Graphe; no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
+    test(`Panneau by default: Fichiers (folded), Cette conversation, Toutes les conversations, Barres, Graphe; no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
       world(on)
       mock.store(on)
       await $.command.run({ command: 'cockpit', args: '' } as any)
       const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 200 }, props: { ...PANE, bodyColumns: columns } } as any)
-      for (const re of [/^▾ Fichiers$/, /^▾ Cette conversation$/, /^▾ Contexte de cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Graphe des conversations$/]) expect(await has(ui, re)).toBe(true)
+      for (const re of [/^▸ Fichiers$/, /^▾ Cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Barres$/, /^▾ Graphe des conversations$/]) expect(await has(ui, re)).toBe(true)
       for (const re of [/^Panneau$/, /^Plus ▾$/, /^Mission$/, /^Cockpit$/, /^Registres$/]) expect(await has(ui, re)).toBe(false) // no tab bar, no left menu
       expect(await has(ui, /^Autres vues, par \/cockpit … : cartes · mission/)).toBe(true)
-      // Fichiers: the cwd's first level, a folder opens on a click
+      // Fichiers: folded by default (Julian, 17 Oct); unfolded, the cwd's first level, a folder opens on a click
+      expect(await has(ui, /▸ src/)).toBe(false)
+      await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
       expect(await has(ui, /▸ src/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/src' })
       expect(await has(ui, /· main\.ts/)).toBe(true)
-      // Cette conversation: the lead box (no agent in this invented lead)
-      expect(await has(ui, /^╭─ Lead/)).toBe(true)
+      // Cette conversation: the lead's Usage-like card (no agent in this invented lead), no box drawing
       expect(await has(ui, /Galaxy finalisation autonome/)).toBe(true)
-      expect(await has(ui, /retour au lead · review \+ merge/)).toBe(true)
-      // Contexte: the engine's figure and the hand-off threshold
-      expect(await has(ui, /^10 % · 103K \/ 1\.0M tokens$/)).toBe(true)
-      expect(await has(ui, /^seuil de relais 250K · reste 147K$/)).toBe(true)
-      // Toutes les conversations: invented classement, sorted by tokens, then the bars (the engine's 5 h figure)
-      expect(await has(ui, /^1\. Lane beta|^1\. Lane alpha/)).toBe(true)
-      expect(await has(ui, /^5 h$/)).toBe(true)
+      expect(await has(ui, /[╭╮╰╯]/)).toBe(false)
+      // its context row: the engine's figure, the hand-off threshold in grey, the % in bold; then the stats grid
+      expect(await has(ui, /^Contexte$/)).toBe(true)
+      expect(await has(ui, /^103K \/ 1\.0M · relais 250K$/)).toBe(true)
+      expect(await has(ui, /^10 %$/)).toBe(true)
+      expect(await has(ui, /^Cache hit$/)).toBe(true)
+      // Toutes les conversations: invented classement, compact rows; Barres: the engine's 5 h figure
+      expect(await has(ui, /^Lane beta|^Lane alpha/)).toBe(true)
+      expect(await has(ui, /^Session 5 h$/)).toBe(true)
       expect(await has(ui, /^21 %$/)).toBe(true)
       expect(await has(ui, /^Codex semaine$/)).toBe(false) // only while Codex is toggled
       // an old view by its command; its tab row brings the Panneau back
@@ -319,19 +322,21 @@ for (const surface of ['terminal', 'desktop'] as const) {
   }
 }
 
-test('Panneau: a Workflow layer of this conversation folds (kept in $.store)', async ($, on) => {
+test('Panneau: a Workflow phase of this conversation folds (kept in $.store)', async ($, on) => {
   world(on, { self: 'child-cli' })
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  expect(await has(ui, /^▾ ◇ Workflow package-wave/)).toBe(true)
-  expect(await has(ui, /╭─ ● coder · build/)).toBe(true)
-  await ui.press({ plugin: 'cockpit', key: 'pfw-wf_1' })
-  expect(await has(ui, /^▸ ◇ Workflow package-wave/)).toBe(true)
-  expect(await has(ui, /╭─ ● coder · build/)).toBe(false)
-  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":true')
+  expect(await has(ui, /^package-wave$/)).toBe(true)
+  expect(await has(ui, /^Phases$/)).toBe(true)
+  expect(await has(ui, /^coder · build/)).toBe(true)
+  expect(await has(ui, /general-purpose/)).toBe(false)
+  await ui.press({ plugin: 'cockpit', key: 'pfw-wf_1-ph0' })
+  expect(await has(ui, /›$/)).toBe(true)
+  expect(await has(ui, /^coder · build/)).toBe(false)
+  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1-ph0":true') // closed
 })
 
 test('Fichiers: a clicked file goes along with the next prompt as filetree’s context line, cleared by Effacer', async ($, on) => {
@@ -342,6 +347,7 @@ test('Fichiers: a clicked file goes along with the next prompt as filetree’s c
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
   const ask = async () => JSON.stringify(await $.prompt.submit({ text: 'what is this?', wait: false } as any))
   expect(await ask()).not.toContain('selected in the file tree')
+  await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
   await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/README.md' })
   expect(await has(ui, /^sélection : README\.md$/)).toBe(true)
   const sent = await ask()
@@ -357,6 +363,7 @@ test('Fichiers: attach_selection false keeps the selection visual only', async (
   on('prompt.submit', ($: any, e: any) => ({ text: e.text, context: e.context }))
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
   await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/README.md' })
   expect(await has(ui, /non envoyée/)).toBe(true)
   expect(JSON.stringify(await $.prompt.submit({ text: 'x', wait: false } as any))).not.toContain('selected in the file tree')
@@ -370,11 +377,16 @@ test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, C
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  expect(await has(ui, /^▸ Fichiers$/)).toBe(true) // folded by default
   await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
-  expect(await has(ui, /^▸ Fichiers$/)).toBe(true)
-  expect(JSON.stringify(kept.panel)).toContain('"fichiers":false')
+  expect(await has(ui, /^▾ Fichiers$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"fichiers":true')
+  expect(JSON.stringify(kept.panel)).toContain('"v":2')
+  await ui.press({ plugin: 'cockpit', key: 'p-sec-barres' })
+  expect(await has(ui, /^▸ Barres$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"barres":false')
   await ui.press({ plugin: 'cockpit', key: 'pf-period-7d' })
-  expect(await has(ui, /^1\. Lane beta/)).toBe(true)
+  expect(await has(ui, /^Lane beta/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'pf-project' })
   expect(await has(ui, /^Projet : proj-one$/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'pf-state' })
@@ -382,6 +394,17 @@ test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, C
   await ui.press({ plugin: 'cockpit', key: 'pf-who' })
   expect(await has(ui, /^Codex$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
+})
+
+test('Panneau: a save from before v2 (every section kept open) opens with Fichiers folded', async ($, on) => {
+  world(on)
+  const kept: Record<string, unknown> = { panel: { open: { fichiers: true, conv: true, convs: true, graphe: true }, closed: {}, filter: {} } }
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  expect(await has(ui, /^▸ Fichiers$/)).toBe(true)
+  expect(await has(ui, /^▾ Cette conversation$/)).toBe(true)
 })
 
 test('Panneau: Graphe des conversations shows who waits, the tree, keeps its filters, a title opens the conversation', async ($, on) => {
@@ -393,8 +416,9 @@ test('Panneau: Graphe des conversations shows who waits, the tree, keeps its fil
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
   expect(await has(ui, /^À toi de cliquer \(1\)$/)).toBe(true)
   expect(await has(ui, /^eta · 2$/)).toBe(true)
-  expect(await has(ui, /^└ ◆$/)).toBe(true)
-  expect(await has(ui, /^│ travaille|inactive depuis 10 min · coordinateur/)).toBe(true)
+  expect(await has(ui, /^◆$/)).toBe(true)
+  expect(await has(ui, /inactive depuis 10 min · coordinateur/)).toBe(true)
+  expect(await has(ui, /^[│├└]/)).toBe(false) // no box-drawing connectors
   expect(await has(ui, /^Old lane$/)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'pg-f-tout' })
   expect(await has(ui, /^Old lane$/)).toBe(true)

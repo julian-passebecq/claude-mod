@@ -1,10 +1,14 @@
 // cockpit « Panneau » - the default view: ONE scrolling column, no tabs (Julian, 17 Oct: « trop d'écrans », then no tab
 // bar at all); the old views are reached by their /cockpit commands only, listed in one grey line at the bottom.
-//   1. Fichiers                       data-goblin's file tree, embedded (hooks/files.mjs over the copies in lib/filetree)
-//   2. Cette conversation             a factory view: lead box, Workflows / background agents, one card per agent,
-//                                     « retour au lead », the session log (lib/panel_conv.mjs, hooks/panel_view.mjs)
-//   3. Contexte de cette conversation % bar, tokens, the hand-off threshold (250 k)
-//   4. Toutes les conversations       one synthesis table + filters, Workflows actifs, bars (5 h, semaine, Codex, tok/s)
+// Drawn in the style of Claude's own Usage and Background-tasks panes (Julian, 17 Oct 18:10): cards with a bold title,
+// rows « label … grey detail  bold % » over a thin bar, small stats grids, phases with ■□ dots; no box-drawing borders.
+//   1. Fichiers                       data-goblin's file tree, embedded, FOLDED by default (hooks/files.mjs)
+//   2. Cette conversation             a Usage-like card for the lead (model · effort, context bar with the 250 k mark,
+//                                     cost, tokens, cache hit, % sub-agents, models, what contributes), then one
+//                                     Background-tasks-like card per Workflow / background agents, finished ones
+//                                     folded into « Terminés N › », the session log (lib/panel_conv.mjs)
+//   3. Toutes les conversations       compact rows (dot, title, tokens, bar, %) + filters, Workflows actifs
+//   4. Barres                         Session 5 h, Semaine, Codex, crédits as Usage rows over bars; tok/s
 //   5. Graphe des conversations       who waits, works, coordinates, by project like the sidebar (lib/graphe.mjs, hooks/graphe_view.mjs)
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Every label and limit comes from `panel` in
 // cockpit.config.json (deep-merged over PANEL_DEFAULTS).
@@ -13,13 +17,16 @@ import { tokensOf } from './usage/lib/transcripts.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 import { repoOf } from './factory/hooks/logic.mjs'
 
-export const PANEL_SECTIONS = ['fichiers', 'conv', 'contexte', 'convs', 'graphe']
+export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres', 'graphe']
 
 export const PANEL_DEFAULTS = {
   enabled: true,
   order: PANEL_SECTIONS,
-  // which sections start unfolded (the viewer's own choice is then kept in $.store)
-  open: ['fichiers', 'conv', 'contexte', 'convs', 'graphe'],
+  // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct)
+  open: ['conv', 'convs', 'barres', 'graphe'],
+  // the look: bar_px = px per column of a bar drawn as Svg (desktop); bar_cells = cells of the short bars of a compact row
+  // (narrow under wide_cols columns, wide above); finished_open = « Terminés N › » starts unfolded
+  style: { bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, finished_open: false, dot_done: '■', dot_running: '■', dot_pending: '□', bar_full: '▰', bar_empty: '▱', bar_mark: '|' },
   fichiers: {
     // a file clicked in the tree is named to Claude as context of the next prompt, exactly as data-goblin's filetree
     // does (« The user has this file selected in the file tree ... »); off: the selection stays visual only
@@ -39,11 +46,11 @@ export const PANEL_DEFAULTS = {
     states: { working: 'running', julian: 'waiting', blocked: 'waiting', done: 'done', idle: 'done', archived: 'done' },
     last_max: 90,
   },
-  // « Cette conversation » as a factory view: box_max = widest box (columns), agents_max per layer, log_max = events of
-  // the session log
-  conv: { box_max: 60, agents_max: 12, log_max: 6 },
-  // the context bar: its width in characters and the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K);
-  // window: null = factory's context_window
+  // « Cette conversation »: agents_max per card, log_max = events of the session log, contributors = rows of « Ce qui
+  // contribue »
+  conv: { agents_max: 12, log_max: 6, contributors: 3 },
+  // the lead's context bar: the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K); window: null = factory's
+  // context_window; bar_width = cells of the text bar (a surface without Svg)
   contexte: { handoff_tokens: 250000, window: null, bar_width: 40 },
   barres: { width: 140, workflows_max: 8, agents_max: 12 },
   // 5. Graphe des conversations (lib/graphe.mjs): period = default time filter (24h | 7j | tout); working_min = minutes
@@ -69,14 +76,14 @@ export const PANEL_DEFAULTS = {
     graphe_wait_line: '{reason} · depuis {age}',
     graphe_reason_awaiting: 'tour interrompu, attend une personne',
     graphe_reason_ask: 'question ouverte',
-    graphe_legend: '● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · coord = lance des sessions · ⇢ message envoyé · un titre ouvre la conversation',
+    graphe_legend: '● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · ⇢ message envoyé',
     graphe_states: { working: 'travaille', waiting: 't’attend', blocked: 'bloquée', done: 'finie', idle: 'inactive depuis {age}', archived: 'archivée' },
     graphe_roles: { coord: 'coordinateur', lane: 'lane', agent: 'agent' },
     graphe_tokens: '{tokens} tok auj.',
     graphe_ctx: 'ctx {pct} %',
     graphe_here: '(ici)',
     graphe_from: '↖ lancée par {title}',
-    graphe_peer: '┄┄⇢ {title}',
+    graphe_peer: '⇢ {title}',
     graphe_project: 'Projet : {name}',
     graphe_all_projects: 'tous',
     graphe_active: 'Actives seulement',
@@ -91,11 +98,26 @@ export const PANEL_DEFAULTS = {
     barres: 'Barres',
     other_views: 'Autres vues, par /cockpit … : {list}',
     lead: 'Lead',
-    lead_back: 'retour au lead · review + merge',
-    layer: 'Workflows · agents en arrière-plan',
     background: 'Agents en arrière-plan',
-    workflow: 'Workflow {name}',
-    layer_meta: '{running}/{count} en cours · {tokens} tok',
+    workflow: '{name}',
+    kind_workflow: 'Workflow',
+    kind_background: 'Agents',
+    layer_count: '{n} agents',
+    layer_tokens: '{tokens} tokens',
+    layer_eta: 'fin vers {time}',
+    phases: 'Phases',
+    phase_default: 'Agents',
+    finished: 'Terminés {n}',
+    ctx_label: 'Contexte',
+    ctx_detail: '{tokens} / {window} · relais {threshold}',
+    stat_cost: 'Coût',
+    stat_tokens: 'Tokens',
+    stat_cache: 'Cache hit',
+    stat_subs: 'Sous-agents',
+    stat_agents: 'Agents',
+    stat_tps: 'tok/s',
+    models: 'Modèles',
+    contributing: 'Ce qui contribue',
     agent_states: { running: 'en cours', done: 'terminé', failed: 'échec', stopped: 'arrêté' },
     no_layer: 'aucun Workflow ni agent dans cette conversation',
     log: 'Journal de la session',
@@ -133,8 +155,9 @@ export const PANEL_DEFAULTS = {
     tps: 'tok/s',
     tps_hint: 'moyenne sur la dernière heure',
     total: 'Total',
-    five: '5 h',
+    five: 'Session 5 h',
     week: 'Semaine',
+    credits: 'Crédits',
     codex_week: 'Codex semaine',
     tps_all: 'tok/s toutes conv',
     unknown: 'non lu',
@@ -157,9 +180,14 @@ function merge(a, b) {
 
 export function panelConfig(cfg) {
   const p = merge(PANEL_DEFAULTS, (cfg && cfg.panel) || {})
-  // an order written for the four-section Panneau (with « barres ») is read as the default one
-  const order = (p.order || []).includes('barres') ? PANEL_SECTIONS : p.order || []
-  p.order = order.filter((s) => PANEL_SECTIONS.includes(s))
+  // an order written before Barres was its own section (with « contexte », now in the lead's card) gets « barres »
+  // back after « convs »
+  let order = (p.order || []).filter((s) => PANEL_SECTIONS.includes(s))
+  if ((p.order || []).includes('contexte') && !order.includes('barres')) {
+    const i = order.indexOf('convs')
+    order = i < 0 ? [...order, 'barres'] : [...order.slice(0, i + 1), 'barres', ...order.slice(i + 1)]
+  }
+  p.order = order
   return p
 }
 
@@ -174,9 +202,32 @@ export function otherViews(tabs, extra, cfg) {
 export const kTok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(Math.round(n || 0)))
 
 /**
- * Section 3: this conversation's context. usage: $.session.usage() (its context, when the engine gives it); ctxTokens:
- * the scan's context of this conversation; fwin: factory's context_window (window: panel.contexte.window, else the engine's, else fwin). -> { known, pct, tokens, window, threshold,
- * over, bar, text, note }. The bar is text: █ used, ░ free, ┃ the hand-off threshold.
+ * A thin text bar for a surface without Svg: `cells` cells, ▰ used, ▱ free, `mark` (0..100) drawn as the style's mark
+ * (the hand-off threshold of the context bar). Characters from panel.style.
+ */
+export function textBar(pct, cells, cfg, mark = null) {
+  const st = panelConfig(cfg).style
+  const w = Math.max(3, Math.round(cells) || 10)
+  const full = Math.round((Math.max(0, Math.min(100, Number(pct) || 0)) / 100) * w)
+  const m = mark === null || mark === undefined ? -1 : Math.min(w - 1, Math.round((mark / 100) * w))
+  return [...Array(w)].map((_, i) => (i === m ? st.bar_mark : i < full ? st.bar_full : st.bar_empty)).join('')
+}
+
+/** A duration the way Claude's Background-tasks pane writes it: « 6h 54m 13s », « 4m 02s », « 12s ». */
+export function durText(ms) {
+  const t = Math.max(0, Math.round((Number(ms) || 0) / 1000))
+  const h = Math.floor(t / 3600)
+  const m = Math.floor((t % 3600) / 60)
+  const s = t % 60
+  const p2 = (n) => String(n).padStart(2, '0')
+  return h ? `${h}h ${p2(m)}m ${p2(s)}s` : m ? `${m}m ${p2(s)}s` : `${s}s`
+}
+
+/**
+ * The lead's context: usage: $.session.usage() (its context, when the engine gives it); ctxTokens: the scan's context
+ * of this conversation; fwin: factory's context_window (window: panel.contexte.window, else the engine's, else fwin).
+ * -> { known, pct, tokens, window, threshold, markPct, over, bar, text, detail, note }. bar: the text bar with the
+ * hand-off threshold marked; the Svg one is drawn from pct and markPct.
  */
 export function contexteOf({ usage, ctxTokens, fwin }, cfg) {
   const c = panelConfig(cfg)
@@ -187,16 +238,15 @@ export function contexteOf({ usage, ctxTokens, fwin }, cfg) {
   const threshold = Number(q.handoff_tokens) || 250000
   const tok = [u.tokens, u.usedTokens, u.used, ctxTokens].find((x) => Number.isFinite(x) && x > 0)
   const pct = Number.isFinite(u.percent) ? u.percent : Number.isFinite(tok) ? (100 * tok) / window : null
-  if (pct === null) return { known: false, pct: null, tokens: null, window, threshold, over: false, bar: '', text: L.ctx_none, note: '' }
+  const markPct = Math.min(100, (100 * threshold) / window)
+  if (pct === null) return { known: false, pct: null, tokens: null, window, threshold, markPct, over: false, bar: '', text: L.ctx_none, detail: '', note: '' }
   const tokens = Number.isFinite(tok) ? tok : Math.round((pct / 100) * window)
-  const w = Math.max(10, Number(q.bar_width) || 40)
-  const full = Math.round((Math.max(0, Math.min(100, pct)) / 100) * w)
-  const mark = Math.min(w - 1, Math.round((threshold / window) * w))
-  const bar = [...Array(w)].map((_, i) => (i === mark ? '┃' : i < full ? '█' : '░')).join('')
   const over = tokens >= threshold
   return {
-    known: true, pct, tokens, window, threshold, over, bar,
+    known: true, pct, tokens, window, threshold, markPct, over,
+    bar: textBar(pct, Math.max(10, Number(q.bar_width) || 40), cfg, markPct),
     text: `${Math.round(pct)} % · ${fill(L.ctx_tokens, { tokens: kTok(tokens), window: kTok(window) })}`,
+    detail: fill(L.ctx_detail, { tokens: kTok(tokens), window: kTok(window), threshold: kTok(threshold) }),
     note: over ? fill(L.ctx_over, { threshold: kTok(threshold) }) : fill(L.ctx_left, { threshold: kTok(threshold), left: kTok(threshold - tokens) }),
   }
 }
@@ -258,7 +308,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const L = c.labels
   const period = q.periods.find((p) => p.id === f.period) || q.periods.find((p) => p.id === q.period) || q.periods[0]
   const who = f.who || q.who
-  const base = { rows: [], others: null, total: { tokens: 0, cost: 0 }, projects: [], period, periods: q.periods, tps: null, hasData: Boolean(data && Array.isArray(data.rows)) }
+  const base = { rows: [], others: null, total: { tokens: 0, cost: 0 }, projects: [], period, periods: q.periods, tps: null, tpsById: {}, hasData: Boolean(data && Array.isArray(data.rows)) }
   if (who === 'codex') {
     const tz = (data && data.tzMin) || 0
     const n = codexTokens(codex, windowOf(period, nowMs, tz), tz)
@@ -293,7 +343,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const rest = kept.slice(top)
   const others = rest.length ? { count: rest.length, label: fill(L.others, { n: rest.length }), ...sum(rest), tps: rest.reduce((a, x) => a + x.tps, 0) } : null
   const tps = [...tpsOf.values()].reduce((a, b) => a + b, 0)
-  return { ...base, rows, others, total: sum(kept), projects, tps }
+  return { ...base, rows, others, total: sum(kept), projects, tps, tpsById: Object.fromEntries(tpsOf) }
 }
 
 /** The next value of a cycling filter button: '' (all) → each value → ''. */
@@ -307,10 +357,11 @@ export function cycle(list, cur) {
 
 /**
  * usage: $.session.usage() ({ rateLimits }); quotas: core readQuotas ({ claude: {five, week}, codex: {five, week} });
- * tps: tok/s of all conversations (synthesis().tps); codex: the table's « Codex » toggle is on (adds Codex semaine).
- * -> [{ id, label, pct (0..100) | null, text }]
+ * tps: tok/s of all conversations (synthesis().tps); codex: the table's « Codex » toggle is on (adds Codex semaine);
+ * card: nav.usageCard(...) when known (its reset texts and the credits, shown only when the engine reads them).
+ * -> [{ id, label, pct (0..100) | null, text, detail }]
  */
-export function barsOf({ usage, quotas, tps, codex }, cfg) {
+export function barsOf({ usage, quotas, tps, codex, card }, cfg) {
   const L = panelConfig(cfg).labels
   const limits = (usage && usage.rateLimits) || []
   const lim = (kind) => {
@@ -322,11 +373,14 @@ export function barsOf({ usage, quotas, tps, codex }, cfg) {
   const week = lim('seven_day') ?? qpct(quotas && quotas.claude && quotas.claude.week)
   const cx = qpct(quotas && quotas.codex && quotas.codex.week)
   const pctText = (v) => (v === null || v === undefined ? L.unknown : `${Math.round(v)} %`)
+  const when = (i) => (card && card.windows && card.windows[i] && card.windows[i].when) || ''
+  const cr = card && card.credits && card.credits.available ? card.credits.pct : null
   return [
-    { id: 'five', label: L.five, pct: five, text: pctText(five) },
-    { id: 'week', label: L.week, pct: week, text: pctText(week) },
-    codex ? { id: 'codex_week', label: L.codex_week, pct: cx, text: pctText(cx) } : null,
-    { id: 'tps', label: L.tps_all, pct: null, text: Number.isFinite(tps) && tps !== null ? `${Math.round(tps)} ${L.tps}` : L.unknown },
+    { id: 'five', label: L.five, pct: five, text: pctText(five), detail: when(0) },
+    { id: 'week', label: L.week, pct: week, text: pctText(week), detail: when(1) },
+    codex ? { id: 'codex_week', label: L.codex_week, pct: cx, text: pctText(cx), detail: '' } : null,
+    cr !== null ? { id: 'credits', label: L.credits, pct: cr, text: pctText(cr), detail: '' } : null,
+    { id: 'tps', label: L.tps_all, pct: null, text: Number.isFinite(tps) && tps !== null ? `${Math.round(tps)} ${L.tps}` : L.unknown, detail: L.tps_hint },
   ].filter(Boolean)
 }
 
@@ -338,7 +392,7 @@ export function activeWorkflows(screen, cfg) {
     return {
       key: 'wf:' + (v.id || v.name), name: v.name, count: agents.length, running: agents.filter((a) => a.status === 'running').length,
       tokens: agents.reduce((x, a) => x + (a.tokens || 0), 0),
-      agents: agents.slice(0, b.agents_max).map((a) => ({ id: a.id, label: a.label || a.type || a.id, type: a.type, model: a.model, status: a.status, tokens: a.tokens || 0 })),
+      agents: agents.slice(0, b.agents_max).map((a) => ({ id: a.id, label: a.label || a.type || a.id, type: a.type, model: a.model, effort: a.effort || '', status: a.status, tokens: a.tokens || 0 })),
       hidden: Math.max(0, agents.length - b.agents_max),
     }
   })

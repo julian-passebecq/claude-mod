@@ -104,8 +104,12 @@ for (const columns of [60, 75]) {
     const text = panneauText(columns)
     const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
     for (const k of ['À toi de cliquer (1)', '◆ [Lane beta]', 'Choisir la version · depuis 2 h', '● travaille', '[Actives seulement]', '[24 h]', '[Archivées]',
-      '★ proj-one · 4', '│ travaille · coordinateur · 3.6M tok auj. · ctx 30 %', '├ ● [Package two]', '│ └ ○ [Package two · verify]', '┄┄⇢ PM BETA',
-      'proj-two · 2', '└ ◆ [Lane beta]']) assert.ok(g.includes(k), k + '\n' + g)
+      '★ proj-one · 4', '(ici)] 3.6M · ctx 30 %', 'travaille · coordinateur', '● [Package two]', '○ [Package two · verify]', '⇢ PM BETA',
+      'proj-two · 2', '◆ [Lane beta] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
+    // children are indented under their parent, without box-drawing connectors
+    assert.doesNotMatch(g, /[│├└┄]/)
+    const ind = (k) => { const l = g.split('\n').find((x) => x.includes(k)); return l.length - l.trimStart().length }
+    assert.ok(ind('[Package two]') > ind('[Lane alpha') && ind('[Package two · verify]') > ind('[Package two]'), g)
     assert.doesNotMatch(g, /Archived lane|Lane gamma/)
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
     assert.ok(panneauText(columns, { graphe: { period: 'tout', archived: true } }).includes('Archived lane'))

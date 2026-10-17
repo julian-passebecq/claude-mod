@@ -48,3 +48,19 @@ export function treeSvg(rows, colors = {}, o = {}) {
   if (more > 0) parts.push(`<text x="${x0}" y="${height - 8}" font-size="11" font-family="sans-serif" fill="${col('dim')}">+ ${more}</text>`)
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join('')}</svg>`
 }
+
+/**
+ * A thin rounded bar like the ones of Claude's Usage pane: pct (0..100) filled, an optional tick at `mark` (0..100).
+ * o: { width (px), height (px, 6), color, track, mark, markColor }. Scales to the slot (preserveAspectRatio none).
+ */
+export function meterSvg(pct, o = {}) {
+  const w = Math.max(40, Math.round(o.width || 320))
+  const hgt = o.height || 6
+  const p = Math.max(0, Math.min(100, Number(pct) || 0))
+  const fill = p > 0 ? Math.max(hgt, (w * p) / 100) : 0
+  const r = hgt / 2
+  const mark = o.mark === null || o.mark === undefined ? '' : `<rect x="${Math.min(w - 2, (w * Math.max(0, Math.min(100, o.mark))) / 100).toFixed(1)}" y="0" width="2" height="${hgt}" fill="${o.markColor || '#d29922'}"/>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}" viewBox="0 0 ${w} ${hgt}" preserveAspectRatio="none">` +
+    `<rect x="0" y="0" width="${w}" height="${hgt}" rx="${r}" fill="${o.track || '#8b949e33'}"/>` +
+    (fill ? `<rect x="0" y="0" width="${fill.toFixed(1)}" height="${hgt}" rx="${r}" fill="${o.color || '#2f81f7'}"/>` : '') + mark + '</svg>'
+}

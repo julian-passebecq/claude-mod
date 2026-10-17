@@ -32,6 +32,7 @@ export function kit(el, cfg) {
     else if (o.color) p.color = o.color
     if (o.bold) p.bold = true
     if (o.dim) p.dimColor = true
+    if (o.size) p.size = o.size
     if (o.key) p.key = o.key
     return el.Text(p)
   }
@@ -78,7 +79,7 @@ function drawBody(el, V) {
   // /cockpit command only, listed in one grey line at its bottom. On an old view the tab row shows, « Panneau » first.
   if (tab === 'panneau') {
     const extra = [tabValid(V.cfg, 'depuis') ? 'depuis' : '', tabValid(V.cfg, 'nuit') ? 'nuit' : ''].filter(Boolean)
-    const out = drawPanel(h, { ...V.panel, cfg: V.cfg, columns: V.columns, otherViews: otherViews(tabs, extra, V.cfg), barEl: (pct, key) => bar(h, V, pct, key, pc.barres.width) })
+    const out = drawPanel(h, { ...V.panel, cfg: V.cfg, columns: V.columns, otherViews: otherViews(tabs, extra, V.cfg), colors: { track: '#8b949e33', ...(h.c.colors || {}) } })
     if (V.error) out.push(h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'scan-error' }))
     return h.col(out)
   }
