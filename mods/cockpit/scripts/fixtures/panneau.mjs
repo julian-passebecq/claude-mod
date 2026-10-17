@@ -3,6 +3,7 @@
 import { el, renderText } from '../../lib/factory/scanner/textrender.mjs'
 import { drawCockpit } from '../../hooks/view.mjs'
 import { synthesis, barsOf, activeWorkflows, contexteOf } from '../../lib/panel.mjs'
+import { usageCard } from '../../hooks/nav.mjs'
 import { convFactory } from '../../lib/panel_conv.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
 
@@ -26,7 +27,7 @@ const SUBS = [
 ]
 export const SCAN = {
   sessions: [
-    { cli: 'lead', sid: 'local_lead', app_title: 'Lane alpha · tableau de bord', cwd: 'C:/code/proj-one', live: true, model: 'claude-opus-5-5', app_effort: 'medium', ctx: 120000, subs: SUBS, recent: [] },
+    { cli: 'lead', sid: 'local_lead', app_title: 'Lane alpha · tableau de bord', cwd: 'C:/code/proj-one', live: true, model: 'claude-opus-5-5', app_effort: 'medium', ctx: 120000, subs: SUBS, recent: [], models: V(600000) },
     { cli: 'b', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
   ],
   detail: {
@@ -49,21 +50,39 @@ export const GRAPH_ROWS = [
   G({ cli: 'old', title: 'Archived lane', archived: true, last_activity: NOW - 3 * 3600000 }),
 ]
 
+// invented rates ($ per million tokens) so the cards show a cost
+export const FCFG = { rates: {
+  opus: { in: 5, out: 25, cache_read: 0.5, cache_write_5m: 6.25, cache_write_1h: 10 },
+  sonnet: { in: 3, out: 15, cache_read: 0.3, cache_write_5m: 3.75, cache_write_1h: 6 },
+  haiku: { in: 1, out: 5, cache_read: 0.1, cache_write_5m: 1.25, cache_write_1h: 2 },
+} }
+// factory's Workflow screen run of this conversation's Workflow (phases, ETA, cost), as workflowScreen(...).runs has it
+const RA = (id, label, phase, model, effort, status, minAgo, minDur, tokens, cost) => ({ id, label, phase, model, effort, status, start: NOW - minAgo * 60000,
+  end: status === 'running' ? null : NOW - (minAgo - minDur) * 60000, durMs: (status === 'running' ? minAgo : minDur) * 60000, tokens, cost })
+export const RUNS = [{
+  id: 'wf_1', cli: 'lead', name: 'package-wave', live: true, status: 'running', elapsed: 40 * 60000, cost: 9.4,
+  estimate: { enough: true, eta: { mid: NOW + 25 * 60000 } },
+  agents: [RA('a1', 'coder: cockpit-claude-style', 'Wave B', 'claude-opus-5-5', 'medium', 'running', 20, 20, 1500000, 7.9), RA('a2', 'verify', 'Wave A', 'claude-sonnet-5-5', 'low', 'done', 40, 15, 408000, 1.5)],
+  phases: [{ title: 'Wave A', status: 'done', agents: [{ id: 'a2' }] }, { title: 'Wave B', status: 'running', agents: [{ id: 'a1' }] }, { title: 'Merge', status: 'waiting', agents: [] }],
+}]
+
 const noop = () => {}
 const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
 
-/** The Pane's view model on the Panneau. open: sections unfolded (all by default); closed: folded layers. */
+/** The Pane's view model on the Panneau. open: sections unfolded (all but Fichiers by default); closed: folded nodes. */
 export function panneauView(columns, o = {}) {
-  const open = o.open || { fichiers: true, conv: true, contexte: true, convs: true, graphe: true, 'wf:r1': true }
+  // as the Panneau opens: every section unfolded but Fichiers (folded by default, Julian 17 Oct)
+  const open = o.open || { conv: true, convs: true, barres: true, graphe: true, 'wf:r1': true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
   const syn = synthesis(CLASSEMENT, SCAN, null, filter, {}, NOW)
+  const usage = { rateLimits: [{ kind: 'five_hour', percentUsed: 21, resetsAt: new Date(NOW + 130 * 60000).toISOString() }, { kind: 'seven_day', percentUsed: 85, resetsAt: new Date(NOW + 50 * 3600000).toISOString() }, { kind: 'spend_limit', percentUsed: 12 }] }
+  const card = usageCard(usage, SCAN.sessions[0], FCFG, NOW)
   const panel = {
     open, closed: o.closed || {}, act: ACT,
     files: { head: 'proj-one · main', rows: [{ id: 'C:/code/proj-one/src', label: '▾ src', git: 'M', color: '#e5c07b', selected: false }, { id: 'C:/code/proj-one/src/panel.ts', label: '  · panel.ts', git: '?', selected: true }], more: 3, selected: 'src/panel.ts', attach: true, busy: false },
-    factory: convFactory(SCAN, 'lead', {}, {}, NOW, o.closed || {}),
-    contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}),
+    factory: convFactory(SCAN, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, SCAN, null, { period: 'today' }, {}, NOW).tpsById.lead }),
     syn, filter,
-    bars: barsOf({ usage: { rateLimits: [{ kind: 'five_hour', percentUsed: 21 }, { kind: 'seven_day', percentUsed: 85 }] }, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex' }, {}),
+    bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
     workflows: activeWorkflows({ runs: [{ id: 'r1', name: 'package-wave', live: true, agents: [{ id: '1', label: 'coder', model: 'claude-opus-5-5', status: 'running', tokens: 300000 }, { id: '2', label: 'verify', model: 'claude-sonnet-5-5', status: 'done', tokens: 80000 }] }] }, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
   }
