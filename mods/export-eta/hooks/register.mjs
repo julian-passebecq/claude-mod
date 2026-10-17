@@ -2,7 +2,9 @@
 // conversations is ready. Read-only view of <home> (~/.claude/export-eta), written by exporter/export.mjs; every button
 // runs that script (one code path, the same one the Veille watcher runs). No model call, no text for the model, nothing
 // blocked or rewritten.
-//   /export [en-cours | lot | close]
+//   /export [en-cours | lot | tout | close]
+//   /export-tout (= /export-eta tout): « Exporter tout », one click, no pane: the dated snapshot + conversations land in
+//   eta through one merged PR; a toast says « Exporté : N fichiers, PR #x mergée ».
 import { bandLine, batchView, historyRows, ongoing, selection } from './view.mjs'
 import { deepMerge, fill } from '../lib/layout.mjs'
 
@@ -57,6 +59,15 @@ const EXPORT_MS = 600000
 const runMode = ($, mode, ids) => act($, mode, ['run', '--mode', mode, ...(ids && ids.length ? ['--ids', ids.join(',')] : [])], EXPORT_MS)
 const refresh = ($) => act($, 'list', ['list'], 120000)
 
+const TOUT_MS = 600000 // the host's ceiling for process.run
+async function exportTout($) {
+  const L = (D.cfg && D.cfg.labels) || {}
+  if (D.busy) { try { $.ui.toast(L.busy || 'export en cours…') } catch { /* no toast */ } return }
+  try { $.ui.toast(L.tout_started || 'Export tout : snapshot et conversations vers eta…') } catch { /* no toast */ }
+  await act($, 'tout', ['tout'], TOUT_MS)
+  try { $.ui.toast(D.msg || L.tout_failed || 'Export tout : fini') } catch { /* no toast */ }
+}
+
 function draw(el, vm, h) {
   const cfg = D.cfg || {}
   const L = cfg.labels || {}
@@ -103,7 +114,7 @@ function draw(el, vm, h) {
     ])
   } else {
     body = box(L.tab_history || 'Exports', vm.history.length ? vm.history.map((x) => col([
-      row([T(`● ${x.when}`, { tone: x.tone, bold: true }), T(`${x.mode} · ${x.count} conversation(s)${x.dry ? ' · essai' : ''}`), link(x.url, x.pr || 'PR'), x.url ? T(x.merged ? 'mergée' : 'pas mergée', { tone: x.merged ? 'ok' : 'warn' }) : null]),
+      row([T(`● ${x.when}`, { tone: x.tone, bold: true }), T(`${x.mode} · ${x.count} conversation(s)${x.files ? ` · ${x.files} fichiers` : ''}${x.dry ? ' · essai' : ''}`), link(x.url, x.pr || 'PR'), x.url ? T(x.merged ? 'mergée' : 'pas mergée', { tone: x.merged ? 'ok' : 'warn' }) : null]),
       T(`masqués : ${x.masked}`, { dim: true }),
       x.held.length ? T(`retenues : ${x.held.join(' ; ')}`, { tone: 'warn' }) : null,
       x.error ? T(x.error, { tone: 'bad' }) : null,
@@ -128,6 +139,7 @@ async function onCommand($, e) {
   await load($)
   const v = String(e.args || '').trim().toLowerCase()
   if (v === 'close') { await $.ui.close({ id: PANE }); return {} }
+  if (v === 'tout' || v === 'all') { void exportTout($); return {} }
   await $.ui.open({ id: PANE, title: (D.cfg.labels || {}).pane_title || 'Export eta', focus: true, closeOnEscape: true })
   if (v === 'en-cours' || v === 'ongoing') { D.tab = 'history'; void runMode($, 'ongoing') }
   else if (v === 'lot' || v === 'batch') { D.tab = 'history'; void runMode($, 'batch') }
@@ -145,10 +157,16 @@ export function register(on) {
         await $.command.register({
           name, immediate: true,
           description: 'Export eta : exporte les conversations (en cours, sélection, lot terminé) en Markdown masqué vers le dépôt eta, par PR',
-          argumentHint: 'en-cours | lot | close',
+          argumentHint: 'en-cours | lot | tout | close',
         })
       } catch { /* /export may clash with a built-in: /export-eta stays */ }
     }
+    try {
+      await $.command.register({
+        name: 'export-tout', immediate: true,
+        description: 'Exporter tout : snapshot daté (conversations, statut, workflows, CI, conso, problèmes, veille, à faire, règles) vers le dépôt eta, une PR mergée, sans tokens',
+      })
+    } catch { /* already registered */ }
     // The batch notice: pending.json is refreshed by the Veille watcher; if nobody did for a while, refresh it here.
     const every = Math.max(60, ((D.cfg && D.cfg.pane) || {}).refresh_s || 300) * 1000
     $.clock.every(every, async () => {
@@ -161,6 +179,7 @@ export function register(on) {
 
   on('command.run', { command: 'export-eta' }, onCommand).catch(() => ({}))
   on('command.run', { command: 'export' }, onCommand).catch(() => ({}))
+  on('command.run', { command: 'export-tout' }, async ($) => { await load($).catch(() => undefined); void exportTout($); return {} }).catch(() => ({}))
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)

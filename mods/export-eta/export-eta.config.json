@@ -19,7 +19,9 @@
   "index_latest": 30,
   "live_s": 180,
   "ongoing_hours": 24,
-  "finished_categories": ["completed"],
+  "finished_categories": [
+    "completed"
+  ],
   "finished_quiet_min": 5,
   "_states": "terminée : archivée, ou le résumé de fin de tour de l'app dit une des finished_categories et rien n'a bougé depuis finished_quiet_min. en cours : le reste, actif dans les ongoing_hours dernières heures. active : transcript écrit dans les live_s dernières secondes.",
   "batch_min": 3,
@@ -28,13 +30,47 @@
   "exclude": [],
   "own_emails": [],
   "_own_emails": "Adresses jamais masquées (les tiennes). L'adresse git user.email du dépôt eta s'y ajoute toute seule.",
-  "allow_email_domains": ["example.com", "example.org", "anthropic.com", "users.noreply.github.com"],
+  "allow_email_domains": [
+    "example.com",
+    "example.org",
+    "anthropic.com",
+    "users.noreply.github.com"
+  ],
   "mask_paths": false,
   "extra_patterns": [],
   "_extra_patterns": "Motifs de secrets en plus : [{\"name\": \"mon-motif\", \"regex\": \"...\", \"flags\": \"gi\"}]. patterns_files : fichiers JSON de motifs (liste, ou { patterns: [...] }), par exemple ceux du mod tests-reels.",
   "patterns_files": [],
   "hold_patterns": [],
-  "pane": { "refresh_s": 300, "max_rows": 40, "history": 10 },
+  "tout": {
+    "_doc": "« Exporter tout » (/export-tout, /export-eta tout) : un snapshot daté sous snapshot_dir avec un INDEX.md pour une IA, plus les conversations (conversations : ongoing = en cours, batch = terminées depuis le dernier export, au plus max_conversations) dans dest_dir. Même passe de confidentialité et même PR mergée que les autres exports. claude_home : le dossier ~/.claude lu (veille, a-faire, problemes, usage-mod, ci, tests-reels, mods-health, effort-board, CLAUDE.md, settings.json). rules_files : fichiers de règles en plus (ex. RULES-INVENTORY.md), à mettre dans ~/.claude/export-eta/config.json. Jamais lus, quoi que dise la config : smtp.json, .credentials.json, auth.json, clés.",
+    "snapshot_dir": "sources/claude-control/snapshots/{folder}",
+    "branch": "export/tout-{day}-{hm}",
+    "worktree_dir": ".claude/worktrees/export-tout-{day}-{hm}",
+    "claude_home": "~/.claude",
+    "conversations": [
+      "ongoing",
+      "batch"
+    ],
+    "max_conversations": 60,
+    "rules_files": [],
+    "sessions_hours": 48,
+    "workflows_hours": 24,
+    "active_min": 30,
+    "workflows_detail": 20,
+    "ci_fail_hours": 24,
+    "ci_fails": 60,
+    "ci_apps": 30,
+    "top_n": 15,
+    "problems_max": 400,
+    "audits_latest": 5,
+    "questions_tail_lines": 300,
+    "tests_apps": 80
+  },
+  "pane": {
+    "refresh_s": 300,
+    "max_rows": 40,
+    "history": 10
+  },
   "readme": [
     "# Conversations exportées",
     "",
@@ -70,7 +106,21 @@
     "col_state": "État",
     "col_last": "Dernière activité",
     "col_msg": "Dernier message",
-    "col_count": "Conversations"
+    "col_count": "Conversations",
+    "tout_started": "Export tout : snapshot et conversations vers eta…",
+    "tout_done": "Exporté : {n} fichiers, PR #{pr} mergée",
+    "tout_open": "Exporté : {n} fichiers, PR #{pr} ouverte (pas mergée)",
+    "tout_failed": "Export tout échoué : {error}",
+    "tout_dry": "Essai : {n} fichiers prêts (rien d’écrit dans eta)",
+    "tout_out": "Exporté : {n} fichiers dans le dossier local",
+    "tout_pr_title": "Export tout : snapshot {folder} ({n} conversations)",
+    "tout_index_title": "Snapshot Claude Control"
   },
-  "colors": { "ok": "#16a34a", "warn": "#d97706", "bad": "#dc2626", "dim": "#6b7280", "accent": "#2563eb" }
+  "colors": {
+    "ok": "#16a34a",
+    "warn": "#d97706",
+    "bad": "#dc2626",
+    "dim": "#6b7280",
+    "accent": "#2563eb"
+  }
 }

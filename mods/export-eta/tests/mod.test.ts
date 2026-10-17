@@ -19,7 +19,7 @@ const SESSIONS = JSON.stringify({ generated: NOW, sessions: [
 ] })
 const STATE = JSON.stringify({ since: NOW - 86400000, exported: {}, history: [{ at: NOW - 10 * MIN, mode: 'batch', count: 3, pr: 41, url: 'https://github.com/o/eta/pull/41', merged: true, masked: { email: 2, 'github-token': 1 }, held: [{ title: 'Leaky lane' }] }] })
 
-function base(on, pending = PENDING) {
+function base(on, pending = PENDING, o: { stdout?: string, toasts?: string[], opened?: string[] } = {}) {
   mock.clock(on, { now: NOW })
   on('session.start', ($: any, e: any) => e)
   const files: Record<string, string> = { 'export-eta/config.json': CONFIG, 'export-eta/pending.json': pending, 'export-eta/sessions.json': SESSIONS, 'export-eta/state.json': STATE }
@@ -33,9 +33,10 @@ function base(on, pending = PENDING) {
     if (String(e.path).endsWith('export-eta.config.json')) return { value: '{}' }
     throw new Error('ENOENT')
   })
-  on('process.run', ($, e) => (runs.push(e.argv ?? e), { value: { exitCode: 0, stdout: 'export-eta: ok · 4 exportée(s)', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', ($, e) => (runs.push(e.argv ?? e), { value: { exitCode: 0, stdout: o.stdout || 'export-eta: ok · 4 exportée(s)', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('command.register', () => ({ value: undefined }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', ($, e) => { (o.opened || []).push(e.id); return { value: { isPlaced: true } } })
+  on('ui.toast', ($, e) => { (o.toasts || []).push(e.text); return { value: undefined } })
   on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
   return { runs }
 }
@@ -82,4 +83,24 @@ test('the batch button runs the exporter in batch mode; the history tab shows th
   expect(w.runs.some((a) => a.join(' ').includes('export.mjs run --mode batch'))).toBe(true)
   expect(await has(ui, /masqués : email 2, github-token 1/)).toBe(true)
   expect(await has(ui, /retenues : Leaky lane/)).toBe(true)
+})
+
+test('/export-tout runs the exporter once in tout mode, no pane, and toasts its one-line result', async ($, on) => {
+  const toasts: string[] = []
+  const opened: string[] = []
+  const w = base(on, PENDING, { stdout: 'export-eta: Exporté : 31 fichiers, PR #52 mergée', toasts, opened })
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await $.command.run({ command: 'export-tout', args: '' })
+  await new Promise((r) => setTimeout(r, 50))
+  expect(w.runs.filter((a) => a.join(' ').includes('export.mjs tout')).length).toBe(1)
+  expect(opened.length).toBe(0)
+  expect(toasts.includes('Exporté : 31 fichiers, PR #52 mergée')).toBe(true)
+})
+
+test('/export-eta tout is the same one-click export', async ($, on) => {
+  const w = base(on)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await $.command.run({ command: 'export-eta', args: 'tout' })
+  await new Promise((r) => setTimeout(r, 50))
+  expect(w.runs.some((a) => a.join(' ').includes('export.mjs tout'))).toBe(true)
 })
