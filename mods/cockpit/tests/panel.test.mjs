@@ -1,9 +1,9 @@
 // node --test mods/cockpit/tests/panel.test.mjs - the Panneau's pure parts (invented fixtures only).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews, textBar, durText } from '../lib/panel.mjs'
+import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews, textBar, durText, dayText } from '../lib/panel.mjs'
 import { convFactory, convFactorySummary } from '../lib/panel_conv.mjs'
-import { tabValid, parseArgs } from '../hooks/nav.mjs'
+import { tabValid, parseArgs, usageCard } from '../hooks/nav.mjs'
 
 const NOW = Date.parse('2026-10-16T16:30:00Z')
 const H = Math.floor(NOW / 3600000) * 3600000
@@ -88,8 +88,21 @@ test('bars: engine figures first, quotas file second, Codex only when toggled, u
   assert.deepEqual(barsOf(q, {}).map((x) => x.id), ['five', 'week', 'tps'])
   // the usage card's reset texts as the grey detail, credits only when the engine reads them
   const card = { windows: [{ when: 'reset dans 2 h' }, { when: 'reset dim 20:30' }], credits: { available: true, pct: 12 } }
-  assert.deepEqual(barsOf({ ...q, card }, {}).map((x) => [x.id, x.detail]).slice(0, 3), [['five', 'reset dans 2 h'], ['week', 'reset dim 20:30'], ['credits', '']])
+  assert.deepEqual(barsOf({ ...q, card }, {}).map((x) => [x.id, x.detail]).slice(0, 3), [['five', 'reset dans 2 h'], ['week', 'reset dim 20:30'], ['credits', 'montant non lu']])
   assert.equal(barsOf({}, {})[0].text, 'non lu')
+})
+
+test('credits read like Claude’s Usage pane: amount and expiry when the engine gives them, else the % and « montant non lu »', () => {
+  // today's engine: spend_limit has percentUsed (and maybe resetsAt) only
+  const only = barsOf({ card: usageCard({ rateLimits: [{ kind: 'spend_limit', percentUsed: 99.6 }] }, null, {}, NOW) }, {}).find((x) => x.id === 'credits')
+  assert.deepEqual([only.label, only.text, only.detail, only.under], ['Crédits cloud', '100 %', 'montant non lu', ''])
+  // an engine that adds the amounts and the expiry
+  const exp = Date.parse('2026-11-05T08:59:00')
+  const full = barsOf({ card: usageCard({ rateLimits: [{ kind: 'spend_limit', percentUsed: 99.6, usedUsd: 249, limitUsd: 250, expiresAt: new Date(exp).toISOString() }] }, null, {}, NOW) }, {}).find((x) => x.id === 'credits')
+  assert.deepEqual([full.text, full.detail, full.under, full.pct], ['249 $ sur 250 $', '', 'expire le 5 nov 08:59', 99.6])
+  assert.equal(dayText(exp, {}), '5 nov 08:59')
+  // no spend limit at all: no credits row
+  assert.equal(barsOf({ card: usageCard({ rateLimits: [] }, null, {}, NOW) }, {}).some((x) => x.id === 'credits'), false)
 })
 
 test('active Workflows: live runs only, running agents first', () => {
@@ -155,6 +168,8 @@ test('thin bars and durations as Claude writes them', () => {
   assert.equal(durText(6 * 3600000 + 54 * 60000 + 13000), '6h 54m 13s')
   assert.equal(durText(4 * 60000 + 2000), '4m 02s')
   assert.equal(durText(12000), '12s')
+  assert.equal(durText(6 * 3600000 + 56 * 60000 + 13000, true), '6h 56m') // the mini card's elapsed
+  assert.equal(durText(4 * 60000 + 2000, true), '4m 02s')
 })
 
 test('Cette conversation: the lead card (stats), one card per Workflow + background agents, finished ones apart, log', () => {
@@ -176,6 +191,11 @@ test('Cette conversation: the lead card (stats), one card per Workflow + backgro
   assert.equal(ph.length, 1)
   assert.equal(ph[0].open, true)
   assert.deepEqual(ph[0].dots, ['failed', 'running'])
+  // the card: one dot per agent (done, failed, running, pending), folded by default (Claude's mini card)
+  assert.deepEqual(m.cards[0].dots, ['failed', 'running'])
+  assert.equal(m.cards[0].open, false)
+  assert.equal(convFactory(FSCAN, 'me', {}, {}, NOW, { 'pfw-wf_1': false }).cards[0].open, true)
+  assert.equal(convFactory(FSCAN, 'me', {}, { panel: { style: { workflow_open: true } } }, NOW).cards[0].open, true)
   const coder = ph[0].agents[0]
   assert.equal(coder.label, 'coder · build') // the label, never just « general-purpose »
   assert.equal(coder.stateLabel, 'en cours')
@@ -238,20 +258,26 @@ for (const columns of [45, 60, 75]) {
 
 test('the numbers are never cut at 45 columns: titles are', () => {
   const text = panneauText(45)
-  for (const k of ['30 %', '$9.50', '5.1M', '80 %', '40m 00s', '1/1', '20m 00s', '1.5M tok', '1250 tok/s', '3.6M', '71 %', '21 %', '85 %', '852 tok/s', '3.6M · ctx 30 %']) assert.ok(text.includes(k), k + '\n' + text)
+  for (const k of ['30 %', '$9.50', '5.1M', '80 %', '40m 00s', '2/2', '■■■□', 'Modèle Temps', '20m 00s', '1.5M tok', '1250 tok/s', '3.6M', '71 %', '21 %', '85 %', '852 tok/s', '3.6M · ctx 30 %']) assert.ok(text.includes(k), k + '\n' + text)
   assert.match(text, /Lane alpha · tableau de… 3\.6M/) // the title is the part that gives way
 })
 
 test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, bars, the graph', () => {
   const text = panneauText(75)
   for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · en cours', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
-    'Modèles : Opus 100 %', 'Ce qui contribue', 'package-wave', 'Workflow fin vers', '2 agents  1.9M tokens  $9.40', 'Phases', '[Wave A ›] 1/1 ■', '[Wave B ⌄] 0/1 ■',
-    '● coder: cockpit-claude-style 20m 00s', 'Opus 5.5 · medium · 1.5M tok · 1250 tok/s · en cours', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
-    '● Lane alpha · tableau de bord 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits 12 %', 'tok/s toutes conv',
+    'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
+    '[Merge ›] 0/1 □', 'Modèle Temps', '● Opus 5.5 20m 00s', 'coder: cockpit-claude-style · medium · 1.5M tok · 1250 tok/s', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
+    '● Lane alpha · tableau de bord 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
     'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
   assert.doesNotMatch(text, /general-purpose/)
   assert.doesNotMatch(text, /Codex semaine/) // only while Codex is toggled
   assert.match(panneauText(75, { who: 'codex' }), /Codex semaine/)
+  // the Workflow card as it opens in the app: Claude's mini card, name ›, Workflow  N agents  time, one dot per agent
+  const folded = panneauText(75, { closed: { 'pfw-wf_1': true } })
+  assert.match(folded, /\[package-wave ›\]\n Workflow  4 agents fin vers \d\d:\d\d 40m 00s\n ■■■□\n/)
+  assert.doesNotMatch(folded.slice(0, folded.indexOf('Toutes les conversations')), /Phases|Modèle Temps/)
+  // a phase unfolded is Claude's table: header, ✓ model … time, our extras on the grey line under it
+  assert.match(panneauText(75, { closed: { 'pfw-wf_1-ph0': false } }), /\[Wave A ⌄\] 2\/2 ■■\n   Modèle Temps\n   ✓ Sonnet 5\.5 15m 00s\n\s+verify · low · 408K tok · \d+ tok\/s\n   ✓ Haiku 5\.5 5m 00s\n/)
   // « Terminés » unfolds to the finished background agents
   assert.match(panneauText(75, { closed: { 'pfw-finished': false } }), /Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
 })
@@ -265,3 +291,5 @@ test('Panneau folded: one header line per section with its summary', () => {
   assert.match(text, /▸ Barres\] Session 5 h 21 %/)
   assert.doesNotMatch(text, /Workflows actifs|Cache hit/)
 })
+
+

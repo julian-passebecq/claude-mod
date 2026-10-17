@@ -1,9 +1,11 @@
 // cockpit Panneau, section 2 « Cette conversation », in the style of Claude's own panes (Julian, 17 Oct 18:10):
 //   a Usage-like card for the lead: title, model · effort · state, the context bar with the hand-off mark (250 k),
 //     a stats grid (cost, tokens, cache hit, % sub-agents, agents, tok/s), the model share and « Ce qui contribue »;
-//   then one Background-tasks-like card per Workflow (its name, « Workflow  6h 54m 13s », « N agents  2M tokens · $ ·
-//     fin vers », Phases with ■□ dots, each phase unfolding to its agents: label, model, effort, time, tokens, tok/s,
-//     state) and one for the background agents; finished cards folded into « Terminés N › »;
+//   then one Background-tasks-like card per Workflow, folded by default as Claude's mini card (« name › », grey
+//     « Workflow  N agents  6h 56m », one dot per agent: grey ■ done, amber ■ running, □ pending), unfolded to its
+//     Phases, each phase unfolding to Claude's « Modèle | Temps » table (« ✓ Opus 5.5 … 1h 07m 29s ») with our extras
+//     on a grey line under each row (label, effort, tokens, tok/s, state); one card for the background agents;
+//     finished cards folded into « Terminés N › »;
 //   then the session log: the last log_max events (agent started / finished, PR opened / merged), timestamped.
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Input: factory's scan (lib/factory/scanner),
 // optionally factory's Workflow screen runs (phases, ETA, cost), nav's usageCard and the context (lib/panel.mjs).
@@ -78,6 +80,10 @@ function phasesOf(key, run, agents, L, closed, max) {
   }
   return [one(L.phase_default, agents, 0, null)]
 }
+/** One dot per agent, as Claude's Background-tasks mini card draws them: done, failed, running, then pending. */
+const dotsOf = (agents) => agents.map((a) => a.status).sort((a, b) => rank(a) - rank(b))
+/** A Workflow card starts folded (Claude's mini card) unless style.workflow_open; the viewer's choice wins. */
+const cardOpen = (key, closed, c) => (closed[key] === undefined ? Boolean(c.style.workflow_open) : !closed[key])
 const rank = (s) => (s === 'done' ? 0 : s === 'failed' ? 1 : s === 'running' ? 2 : 3)
 
 /**
@@ -144,7 +150,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
       count: agents.length, running, tokens: agents.reduce((a, x) => a + x.tokens, 0),
       cost: run && Number.isFinite(run.cost) ? run.cost : agents.reduce((a, x) => a + x.cost, 0),
       eta: est ? hhmm(est.eta.mid).slice(0, 5) : '', failed: run ? run.status === 'failed' : agents.some((a) => a.status === 'failed'),
-      phases: phasesOf(key, run, agents, L, closed, max),
+      phases: phasesOf(key, run, agents, L, closed, max), dots: dotsOf(agents), open: cardOpen(key, closed, c),
     })
   }
   const plain = subs.filter((x) => !x.workflow).map((x) => agentRow(x, nowMs, L, fcfg))
@@ -156,6 +162,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
       elapsed: starts.length ? (running ? nowMs : Math.max(...plain.map((a) => a.ts + a.ms))) - Math.min(...starts) : 0,
       count: plain.length, running, tokens: plain.reduce((a, x) => a + x.tokens, 0), cost: plain.reduce((a, x) => a + x.cost, 0), eta: '',
       failed: plain.some((a) => a.status === 'failed'), phases: phasesOf('pfw-bg', null, plain, L, closed, max),
+      dots: dotsOf(plain), open: cardOpen('pfw-bg', closed, c),
     })
   }
   const liveCards = cards.filter((x) => x.live)

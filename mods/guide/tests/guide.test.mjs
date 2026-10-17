@@ -31,7 +31,7 @@ test('Démarrer is the simple setup: the Jauge and its 5 buttons, the Cockpit pa
   const all = start.cats.flatMap(c => [c.body, ...c.subs.map(s => s.title + '\n' + s.body)]).join('\n')
   for (const b of ['**Usage**', '**Règles**', '**Réf**', '**Cockpit**', '**Exporter**', '/export-tout', '/reference config', '/reference guide'])
     assert.ok(all.includes(b), b)
-  assert.deepEqual(start.cats[1].subs.map(s => s.title), ['Fichiers', 'Cette conversation', 'Toutes les conversations', 'Barres', 'Plus ▾'])
+  assert.deepEqual(start.cats[1].subs.map(s => s.title), ['Fichiers', 'Cette conversation', 'Toutes les conversations', 'Barres', 'Graphe des conversations'])
   for (const x of ['INDEX.md', 'sources/claude-control/snapshots/', 'sources/conversations/']) assert.ok(all.includes(x), x)
   assert.ok(all.length < 6000, 'Démarrer stays short')
 })

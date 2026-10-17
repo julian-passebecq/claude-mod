@@ -322,20 +322,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
   }
 }
 
-test('Panneau: a Workflow phase of this conversation folds (kept in $.store)', async ($, on) => {
+test('Panneau: a Workflow card opens as Claude’s mini card, unfolds to its phases and the Modèle | Temps table; folds are kept in $.store', async ($, on) => {
   world(on, { self: 'child-cli' })
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  expect(await has(ui, /^package-wave$/)).toBe(true)
+  // folded: « name › », « Workflow  N agents », one dot per agent, no phases
+  expect(await has(ui, /^package-wave ›$/)).toBe(true)
+  expect(await has(ui, /^Workflow {2}\d+ agents$/)).toBe(true)
+  expect(await has(ui, /^Phases$/)).toBe(false)
+  await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
+  expect(await has(ui, /^package-wave ⌄$/)).toBe(true)
   expect(await has(ui, /^Phases$/)).toBe(true)
-  expect(await has(ui, /^coder · build/)).toBe(true)
+  expect(await has(ui, /^Modèle$/)).toBe(true)
+  expect(await has(ui, /^Temps$/)).toBe(true)
+  expect(await has(ui, /^\s*coder · build/)).toBe(true)
   expect(await has(ui, /general-purpose/)).toBe(false)
+  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":false') // opened
   await ui.press({ plugin: 'cockpit', key: 'pfw-wf_1-ph0' })
-  expect(await has(ui, /›$/)).toBe(true)
-  expect(await has(ui, /^coder · build/)).toBe(false)
+  expect(await has(ui, /^\s*coder · build/)).toBe(false)
   expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1-ph0":true') // closed
 })
 

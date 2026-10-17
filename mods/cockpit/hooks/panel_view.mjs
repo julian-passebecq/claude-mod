@@ -4,9 +4,10 @@
 // bold value » over a thin full-width bar (Svg where the surface has it, ▰▱ otherwise), small stats grids, phases with
 // ■□ dots; no box-drawing borders. The left text is cut, never the numbers.
 //   ▸ Fichiers                 filetree's tree (hooks/files.mjs), folded by default
-//   ▾ Cette conversation       lead card (Usage-like), one card per Workflow / background agents, Terminés N ›, log
+//   ▾ Cette conversation       lead card (Usage-like), one card per Workflow / background agents (folded: Claude's mini
+//                              card with one dot per agent; unfolded: phases, each a « Modèle | Temps » table), Terminés N ›, log
 //   ▾ Toutes les conversations filters, compact rows (dot, title, tokens, bar, %), Workflows actifs
-//   ▾ Barres                   Session 5 h, Semaine, Codex, crédits, tok/s
+//   ▾ Barres                   Session 5 h, Semaine, Codex, Crédits cloud (« 249 $ sur 250 $ », expire le …), tok/s
 //   ▾ Graphe des conversations À toi de cliquer, filters, projects → conversations (hooks/graphe_view.mjs)
 //   then one grey line: the old views and their /cockpit commands
 // Pure except for the kit `h` and the callbacks in P.act.
@@ -77,17 +78,25 @@ function ui(h, P, c, width) {
     }
     return h.col(rows, { key, marginTop: 1 })
   }
-  // ■ done, ■ running (blue), □ pending, ✕ failed: a run of Texts so each keeps its colour
-  const dots = (list, key) => {
+  // one dot per agent as Claude's pane draws them: grey ■ done, amber ■ running, □ pending, ✕ failed (style.dot_tones);
+  // a run of Texts so each keeps its colour; past `max` dots, « +N »
+  const dots = (list, key, max) => {
     const glyph = { done: st.dot_done, running: st.dot_running, failed: '✕', stopped: st.dot_pending, waiting: st.dot_pending }
-    const tone = { running: 'running', failed: 'bad' }
+    const tones = st.dot_tones || {}
+    const cap = Math.max(1, max || Number(st.dots_max) || 60)
+    const shown = list.slice(0, cap)
     const runs = []
-    for (const s of list) {
+    for (const s of shown) {
       const last = runs[runs.length - 1]
       if (last && last.s === s) last.n++
       else runs.push({ s, n: 1 })
     }
-    return h.row(runs.map((r, i) => h.T(String(glyph[r.s] || st.dot_pending).repeat(r.n), { tone: tone[r.s], dim: r.s === 'stopped' || r.s === 'waiting', key: `${key}-${i}` })), { gap: 0, flexWrap: 'nowrap' })
+    const kids = runs.map((r, i) => {
+      const t = tones[r.s] || (r.s === 'stopped' || r.s === 'waiting' ? 'dim' : undefined)
+      return h.T(String(glyph[r.s] || st.dot_pending).repeat(r.n), { tone: t === 'dim' ? undefined : t, dim: t === 'dim', key: `${key}-${i}` })
+    })
+    if (list.length > shown.length) kids.push(h.T(` +${list.length - shown.length}`, { dim: true, key: `${key}-more` }))
+    return h.row(kids, { gap: 0, flexWrap: 'nowrap', key })
   }
   const title = (text, key, o = {}) => h.T(text, { bold: true, size: 'heading', wrap: 'truncate-end', key, tone: o.tone })
   const card = (key, kids) => h.col(kids, { key, marginBottom: 1 })
@@ -194,14 +203,23 @@ function leadCard(u, P, L, m) {
   return u.card('pl-card', kids)
 }
 
-/** Claude's Background-tasks pane, for one Workflow or the background agents. */
+/**
+ * Claude's Background-tasks pane, for one Workflow or the background agents. Folded = its mini card: « name › », a grey
+ * « Workflow  N agents  6h 56m », one dot per agent. Unfolded: tokens and cost, then the Phases, each unfolding to the
+ * « Modèle | Temps » table of its agents.
+ */
 function taskCard(u, P, L, k) {
   const { h } = u
+  const open = k.open !== false
+  const left = `${k.kind === 'workflow' ? L.kind_workflow : L.kind_background}  ${fill(L.layer_count, { n: k.count })}`
   const kids = [
-    u.title(k.title, `pk-${k.key}-t`, { tone: k.failed ? 'bad' : undefined }),
-    u.line(k.kind === 'workflow' ? L.kind_workflow : L.kind_background, k.eta ? fill(L.layer_eta, { time: k.eta }) : '', durText(k.elapsed), { dimLeft: true, boldValue: false, dimValue: true, key: `pk-${k.key}-d` }),
-    h.T([fill(L.layer_count, { n: k.count }), fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : ''].filter(Boolean).join('  '), { wrap: 'truncate-end', key: `pk-${k.key}-n` }),
+    h.row([h.btn(`${clip(k.title, Math.max(6, u.W - 4))} ${open ? '⌄' : '›'}`, () => P.act.nodeToggle(k.key, open), false, `pk-${k.key}-t`)],
+      { key: `pk-${k.key}-tr`, alignItems: 'center', flexWrap: 'nowrap' }),
+    u.line(left, k.eta ? fill(L.layer_eta, { time: k.eta }) : '', durText(k.elapsed, true), { dimLeft: true, toneLeft: k.failed ? 'bad' : undefined, boldValue: false, dimValue: true, key: `pk-${k.key}-d` }),
+    u.dots(k.dots || k.phases.flatMap((p) => p.dots), `pk-${k.key}-dots`, u.W - 4),
   ]
+  if (!open) return u.card('pk-' + k.key, kids)
+  kids.push(h.T([fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : ''].filter(Boolean).join('  '), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
   if (k.kind === 'workflow') kids.push(h.T(L.phases, { bold: true, key: `pk-${k.key}-ph` }))
   for (const p of k.phases) {
     const right = `${p.done}/${p.count}`
@@ -209,36 +227,51 @@ function taskCard(u, P, L, k) {
     if (k.kind === 'workflow') {
       kids.push(h.row([
         h.btn(`${clip(p.title, room)} ${p.open ? '⌄' : '›'}`, () => P.act.nodeToggle(p.key, p.open), false, p.key),
-        h.row([h.T(right, { dim: true }), u.dots(p.dots.slice(0, 12), p.key + '-dots')], { flexWrap: 'nowrap', gap: 1 }),
+        h.row([h.T(right, { dim: true }), u.dots(p.dots, p.key + '-dots', 12)], { flexWrap: 'nowrap', gap: 1 }),
       ], { key: p.key + '-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
     }
-    if (k.kind !== 'workflow' || p.open) {
-      for (const a of p.agents) kids.push(...agentLines(u, L, a, `${p.key}-${a.id}`, k.kind === 'workflow' ? 2 : 0))
+    if ((k.kind !== 'workflow' || p.open) && p.agents.length) {
+      const indent = k.kind === 'workflow' ? 2 : 0
+      kids.push(tableHead(u, L, p.key, indent))
+      for (const a of p.agents) kids.push(...agentLines(u, L, a, `${p.key}-${a.id}`, indent))
       if (p.hidden) kids.push(h.T(`+ ${p.hidden}`, { dim: true, key: p.key + '-more' }))
     }
   }
   return u.card('pk-' + k.key, kids)
 }
 
-/** One agent, as a row of Claude's « Model | Time » table plus our label, effort, tokens, tok/s and state. */
+/** The grey header of Claude's table: « Modèle ........ Temps ». */
+function tableHead(u, L, key, indent) {
+  return u.h.row([u.line(L.col_model, '', L.col_time, { width: u.W - indent, dimLeft: true, boldValue: false, dimValue: true })], { key: key + '-head', marginLeft: indent, flexWrap: 'nowrap' })
+}
+
+/**
+ * One agent, as a row of Claude's « Modèle | Temps » table (« ✓ Opus 5.5 ........ 1h 07m 29s », amber ● while it runs)
+ * and a grey line under it with our extras: label · effort · tokens · tok/s · state. The numbers are never cut: an
+ * extra that does not fit is left out whole (the state, then the effort), and only the label is shortened.
+ */
 function agentLines(u, L, a, key, indent) {
   const { h } = u
   const mark = a.status === 'running' ? '●' : a.status === 'failed' ? '✕' : a.status === 'done' ? '✓' : '○'
-  const tone = a.status === 'running' ? 'running' : a.status === 'failed' ? 'bad' : a.status === 'done' ? 'ok' : undefined
-  const pad = ' '.repeat(indent)
+  const tone = a.status === 'running' ? 'warn' : a.status === 'failed' ? 'bad' : a.status === 'done' ? 'ok' : undefined
   const w = u.W - indent
-  // the numbers first: what does not fit is left out (effort, then the state), never cut in the middle
-  const parts = [a.model, `${kTok(a.tokens)} tok`, a.tps !== null && a.tps !== undefined ? `${tpsText(a.tps)} tok/s` : '', a.effort, a.status !== 'done' ? a.stateLabel : ''].filter(Boolean)
-  const room = u.W - indent - 2
-  const kept = []
-  for (const x of parts) if (len([...kept, x].join(' · ')) <= room) kept.push(x)
-  const meta = [kept[0], a.effort && kept.includes(a.effort) ? a.effort : '', ...kept.slice(1).filter((x) => x !== a.effort)].filter(Boolean).join(' · ')
   const time = a.ms ? durText(a.ms) : ''
+  const nums = [`${kTok(a.tokens)} tok`, a.tps !== null && a.tps !== undefined ? `${tpsText(a.tps)} tok/s` : ''].filter(Boolean)
+  const room = w - 2
+  // the state only when the mark does not say it (✓ done, amber ● running): failed, stopped, waiting
+  let extras = [a.effort, ...nums, a.status !== 'done' && a.status !== 'running' ? a.stateLabel : ''].filter(Boolean)
+  const fits = (xs, lab) => len([lab, ...xs].filter(Boolean).join(' · ')) <= room
+  if (!fits(extras, '')) extras = extras.filter((x) => x !== a.stateLabel)
+  if (!fits(extras, '')) extras = extras.filter((x) => x !== a.effort)
+  const labRoom = room - len(extras.join(' · ')) - (extras.length ? 3 : 0)
+  const label = labRoom >= 4 ? clip(a.label, labRoom) : ''
+  const meta = [label, ...extras].filter(Boolean).join(' · ')
+  const model = a.model || '?'
   return [
     h.row([
-      u.line(a.label, '', time, { width: w, boldValue: false, dimValue: true, leftEl: h.row([h.T(mark, { tone }), h.T(clip(a.label, Math.max(4, w - len(time) - 4)), { wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1 }) }),
+      u.line(model, '', time, { width: w, boldValue: false, leftEl: h.row([h.T(mark, { tone }), h.T(clip(model, Math.max(4, w - len(time) - 4)), { wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1 }) }),
     ], { key: key + '-a', marginLeft: indent, flexWrap: 'nowrap' }),
-    h.T(clip(`${pad}  ${meta}`, u.W).replace(/^ +/, (s) => String.fromCharCode(160).repeat(s.length)), { dim: true, wrap: 'truncate-end', key: key + '-m' }),
+    h.T(`${String.fromCharCode(160).repeat(indent + 2)}${meta}`, { dim: true, wrap: 'truncate-end', key: key + '-m' }),
   ]
 }
 
@@ -292,9 +325,10 @@ function workflowsBody(u, P, L) {
     const right = `${w.running}/${w.count}`
     out.push(h.row([
       h.btn(`${clip(w.name, Math.max(8, u.W - len(right) - Math.min(w.agents.length, 10) - 14))} ${open ? '⌄' : '›'}`, () => P.act.ptoggle(w.key), false, 'pw-' + w.key),
-      h.row([h.T(`${kTok(w.tokens)}`, { dim: true }), h.T(right, { dim: true }), u.dots(w.agents.slice(0, 10).map((a) => (a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'done' ? 'done' : 'waiting')), 'pwd-' + w.key)], { flexWrap: 'nowrap', gap: 1 }),
+      h.row([h.T(`${kTok(w.tokens)}`, { dim: true }), h.T(right, { dim: true }), u.dots(w.agents.map((a) => (a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'done' ? 'done' : 'waiting')), 'pwd-' + w.key, 10)], { flexWrap: 'nowrap', gap: 1 }),
     ], { key: 'pwr-' + w.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
     if (open) {
+      if (w.agents.length) out.push(tableHead(u, L, 'pwa-' + w.key, 2))
       w.agents.forEach((a) => out.push(...agentLines(u, L, { ...a, model: modelName(a.model), stateLabel: (L.agent_states || {})[a.status] || a.status, ms: 0, tps: null }, `pwa-${w.key}-${a.id}`, 2)))
       if (w.hidden) out.push(h.T(`+ ${w.hidden}`, { dim: true, key: `pwh-${w.key}` }))
     }
@@ -316,6 +350,7 @@ function drawBarres(u, P, L, width) {
       out.push(h.col([
         u.line(b.label, b.detail, b.text, { tone, key: 'pb-' + b.id }),
         u.bar(b.pct, 'pbb-' + b.id, { tone }),
+        b.under ? h.T(b.under, { dim: true, wrap: 'truncate-end', key: 'pbu-' + b.id }) : null,
       ], { key: 'pbc-' + b.id, marginBottom: 1 }))
     }
     return out
