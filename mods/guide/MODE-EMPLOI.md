@@ -11,9 +11,10 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [Ouvrir et fermer](#ouvrir-et-fermer)
     - [Un bouton grisé](#un-bouton-grisé)
   - [Ma journée](#ma-journée)
-    - [1. Regarder la Jauge](#1-regarder-la-jauge)
-    - [2. Ouvrir le Cockpit](#2-ouvrir-le-cockpit)
-    - [3. Parler à la conversation VEILLE](#3-parler-à-la-conversation-veille)
+    - [1. Le matin : Depuis ton dernier message](#1-le-matin--depuis-ton-dernier-message)
+    - [2. Regarder la Jauge](#2-regarder-la-jauge)
+    - [3. Ouvrir le Cockpit](#3-ouvrir-le-cockpit)
+    - [4. Parler à la conversation VEILLE](#4-parler-à-la-conversation-veille)
   - [Anciennes commandes](#anciennes-commandes)
     - [Elles marchent toujours](#elles-marchent-toujours)
     - [Où elles vont](#où-elles-vont)
@@ -37,6 +38,7 @@ Doc officielle : [vue d'ensemble](https://code.claude.com/docs/en/plugins/mods/o
     - [Les cartes](#les-cartes)
     - [Les sections](#les-sections)
     - [Ouvrir l'agent](#ouvrir-lagent)
+    - [Depuis ton dernier message](#depuis-ton-dernier-message)
     - [Nuit · Jour · Codex](#nuit--jour--codex)
     - [Données du Cockpit](#données-du-cockpit)
   - [Onglets de l'Usine](#onglets-de-lusine)
@@ -218,17 +220,21 @@ Un clic lance la commande de l'entrée (`$.command.run`) et ouvre son panneau ; 
 
 ### Ma journée
 
-#### 1. Regarder la Jauge
+#### 1. Le matin : Depuis ton dernier message
+
+La première chose à ouvrir : le bouton **Depuis ton dernier message** en haut de l'onglet Cockpit (ou `/cockpit depuis`). Une phrase dit tout (« Depuis 23:12 (8 h) : 9 PR mergées, 2 CI rouges, 3 conversations t'attendent, 14 $ dépensés »), puis un groupe par projet, le plus important en premier : ce qui t'attend, la CI encore rouge, les conversations bloquées, les Workflows en échec, les nouveaux problèmes, puis les PR mergées et les conversations terminées. Sans tokens. Détail dans l'onglet Cockpit, sous-section « Depuis ton dernier message ».
+
+#### 2. Regarder la Jauge
 
 En arrivant : « ● N t'attendent » (rouge si N > 0) et « N à toi ». Zéro partout : rien ne t'attend. Le contexte et le relais disent si la conversation doit passer la main.
 
-#### 2. Ouvrir le Cockpit
+#### 3. Ouvrir le Cockpit
 
 Les cartes en une ligne : qui consomme, qui t'attend, la CI, le quota, les problèmes du jour, ce qui tourne et quand ça finit. **Voir** ouvre le détail. Un nombre dans « T'attend » ou « À toi » : clique Voir, ou passe par l'entrée À toi.
 
-#### 3. Parler à la conversation VEILLE
+#### 4. Parler à la conversation VEILLE
 
-La conversation coordinatrice (titre « VEILLE 1 », démarrée avec `mods/veille/COORDINATEUR.md`, enregistrée par `/veille coordinateur`) lit l'état de la veille, merge ce qui est vert et à jour, relance une lane ou un Workflow arrêté, archive en un lot. Tu lui poses tes questions sur « qu'est-ce qui se passe » ; l'onglet Fil de Veille montre la même chose sans tokens.
+La conversation coordinatrice (titre « VEILLE 1 », démarrée avec `mods/veille/COORDINATEUR.md`, enregistrée par `/veille coordinateur`) lit l'état de la veille, merge ce qui est vert et à jour, relance une lane ou un Workflow arrêté, archive en un lot. Tu lui poses tes questions sur « qu'est-ce qui se passe » ; l'onglet Fil de Veille montre la même chose sans tokens. Pour un résumé rédigé de la nuit, « Demander un résumé à VEILLE » (en bas de Depuis ton dernier message) affiche le texte à coller dans cette conversation ; rien n'est envoyé.
 
 ### Anciennes commandes
 
@@ -317,6 +323,14 @@ Une ligne par sujet et un bouton **Voir** : **Qui consomme** (conversation et pr
 
 Sur la carte d'un agent en cours de cette conversation, le bouton montre son transcript dans la vue principale (`$.ui.view({ agentId })`, moteur 2.1.300+), « ← Conversation » revient. Sur un moteur plus ancien, le bouton n'est pas dessiné. Non vérifié dans l'app.
 
+#### Depuis ton dernier message
+
+Le bouton en haut de l'onglet, ou `/cockpit depuis [8h|24h|nuit|HH:MM]`. Par défaut, la fenêtre part de **ton dernier vrai message**, dans n'importe quelle conversation : une ligne que tu as tapée (pas un résultat d'outil, un rappel système, une notification de tâche, un événement ci-monitor, une commande de mod ni un message envoyé par une autre session) ; un message de moins de 10 min est sauté (`skip_recent_min` : ton « bonjour » de ce matin ne coupe pas la nuit). Aucun message sur 14 j : 24 h. Préréglages : **Ton dernier message**, **8 h**, **24 h**, **Nuit** (depuis 22:00 ; tout « Nh » ou « HH:MM » marche aussi en argument), réglables sous `depuis.presets`.
+
+En haut, une phrase en français : « Depuis 23:12 (8 h) : 9 PR mergées, 2 CI rouges, 3 conversations t'attendent, 14 $ dépensés », et l'heure et le titre de ton dernier message. Puis un groupe repliable par projet, le plus important en premier (les deux premiers ouverts) : **T'attend** (question, fin de tour qui demande une action, tour interrompu : la logique de « Ça t'attend »), **CI rouge** (branche, depuis quand, jobs ; « nouveau » si devenue rouge dans la fenêtre), **Bloquée**, **Workflow en échec**, **Problème** (nouvelles entrées du registre), **À toi** (ajouté dans la fenêtre ou échéance sous 3 j), **Mergée** (PR GitHub et MR GitLab), **Terminée** (titre et première ligne de son dernier message, **Ouvrir** et **Copier l'id** comme dans le Fil), **Workflow terminé**, et les tokens et $ du projet. Ce qui n'a pas de projet va dans **Général**. La nuit de la Veille (`/veille jour`) s'affiche si elle a tourné dans la fenêtre. **Demander un résumé à VEILLE** montre le texte à coller dans la conversation VEILLE, avec un bouton Copier ; rien n'est envoyé.
+
+Données : les transcripts de `~/.claude/projects` (ton dernier message, lu depuis la fin ; tokens et $ de chaque réponse depuis, au prix catalogue, sans doublon), les fichiers de session de l'app (conversations terminées ou bloquées), `gh search prs` et `glab api merge_requests` en lecture seule (gardés 5 min dans `~/.claude/effort-board/cockpit_depuis_prs.json`), le cache de ci, le registre de problemes, `items.json` d'a-faire, `night-summary.json` de la Veille, le scan de factory (T'attend) et ses Workflows. Limites : « CI rouge » ne liste que les branches qui ont tourné dans la fenêtre, plus `main` et `master` (`red_branches`) ; un cache ci plus vieux que la fenêtre est signalé (`/ci` le rafraîchit). PR comptées : celles dont tu es l'auteur (`--author @me`, `scope=created_by_me`). Lecture de quelques secondes sur une nuit chargée, seulement quand l'onglet est ouvert.
+
 #### Nuit · Jour · Codex
 
 **Nuit** ouvre « Bilan avant la nuit » (voir l'onglet La nuit), **Jour** lance `/veille jour`. **Codex** ajoute Codex aux cartes CI, Quota et En cours pour la session (« Codex ✓ ») ; par défaut elles ne comptent que Claude (`cards.who`).
@@ -361,11 +375,11 @@ CPU, RAM, disques, GPU et familles de processus, échantillonnés par le sampler
 
 #### Commandes
 
-`/cockpit [conv|projet|mega|agent] [nom]` zoome ; `/cockpit mission|focus|arbre|pipeline|journal|machine|relais|galerie|nuit` ouvre l'onglet ; `/cockpit workflow [all]` ; `/cockpit close`. Le Cockpit s'ouvre seul au démarrage (`auto_open`), à côté de filetree, en onglet de la même colonne.
+`/cockpit [conv|projet|mega|agent] [nom]` zoome ; `/cockpit mission|focus|arbre|pipeline|journal|machine|relais|galerie|nuit` ouvre l'onglet ; `/cockpit depuis [8h|24h|nuit|HH:MM]` ouvre « Depuis ton dernier message » ; `/cockpit workflow [all]` ; `/cockpit close`. Le Cockpit s'ouvre seul au démarrage (`auto_open`), à côté de filetree, en onglet de la même colonne.
 
 #### Réglages
 
-`cockpit.config.json`, fusionné avec `~/.claude/effort-board/cockpit.config.json` : onglets (ordre, libellés), menu, cartes (ordre, boutons, `who`), sections ouvertes, niveau de départ, Nuit, Galerie, couleurs, libellés. Prix et seuils des écrans de l'Usine : ceux de factory.
+`cockpit.config.json`, fusionné avec `~/.claude/effort-board/cockpit.config.json` : onglets (ordre, libellés), menu, cartes (ordre, boutons, `who`), sections ouvertes, niveau de départ, Nuit, Galerie, `depuis` (préréglages, fenêtre par défaut, `skip_recent_min`, `red_branches`, groupes ouverts, poids, gh / glab, `enabled: false` retire le bouton), couleurs, libellés. Prix et seuils des écrans de l'Usine : ceux de factory.
 
 ## Veille
 
@@ -767,14 +781,14 @@ Jauge : bandeau au-dessus du prompt, en lecture seule, sur deux lignes qui ne d�
 
 #### Fiche cockpit
 
-Cockpit, le seul panneau zoomable (Méga › Projet › Conversation › Agent), en lecture seule, qui regroupe Usine (factory) et Machine, avec un menu vertical à gauche vers les 6 entrées (Jauge, Cockpit, Veille, À toi, Registres, Référence). Onglet Cockpit : boutons Nuit (écran « Bilan avant la nuit » : ce qui tourne et sa fin, heures de nuit inutilisées, quota restant et ce que la nuit consommerait, lanes et paquets prêts ; Nuit active = /veille nuit, Lancer affiche la commande sans rien lancer, Rien), Jour (/veille jour) et Codex (Claude seul par défaut) ; cartes d'une ligne avec un bouton vers le détail (Qui consomme, T'attend, À toi, Claude Control et ses échéances, CI, Quota, Problèmes du jour, En cours : Workflows, agents hors workflow et pipelines avec ETA), puis les sections repliables. Onglets Mission, Focus, Arbre, Pipeline, Workflow (Gantt, Vitesse, agents hors workflow), Journal, Machine, Claude ↔ Codex (qui ouvre, corrige, merge, relais, dépendances, taux de vert) et Galerie (Équipe par rôle avec retour au lead, Carte du contrôle, Codex : approbations et coût). /cockpit [conv|projet|mega|agent|workflow|machine|relais|galerie|nuit|close] ; /factory et /machine restent des alias quand leur mod n'est pas chargé.
+Cockpit, le seul panneau zoomable (Méga › Projet › Conversation › Agent), en lecture seule, qui regroupe Usine (factory) et Machine, avec un menu vertical à gauche vers les 6 entrées (Jauge, Cockpit, Veille, À toi, Registres, Référence). Onglet Cockpit : bouton « Depuis ton dernier message » (le résumé de la nuit sans tokens : une phrase « Depuis 23:12 (8 h) : 9 PR mergées, 2 CI rouges, 3 conversations t'attendent, 14 $ dépensés », puis par projet ce qui t'attend, la CI rouge, les conversations bloquées ou terminées, les Workflows, les problèmes, À toi, les PR mergées et les $ ; /cockpit depuis [8h|24h|nuit|HH:MM]), boutons Nuit (écran « Bilan avant la nuit » : ce qui tourne et sa fin, heures de nuit inutilisées, quota restant et ce que la nuit consommerait, lanes et paquets prêts ; Nuit active = /veille nuit, Lancer affiche la commande sans rien lancer, Rien), Jour (/veille jour) et Codex (Claude seul par défaut) ; cartes d'une ligne avec un bouton vers le détail (Qui consomme, T'attend, À toi, Claude Control et ses échéances, CI, Quota, Problèmes du jour, En cours : Workflows, agents hors workflow et pipelines avec ETA), puis les sections repliables. Onglets Mission, Focus, Arbre, Pipeline, Workflow (Gantt, Vitesse, agents hors workflow), Journal, Machine, Claude ↔ Codex (qui ouvre, corrige, merge, relais, dépendances, taux de vert) et Galerie (Équipe par rôle avec retour au lead, Carte du contrôle, Codex : approbations et coût). /cockpit [conv|projet|mega|agent|workflow|machine|relais|galerie|nuit|depuis|close] ; /factory et /machine restent des alias quand leur mod n'est pas chargé.
 
-- **Où** : hub « Cockpit » de la barre Mods (/cockpit) : cartes Qui consomme, T’attend, À toi, CI, Quota, Problèmes du jour, En cours ; onglets de Usine et Machine
-- **État** : en construction · version 0.3.0 · Un seul panneau rangé par périmètre, de haut en bas : Cette conversation (ouverte, sélectionnée au démarrage ; agents et Workflows terminés repliés derrière un bouton « + N terminé(s) »), Ce projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt ; Focus + Pipeline de factory), Tous les projets (deux lignes par projet), Claude global (quotas, Veille, bouton /machine). Fermée, chaque section tient sur une ligne de résumé. Un clic sur un nœud descend (Agent : modèle, effort, tokens, coût, journal) et ouvre la section qui le montre ; le fil d'Ariane remonte. Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.
-- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour les quotas de « Claude global » ; les fichiers de veille (~/.claude/veille). La jauge de contexte n'est plus dans le cockpit : elle est dans band, au-dessus du prompt. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché. ; classement.json du mod usage pour « Qui consomme » (lance le scanner incrémental de usage s'il a plus de 10 min et que la section est ouverte) · aucun blocage
+- **Où** : hub « Cockpit » de la barre Mods (/cockpit) : bouton « Depuis ton dernier message » (/cockpit depuis [8h|24h|nuit|HH:MM], le résumé de la nuit par projet) ; cartes Qui consomme, T’attend, À toi, CI, Quota, Problèmes du jour, En cours ; onglets de Usine et Machine
+- **État** : en construction · version 0.4.0 · Un seul panneau rangé par périmètre, de haut en bas : Cette conversation (ouverte, sélectionnée au démarrage ; agents et Workflows terminés repliés derrière un bouton « + N terminé(s) »), Ce projet (lead et sous-conversations par spawnedFrom, y compris les lanes lancées dans un autre dépôt ; Focus + Pipeline de factory), Tous les projets (deux lignes par projet), Claude global (quotas, Veille, bouton /machine). Fermée, chaque section tient sur une ligne de résumé. Un clic sur un nœud descend (Agent : modèle, effort, tokens, coût, journal) et ouvre la section qui le montre ; le fil d'Ariane remonte. Un mod ne peut pas dessiner dans le panneau d'un autre ni importer un fichier hors de son dossier (claude plugin validate le refuse) : les libs de factory, band et veille sont copiées octet pour octet par scripts/sync-libs.mjs et un test échoue si la copie est en retard. Desktop montre un panneau à la fois, les autres en onglets : Cockpit est un onglet à côté de Fichiers (filetree), le bouton « Ouvrir Fichiers » lance /filetree. Placement exact dans Desktop (colonne de droite, largeur) : non vérifié dans la doc. Crédits cloud et semaine Fable : non lisibles depuis un mod quand l'API ne les donne pas.
+- **Fonctionnement** : événements `session.start`, `command.run`, `ui.close`, `ui.render` · lit : le scanner de factory (copié dans lib/, mêmes transcripts et fichiers de session de l'app : titres, spawnedFrom, PR) ; $.session.usage() pour les quotas de « Claude global » ; les fichiers de veille (~/.claude/veille). La jauge de contexte n'est plus dans le cockpit : elle est dans band, au-dessus du prompt. Rien n'est lu quand le panneau est fermé ou que l'onglet filetree est celui affiché. ; classement.json du mod usage pour « Qui consomme » (lance le scanner incrémental de usage s'il a plus de 10 min et que la section est ouverte) ; « Depuis ton dernier message » : transcripts de ~/.claude/projects (ton dernier vrai message, tokens et $ depuis), fichiers de session de l'app, gh search prs / glab api en lecture seule (cache 5 min), cache de ci, registre de problemes, items.json d'a-faire, night-summary.json de la Veille ; lu seulement quand l'onglet est ouvert · aucun blocage
 - **Fonctionnalités** : commandes `/cockpit` · affiche : panneau, toasts · options userConfig : start « Open at start » (on | off), défaut "on" ; config « Settings file », défaut ""
 - **Activer** : `<dépôt>/mods/cockpit` dans `CLAUDE_CODE_PLUGIN_DIRS`, ou `claude --plugin-dir mods/cockpit`
-- **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
+- **Tests** : `node --test mods/cockpit/tests/nav.test.mjs` · `node --test mods/cockpit/tests/depuis.test.mjs` · `claude plugin test mods/cockpit` · `claude plugin validate mods/cockpit`
 
 #### Fiche veille
 

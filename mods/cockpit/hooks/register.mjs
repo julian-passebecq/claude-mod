@@ -5,8 +5,9 @@
 //   Mission · Focus · Arbre · Pipeline · Workflow · Journal   factory's screens (synced copies in lib/factory)
 //   Machine  this PC's load (machine.py copy) and the runner load (lib/core/runner.mjs)
 //   Claude ↔ Codex · Galerie (Équipe, Carte, Codex) · Nuit (« Bilan avant la nuit », behind the Nuit button)
+//   Depuis   « Depuis ton dernier message » (its button on the Cockpit tab; /cockpit depuis [8h|24h|nuit|HH:MM])
 //   A vertical menu at the left runs the band's 6 entries (Jauge, Cockpit, Veille, À toi, Registres, Référence).
-//   /cockpit [conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit] [projet ou conversation] | close
+//   /cockpit [conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit|depuis [8h|24h|nuit|HH:MM]] [projet ou conversation] | close
 // /factory and /machine keep working: while their own mod is loaded it answers; when it is not, cockpit registers the
 // name as an alias (checked against $.command.list(), as band does to grey a button). Card buttons run the detail's
 // command ($.command.run; a mod cannot open another mod's pane). Opens by itself at session start (userConfig `start`).
@@ -22,6 +23,7 @@ import { cardsOf, pickTarget, workflowsLive, runnerBackends, cardsConfig } from 
 import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabValid, nightRepos, titleOf, laneRows } from './nav.mjs'
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
+import { depuisConfig } from '../lib/depuis.mjs'
 
 const PANE = 'cockpit'
 let options = {}
@@ -36,6 +38,7 @@ const D = {
   machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '' },
   who: null, nuitRaw: null, nuitBusy: false, relaisRaw: null, relaisBusy: false, galerieRaw: null, galerieBusy: false,
   galView: 'equipe', launch: null, nuitMsg: '', identity: undefined, engine: '',
+  depuisRaw: null, depuisBusy: false, depuisAt: 0, depuisPreset: '', depuisOpen: {}, depuisAsk: false, depuisMsg: '', depuisError: '',
 }
 
 const decideLabels = () => decideConfig(CFG || {}).nuit.labels
@@ -136,7 +139,7 @@ async function rescanWorkflow($) {
 }
 
 // The settings the Node scanner needs (the decision screens' and the to-do card's).
-const scanCfg = () => ({ nuit: (CFG && CFG.nuit) || {}, galerie: (CFG && CFG.galerie) || {}, controle: (CFG && CFG.controle) || {} })
+const scanCfg = () => ({ nuit: (CFG && CFG.nuit) || {}, galerie: (CFG && CFG.galerie) || {}, controle: (CFG && CFG.controle) || {}, depuis: (CFG && CFG.depuis) || {} })
 
 async function runScanner($, req) {
   const r = await $.process.run([(CFG && CFG.node) || 'node', root($) + '/scanner/cards.mjs'], { stdin: JSON.stringify({ home: await homeDir($), cfg: scanCfg(), ...req }), timeoutMs: 120000 })
@@ -155,10 +158,13 @@ async function loadPart($, part) {
     const req = { now, parts: [part] }
     if (part === 'nuit') req.repos = nightRepos(D.scan, CFG || {}, now)
     if (part === 'galerie') req.cache = (await board($)) + '/cockpit_codex_approvals.json'
+    if (part === 'depuis') { req.preset = D.depuisPreset; req.cache = (await board($)) + '/cockpit_depuis_prs.json' }
     const out = await runScanner($, req)
     D[part + 'Raw'] = out[part] || null
+    if (part === 'depuis') { D.depuisAt = now; D.depuisError = '' }
   } catch (err) {
     D[part + 'Raw'] = null
+    if (part === 'depuis') D.depuisError = String(err && err.message ? err.message : err).slice(0, 200)
     D.cardsError = String(err && err.message ? err.message : err).slice(0, 200)
   } finally {
     D[busy] = false
@@ -314,6 +320,11 @@ async function refreshTab($) {
   if (D.tab === 'relais') return loadPart($, 'relais')
   if (D.tab === 'nuit') { await rescan($); await loadCards($).catch(() => undefined); return loadPart($, 'nuit') }
   if (D.tab === 'galerie') { await rescan($); await loadIdentity($); return loadPart($, 'galerie') }
+  if (D.tab === 'depuis') {
+    await rescan($) // the waiting rows (lib/core/waiting.mjs) come from factory's scan
+    try { D.wfAll = await scanWorkflows($, 'all') } catch { /* no Workflow lines */ }
+    return loadPart($, 'depuis')
+  }
   await rescan($)
   if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
 }
@@ -348,6 +359,7 @@ async function runTarget($, candidates) {
 function setTab($, tab) {
   D.tab = tabValid(CFG, tab) ? tab : 'home'
   if (D.tab === 'nuit') { D.launch = null; D.nuitMsg = '' }
+  if (D.tab === 'depuis') D.depuisMsg = ''
   $.ui.invalidate('ui.render')
   void refreshTab($)
 }
@@ -407,8 +419,35 @@ function actions($) {
     launch: (i) => { D.launch = D.launch === i ? null : i; redraw() },
     galView: (v) => { D.galView = v; redraw() },
     openAgent: (id) => { void viewAgent($, { agentId: id }) },
+    // « Depuis ton dernier message »
+    depuisPreset: (id) => { D.depuisPreset = id; D.depuisMsg = ''; redraw(); void loadPart($, 'depuis') },
+    depuisToggle: (name, open) => { D.depuisOpen = { ...D.depuisOpen, [name]: open }; redraw() },
+    depuisAsk: () => { D.depuisAsk = !D.depuisAsk; redraw() },
+    openConv: (link) => { void openUrl($, link).then((ok) => { if (!ok) $.ui.toast(link) }) },
+    copy: (text, press, what) => {
+      const L = depuisConfig(CFG || {}).labels
+      const done = what === 'id' ? L.copied.replace('{id}', text) : L.ask_copy + ' ✓'
+      void $.ui.copy({ text, surface: press && press.surface }).then((r) => { D.depuisMsg = r && r.isCopied === false ? text : done; redraw() }).catch(() => { D.depuisMsg = text; redraw() })
+    },
     backToConv: () => { void viewAgent($, {}) },
   }
+}
+
+// « Depuis ton dernier message »: the scanner's part plus what the pane already holds (waiting rows, Workflow runs).
+function depuisView() {
+  let waiting = []
+  try { waiting = D.scan ? waitingRows(D.scan, FCFG || {}, D.at || D.depuisAt).rows : [] } catch { waiting = [] }
+  return { raw: D.depuisRaw, busy: D.depuisBusy, at: D.depuisAt, error: D.depuisError, preset: D.depuisPreset, open: D.depuisOpen, ask: D.depuisAsk, msg: D.depuisMsg,
+    extra: { waiting, workflows: (D.wfAll && D.wfAll.runs) || [] } }
+}
+
+// Hands a claude:// link to the OS (its handler is the desktop app), as Veille's Fil does. Windows: url.dll, no shell.
+async function openUrl($, url) {
+  if (!/^claude:\/\/claude\.ai\/epitaxy\/[\w-]+$/.test(String(url || ''))) return false
+  let win = false
+  try { win = (await $.env.get('OS')) === 'Windows_NT' } catch { win = false }
+  const argv = win ? ['rundll32.exe', 'url.dll,FileProtocolHandler', url] : ['xdg-open', url]
+  try { const r = await $.process.run(argv, { timeoutMs: 10000 }); return r.exitCode === 0 } catch { return false }
 }
 
 async function openPane($, focus) {
@@ -427,14 +466,15 @@ async function runCockpit($, args) {
   await openPane($, true)
   if (!D.scan) await rescan($)
   if (!D.nav && D.scan) D.nav = initialNav(D.scan, D.self, CFG)
-  if (p.rest && D.scan) {
+  if (p.tab === 'depuis') D.depuisPreset = p.rest
+  if (p.rest && D.scan && p.tab !== 'depuis') {
     const s = pickSession(D.scan.sessions, p.rest)
     const repo = !s && (D.scan.sessions || []).map(repoOf).find((r) => r.toLowerCase().includes(p.rest.toLowerCase()))
     if (s) D.nav = select(D.nav, { kind: 'conv', id: s.cli, repo: repoOf(s) })
     else if (repo) D.nav = select(D.nav, { kind: 'project', id: repo })
   }
   if (p.level && D.nav) D.nav = zoomTo(D.nav, p.level) // a level whose subject is unknown (micro without an agent) stays put
-  if ((p.level || p.rest) && D.nav && (!p.tab || p.tab === 'home')) {
+  if ((p.level || (p.rest && p.tab !== 'depuis')) && D.nav && (!p.tab || p.tab === 'home')) {
     const sec = { mega: 'all', macro: 'project', medium: 'conv', micro: 'conv' }[D.nav.level]
     if (sec) D.strips = { ...(D.strips || {}), [sec]: true }
   }
@@ -476,8 +516,8 @@ export function register(on, opts) {
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     try {
-      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : cartes (conso, t’attend, à toi, Claude Control, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory, Machine, Claude ↔ Codex, Galerie, Bilan avant la nuit',
-        argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit] [projet ou conversation] | close' })
+      await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : Depuis ton dernier message (le résumé de la nuit), cartes (conso, t’attend, à toi, Claude Control, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory, Machine, Claude ↔ Codex, Galerie, Bilan avant la nuit',
+        argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit|depuis [8h|24h|nuit|HH:MM]] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
     $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
     $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' ? rescan($) : undefined)) })
@@ -518,7 +558,8 @@ export function register(on, opts) {
       cfg: CFG || {}, fcfg: FCFG || {}, scan: D.scan, nav: D.nav || { level: 'mega', repo: null, conv: null, agent: null }, self: D.self,
       busy: D.busy, error: D.error, at: D.at, columns: D.columns, filter: D.filter, usage: D.usage, veille: D.veille, open: D.strips || {}, act: actions($),
       conso: D.conso, consoPreset: D.consoPreset, tab: D.tab, jfilter: D.jfilter, jproject: D.jproject,
-      cards: D.tab === 'home' ? cards(now || D.at) : [], cardsError: D.cardsError, cardsAt: D.cardsAt,
+      cards: D.tab === 'home' ? cards(now || D.at) : [],
+      depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
     })
   })
