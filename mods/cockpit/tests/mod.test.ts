@@ -26,6 +26,12 @@ const DEPUIS = { since: NOW - 8 * 3600000, source: 'last', last: { ts: NOW - 8 *
   conversations: [{ cli: 'child-cli', sid: 'local_child', title: 'Mosaic Studio V2 private release', project: 'eta', state: 'completed', at: NOW - 3600000, first: 'PR #7 merged.' }],
   problems: [], atoi: { items: [] }, cost: { usd: 14, tokens: 2e6, byProject: { eta: { usd: 14, tokens: 2e6 } } }, night: null }
 
+// scanner/cards.mjs part « graphe »: lib/core/sessions.mjs graphRow rows, invented
+const GR = (o: any) => ({ sid: 'local_' + o.cli, title: '', cwd: 'C:/code/eta', origin: 'C:/code/eta', repo: 'eta', archived: false, starred: false,
+  last_activity: NOW - 600000, created: NOW - 7200000, model: 'claude-opus-5-5', effort: 'medium', parent: '', peers: [], awaiting: false, prs: [], branch: '', ...o })
+const GRAPHE = { rows: [GR({ cli: 'g-lead', title: 'COORD eta' }), GR({ cli: 'g-wait', title: 'Lane waiting', parent: 'local_g-lead', awaiting: true }),
+  GR({ cli: 'g-old', title: 'Old lane', last_activity: NOW - 3 * 86400000 })] }
+
 const TREE = { 'C:/code/eta': [['src', 'dir'], ['README.md', 'file']], 'C:/code/eta/src': [['main.ts', 'file']] }
 
 function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string; cockpitCfg?: unknown } = {}) {
@@ -55,6 +61,7 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
     const argv = e.argv as string[]
     argvs.push(argv)
     if (argv[0] === 'git') return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (String((e.init && e.init.stdin) || '').includes('"parts":["graphe"]')) return { value: { exitCode: 0, stdout: JSON.stringify({ graphe: GRAPHE }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (String((e.init && e.init.stdin) || '').includes('"parts":["depuis"]')) return { value: { exitCode: 0, stdout: JSON.stringify({ depuis: DEPUIS }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     const i = argv.indexOf('--detail')
     const detail = i >= 0 ? argv[i + 1] : ''
@@ -376,3 +383,25 @@ test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, C
   expect(await has(ui, /^Codex$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
 })
+
+test('Panneau: Graphe des conversations shows who waits, the tree, keeps its filters, a title opens the conversation', async ($, on) => {
+  const w = world(on)
+  const kept: Record<string, unknown> = {}
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
+  expect(await has(ui, /^À toi de cliquer \(1\)$/)).toBe(true)
+  expect(await has(ui, /^eta · 2$/)).toBe(true)
+  expect(await has(ui, /^└ ◆$/)).toBe(true)
+  expect(await has(ui, /^│ travaille|inactive depuis 10 min · coordinateur/)).toBe(true)
+  expect(await has(ui, /^Old lane$/)).toBe(false)
+  await ui.press({ plugin: 'cockpit', key: 'pg-f-tout' })
+  expect(await has(ui, /^Old lane$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"period":"tout"')
+  await ui.press({ plugin: 'cockpit', key: 'pgw-g-wait' })
+  // the link goes to the OS handler asynchronously (openUrl)
+  for (let i = 0; i < 20 && !w.argvs.some((a) => a.join(' ').includes('epitaxy')); i++) await new Promise((r) => setTimeout(r, 25))
+  expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_g-wait'))).toBe(true)
+})
+

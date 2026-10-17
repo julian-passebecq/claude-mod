@@ -200,10 +200,10 @@ for (const columns of [60, 75]) {
   })
 }
 
-test('Panneau: the factory view, the context and the reserved graph slot are drawn', () => {
+test('Panneau: the factory view, the context and the conversations graph are drawn', () => {
   const text = panneauText(75)
   for (const k of ['╭─ Lead', '▮▮▯▯ medium', '◇ Workflow package-wave', '╭─ ● coder · build the panel', 'tok/s', 'retour au lead · review + merge', 'PR #42 ouverte', 'PR #41 mergée',
-    '┃', '30 % · 120K / 400K tokens', 'seuil de relais 250K · reste 130K', '1. Lane alpha', 'Workflows actifs', '5 h', 'Semaine', 'tok/s toutes conv', 'emplacement réservé']) assert.ok(text.includes(k), k + '\n' + text)
+    '┃', '30 % · 120K / 400K tokens', 'seuil de relais 250K · reste 130K', '1. Lane alpha', 'Workflows actifs', '5 h', 'Semaine', 'tok/s toutes conv', 'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
   assert.doesNotMatch(text, /Codex semaine/) // only while Codex is toggled
   assert.match(panneauText(75, { who: 'codex' }), /Codex semaine/)
 })

@@ -4,7 +4,7 @@
 //   ▾ Cette conversation              factory view (lib/panel_conv.mjs): lead box, layers, agent cards, retour au lead, log
 //   ▾ Contexte de cette conversation  % bar with the hand-off threshold, tokens
 //   ▾ Toutes les conversations        filters, top 15 + autres, Workflows actifs, bars (5 h, semaine, Codex, tok/s)
-//   ▾ Graphe des conversations        reserved slot (hooks/graphe_view.mjs)
+//   ▾ Graphe des conversations        À toi de cliquer, legend, filters, projects → conversations tree (hooks/graphe_view.mjs)
 //   then one grey line: the old views and their /cockpit commands
 import { panelConfig, fill } from '../lib/panel.mjs'
 import { factoryLines, convFactorySummary } from '../lib/panel_conv.mjs'
@@ -31,7 +31,7 @@ export function drawPanel(h, P) {
   return out
 }
 
-/** The render hook of section 5 (« Graphe des conversations »), exposed for the package that fills it. */
+/** The render hook of section 5 (« Graphe des conversations »). */
 export { drawGraphe }
 
 function section(h, P, id, title, summary, body, width) {
@@ -157,8 +157,9 @@ function barsBody(h, P, L, width) {
   return out
 }
 
-// ---- 5. Graphe des conversations: the reserved slot ------------------------------------------------------------------
+// ---- 5. Graphe des conversations ------------------------------------------------------------------------------------
 
 function drawGrapheSection(h, P, L, width) {
-  return section(h, P, 'graphe', L.graphe, '', () => drawGraphe(h, P.graphe, L, width - 1), width)
+  const m = P.graphe
+  return section(h, P, 'graphe', L.graphe, m && m.ready ? m.summary : '', () => drawGraphe(h, m, L, width - 1, P.act), width)
 }

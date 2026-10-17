@@ -5,7 +5,7 @@
 //                                     « retour au lead », the session log (lib/panel_conv.mjs, hooks/panel_view.mjs)
 //   3. Contexte de cette conversation % bar, tokens, the hand-off threshold (250 k)
 //   4. Toutes les conversations       one synthesis table + filters, Workflows actifs, bars (5 h, semaine, Codex, tok/s)
-//   5. Graphe des conversations       a reserved slot (lib/graphe.mjs + hooks/graphe_view.mjs), filled by its own package
+//   5. Graphe des conversations       who waits, works, coordinates, by project like the sidebar (lib/graphe.mjs, hooks/graphe_view.mjs)
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Every label and limit comes from `panel` in
 // cockpit.config.json (deep-merged over PANEL_DEFAULTS).
 import { rank, codexTokens, windowOf } from './usage/lib/classement.mjs'
@@ -46,6 +46,16 @@ export const PANEL_DEFAULTS = {
   // window: null = factory's context_window
   contexte: { handoff_tokens: 250000, window: null, bar_width: 40 },
   barres: { width: 140, workflows_max: 8, agents_max: 12 },
+  // 5. Graphe des conversations (lib/graphe.mjs): period = default time filter (24h | 7j | tout); working_min = minutes
+  // since the last activity under which a conversation « travaille »; coord_match = a title that makes a coordinator (as
+  // does having spawned ≥ 1 session); wait_max_h = « À toi de cliquer » ignores older waits; max_rows = lines over all
+  // groups; session_link opens a conversation in the app (the same link as « Depuis »)
+  graphe: {
+    period: '24h', working_min: 2, coord_match: '(^|[^A-Za-z])(PM|COORD[A-Z]*|VEILLE|ARCHI|MODS)([^A-Za-z]|$)', wait_max_h: 168,
+    max_rows: 60, reason_max: 60, peers_max: 2, peer_title_max: 24, refresh_s: 60,
+    session_link: 'claude://claude.ai/epitaxy/{id}',
+    dots: { working: '●', waiting: '◆', blocked: '✕', done: '✓', idle: '○', archived: '·' },
+  },
   labels: {
     panneau: 'Panneau',
     fichiers: 'Fichiers',
@@ -53,7 +63,31 @@ export const PANEL_DEFAULTS = {
     contexte: 'Contexte de cette conversation',
     convs: 'Toutes les conversations',
     graphe: 'Graphe des conversations',
-    graphe_slot: 'emplacement réservé : le graphe des conversations arrive ici',
+    graphe_slot: 'lecture des sessions…',
+    graphe_click: 'À toi de cliquer',
+    graphe_click_none: 'rien ne t’attend',
+    graphe_wait_line: '{reason} · depuis {age}',
+    graphe_reason_awaiting: 'tour interrompu, attend une personne',
+    graphe_reason_ask: 'question ouverte',
+    graphe_legend: '● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · coord = lance des sessions · ⇢ message envoyé · un titre ouvre la conversation',
+    graphe_states: { working: 'travaille', waiting: 't’attend', blocked: 'bloquée', done: 'finie', idle: 'inactive depuis {age}', archived: 'archivée' },
+    graphe_roles: { coord: 'coordinateur', lane: 'lane', agent: 'agent' },
+    graphe_tokens: '{tokens} tok auj.',
+    graphe_ctx: 'ctx {pct} %',
+    graphe_here: '(ici)',
+    graphe_from: '↖ lancée par {title}',
+    graphe_peer: '┄┄⇢ {title}',
+    graphe_project: 'Projet : {name}',
+    graphe_all_projects: 'tous',
+    graphe_active: 'Actives seulement',
+    graphe_periods: { '24h': '24 h', '7j': '7 j', tout: 'tout' },
+    graphe_archived: 'Archivées',
+    graphe_group: '{name} · {n}',
+    graphe_none: 'aucune conversation avec ces filtres',
+    graphe_hidden: '… {n} de plus (filtre par projet)',
+    graphe_sum_waiting: '{n} t’attend(ent)',
+    graphe_sum_working: '{n} travaille(nt)',
+    graphe_sum_blocked: '{n} bloquée(s)',
     barres: 'Barres',
     other_views: 'Autres vues, par /cockpit … : {list}',
     lead: 'Lead',

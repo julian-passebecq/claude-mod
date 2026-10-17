@@ -30,7 +30,7 @@ import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf } from '../lib/panel.mjs'
 import { convFactory } from '../lib/panel_conv.mjs'
-import { grapheModel } from '../lib/graphe.mjs'
+import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -50,6 +50,8 @@ const D = {
   // the Panneau (default view): sections open, layers folded, filters (kept in $.store 'panel')
   popen: null, pclosed: {}, pf: { period: '', project: '', state: '', who: '' }, pLoaded: false, codexData: null,
   F: newFiles(), fLimit: 0, fBusy: false,
+  // Graphe des conversations: the session files' rows (scanner part « graphe »), read at most every panel.graphe.refresh_s
+  grapheRaw: null, grapheBusy: false, grapheAt: 0, pg: null,
 }
 
 const decideLabels = () => decideConfig(CFG || {}).nuit.labels
@@ -339,10 +341,11 @@ async function loadPanelState($) {
   D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...(saved && saved.open && typeof saved.open === 'object' ? saved.open : {}) }
   D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
   D.pf = { period: '', project: '', state: '', who: pc.convs.who, ...((saved && saved.filter) || {}) }
+  D.pg = grapheFilter(saved && saved.graphe, CFG || {})
 }
 
 function savePanelState($) {
-  try { void Promise.resolve($.store.set('panel', { open: D.popen || {}, closed: D.pclosed, filter: D.pf })).catch(() => undefined) } catch { /* not kept */ }
+  try { void Promise.resolve($.store.set('panel', { open: D.popen || {}, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
 }
 
 const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
@@ -426,6 +429,10 @@ async function refreshPanel($) {
   try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
   await loadConso($, now).catch(() => undefined)
   if ((D.popen || {}).convs) await loadCards($).catch(() => undefined)
+  if ((D.popen || {}).graphe && now - D.grapheAt >= Math.max(10, panelConfig(CFG || {}).graphe.refresh_s) * 1000) {
+    D.grapheAt = now
+    await loadPart($, 'graphe').catch(() => undefined)
+  }
   await refreshFiles($)
   $.ui.invalidate('ui.render')
 }
@@ -443,7 +450,9 @@ function panelView(now) {
   let wfScreen = null
   try { wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null } catch { wfScreen = null }
   let graphe = null
-  try { graphe = grapheModel(D.scan, D.self, CFG || {}, now) } catch { graphe = null }
+  try {
+    graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
+  } catch { graphe = null }
   return {
     open: D.popen || {}, closed: D.pclosed,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
@@ -516,7 +525,15 @@ function actions($) {
       D.popen = { ...(D.popen || {}), [id]: !(D.popen || {})[id] }
       savePanelState($)
       redraw()
-      if (D.popen[id] && (id === 'fichiers' || id === 'convs' || id === 'contexte')) void refreshPanel($)
+      if (D.popen[id] && (id === 'fichiers' || id === 'convs' || id === 'contexte' || id === 'graphe')) void refreshPanel($)
+    },
+    gfilter: (k, v) => { D.pg = grapheFilter({ ...(D.pg || {}), [k]: v }, CFG || {}); savePanelState($); redraw() },
+    gcycle: async (k) => {
+      const now = await $.clock.now()
+      const m = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, fcfg: FCFG || {}, filter: { ...(D.pg || {}), project: '' } }, D.self, CFG || {}, now)
+      D.pg = grapheFilter({ ...(D.pg || {}), [k]: cycle(m.ready ? m.projects : [], (D.pg || {})[k]) }, CFG || {})
+      savePanelState($)
+      redraw()
     },
     nodeToggle: (key) => { D.pclosed = { ...D.pclosed, [key]: !D.pclosed[key] }; savePanelState($); redraw() },
     pfilter: (k, v) => {

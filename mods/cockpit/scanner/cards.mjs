@@ -1,5 +1,5 @@
 // cockpit - the data of the cards and of the decision screens, read with Node (the hooks module runs without Node):
-//   node scanner/cards.mjs  < {"now": epochMs, "home": "C:/Users/me", "parts": ["cards"|"nuit"|"relais"|"galerie"],
+//   node scanner/cards.mjs  < {"now": epochMs, "home": "C:/Users/me", "parts": ["cards"|"nuit"|"relais"|"galerie"|"graphe"],
 //                              "repos": ["D:/x/repo", …], "cache": "<file for the Codex rollout offsets>", "cfg": {…}}
 // cards: lib/core/usage.mjs (5 h / week, run-out, Claude and Codex), veille.mjs (attend Julian, À toi, fil), runner.mjs,
 //   estimate.mjs (pipeline ETA when the ci cache has none); the ci pipelines cache and the problemes register through
@@ -8,6 +8,8 @@
 // relais: the ci mod's Claude <-> Codex dataset (~/.claude/ci-cache/interactions.json).
 // galerie: counts of the control layers under ~/.claude (names only, never values), Codex tokens per model (the usage
 //   mod's codex.json) and approval policy / approval requests from ~/.codex/sessions rollouts (offsets cached).
+// graphe: the app's session files as the Panneau's « Graphe des conversations » rows (lib/core/sessions.mjs graphRow:
+//   a fixed list of fields, never the prompts or settings a session file also holds).
 // Read-only, no API, no model call. Prints one JSON object.
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -20,6 +22,7 @@ import { estimateOf, etaOf } from '../lib/core/estimate.mjs'
 import { ciSummary, pipelinesLive, problemsToday } from '../lib/cards.mjs'
 import { parseTodos, controleCard, decideConfig } from '../lib/decide.mjs'
 import { depuisData } from './depuis.mjs'
+import { readGraphRows } from '../lib/core/sessions.mjs'
 
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8').replace(/^\uFEFF/, '')) } catch { return null } }
 const text = (p) => { try { return readFileSync(p, 'utf8') } catch { return null } }
@@ -197,6 +200,11 @@ export function scan(req = {}, paths = {}) {
   if (parts.includes('nuit')) out.nuit = nuitData(req)
   if (parts.includes('relais')) out.relais = relaisData(req, paths)
   if (parts.includes('galerie')) out.galerie = galerieData(req, paths)
+  if (parts.includes('graphe')) {
+    let rows = []
+    try { rows = readGraphRows(paths.appDir ? { app_dir: paths.appDir } : {}) } catch { rows = [] }
+    out.graphe = { rows }
+  }
   if (parts.includes('depuis')) out.depuis = depuisData({ ...req, cfg: { depuis: (req.cfg && req.cfg.depuis) || {} } }, paths)
   return out
 }

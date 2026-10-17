@@ -35,8 +35,22 @@ export const SCAN = {
   },
 }
 
+// the app's session files as lib/core/sessions.mjs graphRow returns them (invented)
+const G = (o) => ({ sid: 'local_' + o.cli, title: '', cwd: 'C:/code/proj-one', origin: 'C:/code/proj-one', repo: 'proj-one', archived: false, starred: false,
+  last_activity: NOW - 5 * 60000, created: NOW - 5 * 3600000, model: 'claude-opus-5-5', effort: 'medium', parent: '', peers: [], awaiting: false, prs: [], branch: '', ...o })
+export const GRAPH_ROWS = [
+  G({ cli: 'lead', title: 'Lane alpha · tableau de bord', last_activity: NOW - 30000, starred: true }),
+  G({ cli: 'k1', title: 'Package one: a rather long lane title that must be cut', parent: 'local_lead', last_activity: NOW - 3 * 3600000, prs: [{ number: 41, state: 'merged' }] }),
+  G({ cli: 'k2', title: 'Package two', parent: 'local_lead', last_activity: NOW - 60000, peers: [{ target: 'local_pm', at: NOW - 120000 }] }),
+  G({ cli: 'k3', title: 'Package two · verify', parent: 'local_k2', last_activity: NOW - 9 * 3600000 }),
+  G({ cli: 'pm', title: 'PM BETA', repo: 'proj-two', cwd: 'C:/code/proj-two', origin: 'C:/code/proj-two', last_activity: NOW - 40 * 60000 }),
+  G({ cli: 'b', title: 'Lane beta', repo: 'proj-two', cwd: 'C:/code/proj-two/.claude/worktrees/x', origin: 'C:/code/proj-two', parent: 'local_pm', awaiting: true, last_activity: NOW - 2 * 3600000 }),
+  G({ cli: 'c', title: 'Lane gamma', repo: 'proj-three', last_activity: NOW - 30 * 3600000 }),
+  G({ cli: 'old', title: 'Archived lane', archived: true, last_activity: NOW - 3 * 3600000 }),
+]
+
 const noop = () => {}
-const ACT = { tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
+const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
 
 /** The Pane's view model on the Panneau. open: sections unfolded (all by default); closed: folded layers. */
 export function panneauView(columns, o = {}) {
@@ -51,7 +65,7 @@ export function panneauView(columns, o = {}) {
     syn, filter,
     bars: barsOf({ usage: { rateLimits: [{ kind: 'five_hour', percentUsed: 21 }, { kind: 'seven_day', percentUsed: 85 }] }, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex' }, {}),
     workflows: activeWorkflows({ runs: [{ id: 'r1', name: 'package-wave', live: true, agents: [{ id: '1', label: 'coder', model: 'claude-opus-5-5', status: 'running', tokens: 300000 }, { id: '2', label: 'verify', model: 'claude-sonnet-5-5', status: 'done', tokens: 80000 }] }] }, {}),
-    graphe: grapheModel(SCAN, 'lead', {}, NOW),
+    graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
   }
   return { cfg: {}, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
