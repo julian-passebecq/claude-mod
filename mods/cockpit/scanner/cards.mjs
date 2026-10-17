@@ -19,6 +19,7 @@ import { runnerLoad, runnerLine } from '../lib/core/runner.mjs'
 import { estimateOf, etaOf } from '../lib/core/estimate.mjs'
 import { ciSummary, pipelinesLive, problemsToday } from '../lib/cards.mjs'
 import { parseTodos, controleCard, decideConfig } from '../lib/decide.mjs'
+import { depuisData } from './depuis.mjs'
 
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8').replace(/^\uFEFF/, '')) } catch { return null } }
 const text = (p) => { try { return readFileSync(p, 'utf8') } catch { return null } }
@@ -196,6 +197,7 @@ export function scan(req = {}, paths = {}) {
   if (parts.includes('nuit')) out.nuit = nuitData(req)
   if (parts.includes('relais')) out.relais = relaisData(req, paths)
   if (parts.includes('galerie')) out.galerie = galerieData(req, paths)
+  if (parts.includes('depuis')) out.depuis = depuisData({ ...req, cfg: { depuis: (req.cfg && req.cfg.depuis) || {} } }, paths)
   return out
 }
 

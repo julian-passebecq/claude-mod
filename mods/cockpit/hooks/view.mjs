@@ -16,6 +16,8 @@ import {
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
 import { drawNuit, drawRelais, drawGalerie } from './decide_view.mjs'
+import { drawDepuis } from './depuis_view.mjs'
+import { depuisConfig } from '../lib/depuis.mjs'
 
 const NOOP = () => {}
 
@@ -66,14 +68,17 @@ function drawBody(el, V) {
   const h = kit(el, V.cfg)
   const L = h.c.labels
   const tabs = tabsOf(V.cfg)
-  const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' ? V.tab : 'home'
+  const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' ? V.tab : 'home'
   const out = [h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 })]
   if (tab === 'nuit') return h.col([...out, ...drawNuit(h, V)])
+  if (tab === 'depuis') return h.col([...out, ...drawDepuis(h, V)])
   if (tab === 'relais') return h.col([...out, ...drawRelais(h, V)])
   if (tab === 'galerie') return h.col([...out, ...drawGalerie(h, V)])
   if (tab !== 'home') return h.col([...out, ...drawTab(h, V, L, tab)])
   // Nuit · Jour · Codex: the day/night decision and the Claude-only default of the cards
   const dn = h.c.day_night || {}
+  const dc = depuisConfig(V.cfg)
+  if (dc.enabled !== false) out.push(h.btn(dc.labels.button, () => V.act.tab('depuis'), true, 'btn-depuis'))
   out.push(h.row([
     dn.enabled !== false ? h.btn(L.night_button, () => V.act.tab('nuit'), false, 'btn-nuit') : null,
     dn.enabled !== false ? h.btn(L.day_button, () => V.act.day(), false, 'btn-jour') : null,

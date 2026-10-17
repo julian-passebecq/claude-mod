@@ -19,6 +19,13 @@ const CR = (h: number, sid: string, usd: number) => [Math.floor(NOW / 3600000) *
 const CLS = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { s1: { t: 'Lane alpha', p: 'proj-one' }, s2: { t: 'Lane beta', p: 'proj-two' } },
   rows: [CR(0, 's1', 4), CR(0, 's2', 1), CR(50, 's2', 20)] }
 
+// scanner/cards.mjs part « depuis », invented
+const DEPUIS = { since: NOW - 8 * 3600000, source: 'last', last: { ts: NOW - 8 * 3600000, title: 'Lane alpha', project: 'eta' },
+  merged: [{ forge: 'github', repo: 'eta', project: 'eta', number: 7, title: 'feat: night work', url: 'https://example.invalid/7', at: new Date(NOW - 3600000).toISOString() }],
+  red: { available: true, generated: NOW, lanes: [] },
+  conversations: [{ cli: 'child-cli', sid: 'local_child', title: 'Mosaic Studio V2 private release', project: 'eta', state: 'completed', at: NOW - 3600000, first: 'PR #7 merged.' }],
+  problems: [], atoi: { items: [] }, cost: { usd: 14, tokens: 2e6, byProject: { eta: { usd: 14, tokens: 2e6 } } }, night: null }
+
 function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string } = {}) {
   const opened: string[] = []
   const ran: unknown[] = []
@@ -38,6 +45,7 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
     argvs.push(argv)
+    if (String((e.init && e.init.stdin) || '').includes('"parts":["depuis"]')) return { value: { exitCode: 0, stdout: JSON.stringify({ depuis: DEPUIS }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     const i = argv.indexOf('--detail')
     const detail = i >= 0 ? argv[i + 1] : ''
     scans.push(detail)
@@ -232,3 +240,26 @@ test('« Ouvrir l’agent » stays off on an engine older than 2.1.300', async (
   expect(await has(ui, /^Agent · coder/)).toBe(true)
   expect(await has(ui, /Ouvrir l’agent/)).toBe(false)
 })
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`« Depuis ton dernier message »: button and /cockpit depuis 8h, headline, groups, VEILLE text shown and never sent (${surface})`, async ($, on) => {
+    const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'veille', plugin: 'veille' }] })
+    await $.command.run({ command: 'cockpit', args: '' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 92, rows: 160 }, props: WIDE } as any)
+    expect(await has(ui, /^Depuis ton dernier message$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'btn-depuis' })
+    expect(await has(ui, /^Depuis \d\d:\d\d \(8 h\) : 1 PR mergée, 1 conversation terminée, 14 \$ dépensés$/)).toBe(true)
+    expect(await has(ui, /ton dernier message : .* dans « Lane alpha »/)).toBe(true)
+    expect(await has(ui, /eta#7 feat: night work/)).toBe(true)
+    expect(await has(ui, /PR #7 merged\./)).toBe(true)
+    const before = w.ran.length
+    await ui.press({ plugin: 'cockpit', key: 'd-ask' })
+    expect(await has(ui, /^VEILLE : résume-moi ce qui s’est passé depuis/)).toBe(true)
+    expect(w.ran.length).toBe(before) // shown, never sent
+    await ui.press({ plugin: 'cockpit', key: 'd-g-0' }) // fold the project
+    expect(await has(ui, /eta#7 feat: night work/)).toBe(false)
+    // the preset reaches the scanner
+    await $.command.run({ command: 'cockpit', args: 'depuis 8h' } as any)
+    expect(w.argvs.some((a) => a.join(' ').includes('cards.mjs'))).toBe(true)
+  })
+}

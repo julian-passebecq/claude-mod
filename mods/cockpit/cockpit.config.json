@@ -49,7 +49,8 @@
       "machine",
       "relais",
       "galerie",
-      "nuit"
+      "nuit",
+      "depuis"
     ],
     "labels": {
       "home": "Cockpit",
@@ -62,7 +63,8 @@
       "machine": "Machine",
       "relais": "Claude ↔ Codex",
       "galerie": "Galerie",
-      "nuit": "Nuit"
+      "nuit": "Nuit",
+      "depuis": "Depuis"
     }
   },
   "_menu": "The vertical menu at the left of the pane: the band's 6 entries. A press runs the entry's command (a mod cannot open another mod's pane), greyed by a toast when its mod is not loaded; self: true = this pane's Cockpit tab. Under min_columns (the pane's width in columns) it is one row on top. position: left | top | off; width: the menu's columns.",
@@ -131,6 +133,25 @@
     "lanes_max": 8,
     "seq_agents": 5,
     "seq_events": 24
+  },
+  "_depuis": "« Depuis ton dernier message » (button at the top of the Cockpit tab, /cockpit depuis [8h|24h|nuit|HH:MM]): one headline, then one foldable group per project, most important first (waiting on you, CI still red, blocked, failed Workflows, new problems, À toi, merged PRs, finished conversations), with tokens and $ spent. default: the preset used without an argument; presets: last (your last real message in any conversation, skipped when younger than skip_recent_min), hours, at (the most recent HH:MM). red_branches: branches listed red whatever their age (other lanes only when they ran inside the window). gh / glab: merged PRs and MRs (read-only, cached prs_ttl_s). Every label and weight: lib/depuis.mjs DEPUIS_DEFAULTS.",
+  "depuis": {
+    "enabled": true,
+    "default": "last",
+    "presets": [
+      { "id": "last", "label": "Ton dernier message", "last": true },
+      { "id": "8h", "label": "8 h", "hours": 8 },
+      { "id": "24h", "label": "24 h", "hours": 24 },
+      { "id": "nuit", "label": "Nuit", "at": "22:00" }
+    ],
+    "skip_recent_min": 10,
+    "lookback_days": 14,
+    "due_soon_days": 3,
+    "red_branches": ["main", "master"],
+    "open_groups": 2,
+    "prs_ttl_s": 300,
+    "gh": true,
+    "glab": true
   },
   "_controle": "« Claude Control » card: the open to-dos of file (`- [ ] YYYY-MM-DD · priorité · quoi · …`, « — » = no date), soonest deadline first; warn under warn_days, red under bad_days; max = lines shown.",
   "controle": {

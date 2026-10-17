@@ -11,8 +11,9 @@ export const LEVELS = ['mega', 'macro', 'medium', 'micro']
 // Tabs of the one pane: « Cockpit » (cards + the scoped sections), then factory's screens (synced copies in
 // lib/factory) and Machine. factory's Quotas and Système are not here: the Quota card and Machine replace them.
 // relais = Claude ↔ Codex, galerie = the Reference Gallery views (Équipe, Carte, Codex), nuit = « Bilan avant la nuit »
-// (opened by the Nuit button of the Cockpit tab; listed in tabs.order only if you add it).
-export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie', 'nuit']
+// (opened by the Nuit button of the Cockpit tab; listed in tabs.order only if you add it), depuis = « Depuis ton dernier
+// message » (its button on the Cockpit tab, /cockpit depuis [8h|24h|nuit|HH:MM]; off with depuis.enabled false).
+export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie', 'nuit', 'depuis']
 const DEFAULT_TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie']
 // Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
 export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers']
@@ -20,7 +21,7 @@ export const FOLDABLE = ['conv', 'project', 'all', 'conso', 'global']
 
 export const DEFAULTS = {
   sections: { order: SECTIONS, enabled: SECTIONS, open: ['conv'] },
-  tabs: { order: DEFAULT_TABS, enabled: TABS, labels: { home: 'Cockpit', mission: 'Mission', focus: 'Focus', arbre: 'Arbre', pipeline: 'Pipeline', workflow: 'Workflow', journal: 'Journal', machine: 'Machine', relais: 'Claude ↔ Codex', galerie: 'Galerie', nuit: 'Nuit' } },
+  tabs: { order: DEFAULT_TABS, enabled: TABS, labels: { home: 'Cockpit', mission: 'Mission', focus: 'Focus', arbre: 'Arbre', pipeline: 'Pipeline', workflow: 'Workflow', journal: 'Journal', machine: 'Machine', relais: 'Claude ↔ Codex', galerie: 'Galerie', nuit: 'Nuit', depuis: 'Depuis' } },
   // The vertical menu at the left of the pane: the 6 entries of the band's bar. A press runs the entry's command (a mod
   // cannot open another mod's pane); self: true = this pane (goes to the Cockpit tab). Under min_columns the menu is
   // one row on top instead. position: left | top | off.
@@ -594,7 +595,8 @@ export function tabsOf(cfg) {
 // A tab id the pane can show: one of the tab bar, or the Nuit screen (opened by its button) while enabled.
 export function tabValid(cfg, id) {
   const c = cockpitConfig(cfg).tabs
-  return tabsOf(cfg).some((t) => t.id === id) || (id === 'nuit' && c.enabled.includes('nuit'))
+  const dep = (cfg && cfg.depuis) || {}
+  return tabsOf(cfg).some((t) => t.id === id) || (id === 'nuit' && c.enabled.includes('nuit')) || (id === 'depuis' && dep.enabled !== false)
 }
 
 // The menu's layout at a width: {position: left|top|off, items, width}.
@@ -627,6 +629,7 @@ const TAB_WORDS = {
   mission: 'mission', focus: 'focus', arbre: 'arbre', tree: 'arbre', pipeline: 'pipeline', journal: 'journal',
   workflow: 'workflow', workflows: 'workflow', wf: 'workflow',
   machine: 'machine', systeme: 'machine', 'système': 'machine', system: 'machine',
+  depuis: 'depuis', since: 'depuis', matin: 'depuis', reveil: 'depuis', 'réveil': 'depuis', resume: 'depuis', 'résumé': 'depuis',
   nuit: 'nuit', night: 'nuit', bilan: 'nuit', relais: 'relais', codex: 'relais', galerie: 'galerie', gallery: 'galerie', vues: 'galerie',
 }
 const LEVEL_WORDS = { mega: 'mega', 'méga': 'mega', macro: 'macro', projet: 'macro', project: 'macro', medium: 'medium', conversation: 'medium', conv: 'medium', micro: 'micro', agent: 'micro' }
