@@ -18,15 +18,18 @@ import { treeSvg } from './svg.mjs'
 import { drawNuit, drawRelais, drawGalerie } from './decide_view.mjs'
 import { drawDepuis } from './depuis_view.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
+import { drawPanel } from './panel_view.mjs'
+import { panelConfig } from '../lib/panel.mjs'
 
 const NOOP = () => {}
 
-function kit(el, cfg) {
+export function kit(el, cfg) {
   const c = cockpitConfig(cfg)
   const fc = (k) => (c.term_colors && c.term_colors[k]) || { running: 'claude', ok: 'success', warn: 'warning', bad: 'error', dim: 'inactive' }[k]
   const T = (text, o = {}) => {
     const p = { children: [String(text ?? '')], wrap: o.wrap || 'wrap' }
     if (o.tone && fc(o.tone)) p.color = fc(o.tone)
+    else if (o.color) p.color = o.color
     if (o.bold) p.bold = true
     if (o.dim) p.dimColor = true
     if (o.key) p.key = o.key
@@ -52,7 +55,8 @@ function kit(el, cfg) {
 // The vertical menu (the band's 6 entries) sits at the left; under menu.min_columns it is one row on top.
 export function drawCockpit(el, V0) {
   const h0 = kit(el, V0.cfg)
-  const menu = menuOf(V0.cfg, V0.columns)
+  // the Panneau (default view) takes the whole width: the band's buttons above the prompt replace the left menu
+  const menu = V0.tab === 'panneau' ? { position: 'off', items: [], width: 0 } : menuOf(V0.cfg, V0.columns)
   const V = { ...V0, el, columns: menu.position === 'left' && V0.columns ? Math.max(30, V0.columns - menu.width - 1) : V0.columns }
   const body = drawBody(el, V)
   if (menu.position === 'off') return body
@@ -68,8 +72,23 @@ function drawBody(el, V) {
   const h = kit(el, V.cfg)
   const L = h.c.labels
   const tabs = tabsOf(V.cfg)
-  const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' ? V.tab : 'home'
-  const out = [h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 })]
+  const pc = panelConfig(V.cfg)
+  const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' || (V.tab === 'panneau' && pc.enabled !== false) ? V.tab : 'home'
+  // Panneau first, every other tab behind one « Plus ▾ » (Julian, 17 Oct: « trop d'écrans »)
+  const out = []
+  if (pc.enabled !== false) {
+    out.push(h.row([
+      h.btn(pc.labels.panneau, () => V.act.tab('panneau'), tab === 'panneau', 'tab-panneau'),
+      tab === 'panneau' ? h.btn(V.plus ? pc.labels.moins : pc.labels.plus, () => V.act.plus(), false, 'tab-plus') : null,
+    ], { key: 'tabs-main', marginBottom: 1 }))
+  }
+  // on the Panneau the other tabs wait behind « Plus ▾ »; on any other tab they show, so the way back is one press
+  if (pc.enabled === false || V.plus || tab !== 'panneau') out.push(h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 }))
+  if (tab === 'panneau') {
+    out.push(...drawPanel(h, { ...V.panel, cfg: V.cfg, columns: V.columns, barEl: (pct, key) => bar(h, V, pct, key, pc.barres.width) }))
+    if (V.error) out.push(h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'scan-error' }))
+    return h.col(out)
+  }
   if (tab === 'nuit') return h.col([...out, ...drawNuit(h, V)])
   if (tab === 'depuis') return h.col([...out, ...drawDepuis(h, V)])
   if (tab === 'relais') return h.col([...out, ...drawRelais(h, V)])

@@ -1,0 +1,35 @@
+filetree, vendored into claude-mod
+
+Source:   https://github.com/data-goblin/claude-code-filetree
+Release:  v0.2.26 (https://github.com/data-goblin/claude-code-filetree/releases/tag/v0.2.26)
+Commit:   d4685b707be21a8147ab7be289df86c2344e4238
+Author:   Kurt Buhler
+License:  MIT (see LICENSE in this folder, copied unchanged)
+Vendored: 2026-10-16, as a plain copy of the release tree (no git subtree)
+
+Changes to upstream
+- Behaviour: none. Every file under .claude-plugin/, hooks/, scripts/, types/ and tests/open.test.ts,
+  tests/surfaces.test.tsx is byte-for-byte the v0.2.26 release. No userConfig default was changed.
+- Added: this NOTICE and tests/context-gate.test.tsx (checks that the prompt.submit hook adds the selected
+  file as context only after the user clicks a file in the tree, never because Claude read or searched a file
+  or the cursor moved, and that the "clear selection" button stops it).
+- Left out: media/ (5 GIFs, 5.5 MB, only used by the upstream README), .github/ (upstream CI, inert in a
+  subfolder) and .githooks/ (upstream pre-commit). The README still points at media/; see the upstream repo.
+
+What was checked (claude-mod rules: read-only, no blocking, no prompt text unless asked)
+- prompt.submit adds one context line ("The user has this file selected in the file tree ...: <path>") only
+  while a file is selected. A file is selected only by a click (or Enter-to-preview) in the pane; the
+  selection shows at the bottom of the pane ("selected: ...") and the header's clear-selection button,
+  a cwd change or a different root drop it. Text of the prompt itself is never changed. @path mentions only
+  reveal the file in the tree.
+- No hook returns deny or rewrites a tool call. The generic tool.call hook awaits a few local reads before
+  calling next; before a "git commit" command it also runs `git rev-parse HEAD` (timeout 5 s) to prove the
+  commit afterwards. That is a short delay, not a block.
+- Network: none of its own. Processes it runs: git (status, diff, ls-files, rev-parse, diff-tree), and on
+  Windows `powershell` to open a file in its default app on double-click/Enter; `find`/`du`/`sh` only on
+  macOS/Linux.
+- Writes: its own $.state only (plus a temp marker file on macOS). It reads the session's cwd tree.
+
+To update: copy the new release tree over this folder with the same exclusions, keep this NOTICE and
+tests/context-gate.test.tsx, update Release and Commit above, rerun `claude plugin validate` and
+`claude plugin test vendor/filetree`.
