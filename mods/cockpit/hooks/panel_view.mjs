@@ -1,11 +1,15 @@
-// cockpit « Panneau » - draws the default view: one vertical panel, top to bottom, each section foldable (its header
-// is a button ▾/▸ with a one-line summary while closed). Pure except for the element kit `h` and the callbacks in P.act.
-//   ▾ Fichiers                  filetree's tree (hooks/files.mjs): folders open on a click, a file click selects it
-//   ▾ Cette conversation        agents and Workflows with model, state, tokens; each node with children folds
-//   ▾ Toutes les conversations  filters (période, projet, état, Claude/Codex), top 15 by consumption + autres
-//   ▾ Barres                    5 h, semaine, Codex semaine, contexte, tok/s; Workflows actifs with their agents
+// cockpit « Panneau » - draws the default view: ONE scrolling column, no tab bar, top to bottom, each section foldable
+// (its header is a button ▾/▸ with a one-line summary while closed). Pure except for the kit `h` and the callbacks in P.act.
+//   ▾ Fichiers                        filetree's tree (hooks/files.mjs): folders open on a click, a file click selects it
+//   ▾ Cette conversation              factory view (lib/panel_conv.mjs): lead box, layers, agent cards, retour au lead, log
+//   ▾ Contexte de cette conversation  % bar with the hand-off threshold, tokens
+//   ▾ Toutes les conversations        filters, top 15 + autres, Workflows actifs, bars (5 h, semaine, Codex, tok/s)
+//   ▾ Graphe des conversations        reserved slot (hooks/graphe_view.mjs)
+//   then one grey line: the old views and their /cockpit commands
 import { panelConfig, fill } from '../lib/panel.mjs'
+import { factoryLines, convFactorySummary } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd, short } from './nav.mjs'
+import { drawGraphe } from './graphe_view.mjs'
 
 const clip = (t, n) => {
   const s = String(t ?? '')
@@ -21,9 +25,14 @@ export function drawPanel(h, P) {
   const c = panelConfig(P.cfg)
   const L = c.labels
   const width = Math.max(30, P.columns || 75)
-  const parts = { fichiers: drawFiles, conv: drawConvTree, convs: drawConvs, barres: drawBars }
-  return c.order.map((id) => parts[id](h, P, L, width)).filter(Boolean)
+  const parts = { fichiers: drawFiles, conv: drawConvFactory, contexte: drawContexte, convs: drawConvs, graphe: drawGrapheSection }
+  const out = c.order.map((id) => parts[id](h, P, L, width)).filter(Boolean)
+  if (P.otherViews) out.push(h.T(P.otherViews, { dim: true, key: 'p-other-views' }))
+  return out
 }
+
+/** The render hook of section 5 (« Graphe des conversations »), exposed for the package that fills it. */
+export { drawGraphe }
 
 function section(h, P, id, title, summary, body, width) {
   const open = Boolean(P.open[id])
@@ -61,32 +70,36 @@ function drawFiles(h, P, L, width) {
   }, width)
 }
 
-// ---- 2. Cette conversation --------------------------------------------------------------------------------------------
+// ---- 2. Cette conversation: the factory view -------------------------------------------------------------------------
 
-function drawConvTree(h, P, L, width) {
-  const rows = P.tree || []
-  const running = rows.filter((r) => r.state === 'running' && r.kind !== 'conv').length
-  const agents = rows.filter((r) => r.kind === 'agent').length
-  const summary = P.convSummary || (agents ? `agents ${running}/${agents}` : '')
+function drawConvFactory(h, P, L, width) {
+  const m = P.factory
+  const summary = P.convSummary || convFactorySummary(m)
   return section(h, P, 'conv', L.conv, summary, () => {
-    if (!rows.length) return [h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })]
-    return rows.map((r) => {
-      const indent = 2 * (r.depth || 0)
-      const mark = r.kind === 'workflow' ? '◇' : '●'
-      const chev = r.hasKids ? (r.isOpen ? '▾' : '▸') : ' '
-      return h.col([
-        h.row([
-          r.hasKids ? h.btn(chev, () => P.act.nodeToggle(r.key), false, 'pn-' + r.key) : h.T(' ', {}),
-          h.T(mark, { tone: r.tone }),
-          h.T(clip(r.label, Math.max(16, width - indent - 10)), { bold: r.kind !== 'agent', wrap: 'truncate-end' }),
-        ], { alignItems: 'center', flexWrap: 'nowrap' }),
-        r.meta ? h.T(r.meta, { dim: true, wrap: 'truncate-end', key: 'pm-' + r.key }) : null,
-      ], { key: 'pt-' + r.key, ...(indent ? { marginLeft: indent } : {}) })
-    })
+    if (!m || !m.available) return [h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })]
+    return factoryLines(m, width - 1, P.cfg).map((r) => (r.fold
+      ? h.row([h.T(r.text, { dim: true }), h.btn(r.label, () => P.act.nodeToggle(r.fold), false, r.fold)], { key: r.key, alignItems: 'center', flexWrap: 'nowrap' })
+      : h.T(r.text, { key: r.key, tone: r.tone, bold: r.bold, dim: r.dim, wrap: 'truncate-end' })))
   }, width)
 }
 
-// ---- 3. Toutes les conversations ----------------------------------------------------------------------------------------
+// ---- 3. Contexte de cette conversation ----------------------------------------------------------------------------------
+
+function drawContexte(h, P, L, width) {
+  const x = P.contexte
+  const summary = x && x.known ? `${x.text}${x.over ? ' · ' + x.note : ''}` : L.ctx_none
+  return section(h, P, 'contexte', L.contexte, summary, () => {
+    if (!x || !x.known) return [h.T(L.ctx_none, { dim: true, key: 'pk-none' })]
+    const tone = x.over ? 'bad' : x.pct >= 50 ? 'warn' : 'running'
+    return [
+      h.T(x.bar.length > width - 2 ? [...x.bar].slice(0, width - 2).join('') : x.bar, { tone, key: 'pk-bar', wrap: 'truncate-end' }),
+      h.T(x.text, { bold: true, key: 'pk-text', wrap: 'truncate-end' }),
+      h.T(x.note, { tone: x.over ? 'bad' : undefined, dim: !x.over, key: 'pk-note', wrap: 'truncate-end' }),
+    ]
+  }, width)
+}
+
+// ---- 4. Toutes les conversations ----------------------------------------------------------------------------------------
 
 function drawConvs(h, P, L, width) {
   const s = P.syn
@@ -100,8 +113,8 @@ function drawConvs(h, P, L, width) {
       h.btn(`${L.state} : ${f.state ? L.states[f.state] : L.all_states}`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
       h.btn(f.who === 'codex' ? L.who_codex : L.who_claude, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
     ], { key: 'pf-row2', alignItems: 'center' }))
-    if (!s || !s.hasData) { out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' })); return out }
-    if (!s.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return out }
+    if (!s || !s.hasData) { out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' })); return [...out, ...barsBody(h, P, L, width)] }
+    if (!s.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return [...out, ...barsBody(h, P, L, width)] }
     const tone = { running: 'running', waiting: 'warn', done: 'dim' }
     s.rows.forEach((r, i) => {
       const right = `${fmtTokens(r.tokens)}${r.cost !== null ? ' · ' + fmtUsd(r.cost) : ''}`
@@ -112,36 +125,40 @@ function drawConvs(h, P, L, width) {
     })
     if (s.others) out.push(h.lr(s.others.label, `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, dimRight: true }))
     out.push(h.lr(L.total, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', dimLeft: true }))
-    return out
+    return [...out, ...barsBody(h, P, L, width)]
   }, width)
 }
 
-// ---- 4. Barres ----------------------------------------------------------------------------------------------------------
+// ---- 4 (end). Workflows actifs and the bars ----------------------------------------------------------------------------------------------------------
 
-function drawBars(h, P, L, width) {
+function barsBody(h, P, L, width) {
   const bars = P.bars || []
   const wfs = P.workflows || []
-  const summary = [...bars.filter((b) => b.id !== 'codex_week' || b.pct !== null).map((b) => `${b.label} ${b.text}`), wfs.length ? `${wfs.length} Workflow(s)` : ''].filter(Boolean).join(' · ')
-  return section(h, P, 'barres', L.barres, summary, () => {
-    const out = []
-    for (const b of bars) {
-      out.push(h.lr(b.label, b.text, { key: 'pb-' + b.id, bold: b.pct !== null && b.pct >= 80, tone: b.pct !== null && b.pct >= 90 ? 'bad' : b.pct !== null && b.pct >= 80 ? 'warn' : undefined }))
-      if (b.pct !== null && b.pct !== undefined) out.push(h.row([P.barEl(b.pct, 'pbb-' + b.id)], { key: 'pbr-' + b.id }))
+  const out = []
+  out.push(h.T(L.workflows, { bold: true, key: 'pw-title' }))
+  if (!wfs.length) out.push(h.T(L.no_workflows, { dim: true, key: 'pw-none' }))
+  for (const w of wfs) {
+    const open = Boolean(P.open[w.key])
+    out.push(h.row([
+      h.btn(`${open ? '▾' : '▸'} ${clip(w.name, Math.max(12, width - 24))}`, () => P.act.ptoggle(w.key), false, 'pw-' + w.key),
+      h.T(`${w.running}/${fill(L.agents, { n: w.count })} · ${fmtTokens(w.tokens)}`, { dim: true, wrap: 'truncate-end' }),
+    ], { key: 'pwr-' + w.key, alignItems: 'center', flexWrap: 'nowrap' }))
+    if (open) {
+      w.agents.forEach((a, i) => out.push(h.T(`${a.status === 'running' ? '●' : '○'} ${clip(a.label, Math.max(12, width - 30))} · ${short(a.model)} · ${a.status} · ${fmtTokens(a.tokens)}`,
+        { tone: a.status === 'running' ? 'running' : a.status === 'failed' ? 'bad' : undefined, dim: a.status !== 'running' && a.status !== 'failed', wrap: 'truncate-end', key: `pwa-${w.key}-${i}` })))
+      if (w.hidden) out.push(h.T(`+ ${w.hidden}`, { dim: true, key: `pwh-${w.key}` }))
     }
-    out.push(h.T(L.workflows, { bold: true, key: 'pw-title' }))
-    if (!wfs.length) out.push(h.T(L.no_workflows, { dim: true, key: 'pw-none' }))
-    for (const w of wfs) {
-      const open = Boolean(P.open[w.key])
-      out.push(h.row([
-        h.btn(`${open ? '▾' : '▸'} ${clip(w.name, Math.max(12, width - 24))}`, () => P.act.ptoggle(w.key), false, 'pw-' + w.key),
-        h.T(`${w.running}/${fill(L.agents, { n: w.count })} · ${fmtTokens(w.tokens)}`, { dim: true, wrap: 'truncate-end' }),
-      ], { key: 'pwr-' + w.key, alignItems: 'center', flexWrap: 'nowrap' }))
-      if (open) {
-        w.agents.forEach((a, i) => out.push(h.T(`${a.status === 'running' ? '●' : '○'} ${clip(a.label, Math.max(12, width - 30))} · ${short(a.model)} · ${a.status} · ${fmtTokens(a.tokens)}`,
-          { tone: a.status === 'running' ? 'running' : a.status === 'failed' ? 'bad' : undefined, dim: a.status !== 'running' && a.status !== 'failed', wrap: 'truncate-end', key: `pwa-${w.key}-${i}` })))
-        if (w.hidden) out.push(h.T(`+ ${w.hidden}`, { dim: true, key: `pwh-${w.key}` }))
-      }
-    }
-    return out
-  }, width)
+  }
+  out.push(h.T(L.barres, { bold: true, key: 'pb-title' }))
+  for (const b of bars) {
+    out.push(h.lr(b.label, b.text, { key: 'pb-' + b.id, bold: b.pct !== null && b.pct >= 80, tone: b.pct !== null && b.pct >= 90 ? 'bad' : b.pct !== null && b.pct >= 80 ? 'warn' : undefined }))
+    if (b.pct !== null && b.pct !== undefined) out.push(h.row([P.barEl(b.pct, 'pbb-' + b.id)], { key: 'pbr-' + b.id }))
+  }
+  return out
+}
+
+// ---- 5. Graphe des conversations: the reserved slot ------------------------------------------------------------------
+
+function drawGrapheSection(h, P, L, width) {
+  return section(h, P, 'graphe', L.graphe, '', () => drawGraphe(h, P.graphe, L, width - 1), width)
 }

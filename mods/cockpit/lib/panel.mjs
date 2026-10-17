@@ -1,8 +1,11 @@
-// cockpit « Panneau » - the default view: one vertical panel, every section foldable (Julian, 17 Oct: « trop d'écrans »).
-//   1. Fichiers                 data-goblin's file tree, embedded (hooks/files.mjs over the copies in lib/filetree)
-//   2. Cette conversation       its agents and Workflows (nav.mjs treeRows), each node foldable
-//   3. Toutes les conversations one synthesis table (not a factory view): who consumes, state, tok/s, last line, filters
-//   4. Barres                   5 h %, semaine %, Codex semaine %, tok/s of all conversations, context %, Workflows actifs
+// cockpit « Panneau » - the default view: ONE scrolling column, no tabs (Julian, 17 Oct: « trop d'écrans », then no tab
+// bar at all); the old views are reached by their /cockpit commands only, listed in one grey line at the bottom.
+//   1. Fichiers                       data-goblin's file tree, embedded (hooks/files.mjs over the copies in lib/filetree)
+//   2. Cette conversation             a factory view: lead box, Workflows / background agents, one card per agent,
+//                                     « retour au lead », the session log (lib/panel_conv.mjs, hooks/panel_view.mjs)
+//   3. Contexte de cette conversation % bar, tokens, the hand-off threshold (250 k)
+//   4. Toutes les conversations       one synthesis table + filters, Workflows actifs, bars (5 h, semaine, Codex, tok/s)
+//   5. Graphe des conversations       a reserved slot (lib/graphe.mjs + hooks/graphe_view.mjs), filled by its own package
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Every label and limit comes from `panel` in
 // cockpit.config.json (deep-merged over PANEL_DEFAULTS).
 import { rank, codexTokens, windowOf } from './usage/lib/classement.mjs'
@@ -10,13 +13,13 @@ import { tokensOf } from './usage/lib/transcripts.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 import { repoOf } from './factory/hooks/logic.mjs'
 
-export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres']
+export const PANEL_SECTIONS = ['fichiers', 'conv', 'contexte', 'convs', 'graphe']
 
 export const PANEL_DEFAULTS = {
   enabled: true,
   order: PANEL_SECTIONS,
   // which sections start unfolded (the viewer's own choice is then kept in $.store)
-  open: ['fichiers', 'conv', 'convs', 'barres'],
+  open: ['fichiers', 'conv', 'contexte', 'convs', 'graphe'],
   fichiers: {
     // a file clicked in the tree is named to Claude as context of the next prompt, exactly as data-goblin's filetree
     // does (« The user has this file selected in the file tree ... »); off: the selection stays visual only
@@ -36,15 +39,42 @@ export const PANEL_DEFAULTS = {
     states: { working: 'running', julian: 'waiting', blocked: 'waiting', done: 'done', idle: 'done', archived: 'done' },
     last_max: 90,
   },
+  // « Cette conversation » as a factory view: box_max = widest box (columns), agents_max per layer, log_max = events of
+  // the session log
+  conv: { box_max: 60, agents_max: 12, log_max: 6 },
+  // the context bar: its width in characters and the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K);
+  // window: null = factory's context_window
+  contexte: { handoff_tokens: 250000, window: null, bar_width: 40 },
   barres: { width: 140, workflows_max: 8, agents_max: 12 },
   labels: {
     panneau: 'Panneau',
-    plus: 'Plus ▾',
-    moins: 'Moins ▴',
     fichiers: 'Fichiers',
     conv: 'Cette conversation',
+    contexte: 'Contexte de cette conversation',
     convs: 'Toutes les conversations',
+    graphe: 'Graphe des conversations',
+    graphe_slot: 'emplacement réservé : le graphe des conversations arrive ici',
     barres: 'Barres',
+    other_views: 'Autres vues, par /cockpit … : {list}',
+    lead: 'Lead',
+    lead_back: 'retour au lead · review + merge',
+    layer: 'Workflows · agents en arrière-plan',
+    background: 'Agents en arrière-plan',
+    workflow: 'Workflow {name}',
+    layer_meta: '{running}/{count} en cours · {tokens} tok',
+    agent_states: { running: 'en cours', done: 'terminé', failed: 'échec', stopped: 'arrêté' },
+    no_layer: 'aucun Workflow ni agent dans cette conversation',
+    log: 'Journal de la session',
+    log_none: 'rien encore',
+    ev_start: '▶ {agent} démarré',
+    ev_done: '✓ {agent} terminé',
+    ev_failed: '✗ {agent} en échec',
+    ev_pr_open: 'PR #{n} ouverte',
+    ev_pr_merged: 'PR #{n} mergée',
+    ctx_tokens: '{tokens} / {window} tokens',
+    ctx_left: 'seuil de relais {threshold} · reste {left}',
+    ctx_over: 'seuil de relais {threshold} dépassé : passe le relais (handoff)',
+    ctx_none: 'contexte non lu',
     files_empty: 'dossier vide',
     files_none: 'pas de dossier de travail',
     files_more: '… {n} ligne(s) de plus',
@@ -73,7 +103,6 @@ export const PANEL_DEFAULTS = {
     week: 'Semaine',
     codex_week: 'Codex semaine',
     tps_all: 'tok/s toutes conv',
-    ctx: 'Contexte (cette conv)',
     unknown: 'non lu',
     workflows: 'Workflows actifs',
     no_workflows: 'aucun Workflow en cours',
@@ -94,8 +123,48 @@ function merge(a, b) {
 
 export function panelConfig(cfg) {
   const p = merge(PANEL_DEFAULTS, (cfg && cfg.panel) || {})
-  p.order = (p.order || []).filter((s) => PANEL_SECTIONS.includes(s))
+  // an order written for the four-section Panneau (with « barres ») is read as the default one
+  const order = (p.order || []).includes('barres') ? PANEL_SECTIONS : p.order || []
+  p.order = order.filter((s) => PANEL_SECTIONS.includes(s))
   return p
+}
+
+/** The old views, reached by their /cockpit command only: one grey line at the bottom of the Panneau. */
+export function otherViews(tabs, extra, cfg) {
+  const L = panelConfig(cfg).labels
+  const word = { home: 'cartes' }
+  const ids = [...new Set([...(tabs || []).map((t) => t.id), ...(extra || [])])].filter((id) => id !== 'panneau')
+  return ids.length ? fill(L.other_views, { list: ids.map((id) => word[id] || id).join(' · ') }) : ''
+}
+
+export const kTok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(Math.round(n || 0)))
+
+/**
+ * Section 3: this conversation's context. usage: $.session.usage() (its context, when the engine gives it); ctxTokens:
+ * the scan's context of this conversation; fwin: factory's context_window (window: panel.contexte.window, else the engine's, else fwin). -> { known, pct, tokens, window, threshold,
+ * over, bar, text, note }. The bar is text: █ used, ░ free, ┃ the hand-off threshold.
+ */
+export function contexteOf({ usage, ctxTokens, fwin }, cfg) {
+  const c = panelConfig(cfg)
+  const L = c.labels
+  const q = c.contexte
+  const u = (usage && usage.context) || {}
+  const window = Number(q.window) || Number(u.window) || Number(fwin) || 400000
+  const threshold = Number(q.handoff_tokens) || 250000
+  const tok = [u.tokens, u.usedTokens, u.used, ctxTokens].find((x) => Number.isFinite(x) && x > 0)
+  const pct = Number.isFinite(u.percent) ? u.percent : Number.isFinite(tok) ? (100 * tok) / window : null
+  if (pct === null) return { known: false, pct: null, tokens: null, window, threshold, over: false, bar: '', text: L.ctx_none, note: '' }
+  const tokens = Number.isFinite(tok) ? tok : Math.round((pct / 100) * window)
+  const w = Math.max(10, Number(q.bar_width) || 40)
+  const full = Math.round((Math.max(0, Math.min(100, pct)) / 100) * w)
+  const mark = Math.min(w - 1, Math.round((threshold / window) * w))
+  const bar = [...Array(w)].map((_, i) => (i === mark ? '┃' : i < full ? '█' : '░')).join('')
+  const over = tokens >= threshold
+  return {
+    known: true, pct, tokens, window, threshold, over, bar,
+    text: `${Math.round(pct)} % · ${fill(L.ctx_tokens, { tokens: kTok(tokens), window: kTok(window) })}`,
+    note: over ? fill(L.ctx_over, { threshold: kTok(threshold) }) : fill(L.ctx_left, { threshold: kTok(threshold), left: kTok(threshold - tokens) }),
+  }
 }
 
 export function fill(tpl, vars) {
@@ -204,10 +273,10 @@ export function cycle(list, cur) {
 
 /**
  * usage: $.session.usage() ({ rateLimits }); quotas: core readQuotas ({ claude: {five, week}, codex: {five, week} });
- * tps: tok/s of all conversations (synthesis().tps); ctxPct: this conversation's context %.
+ * tps: tok/s of all conversations (synthesis().tps); codex: the table's « Codex » toggle is on (adds Codex semaine).
  * -> [{ id, label, pct (0..100) | null, text }]
  */
-export function barsOf({ usage, quotas, tps, ctxPct }, cfg) {
+export function barsOf({ usage, quotas, tps, codex }, cfg) {
   const L = panelConfig(cfg).labels
   const limits = (usage && usage.rateLimits) || []
   const lim = (kind) => {
@@ -222,10 +291,9 @@ export function barsOf({ usage, quotas, tps, ctxPct }, cfg) {
   return [
     { id: 'five', label: L.five, pct: five, text: pctText(five) },
     { id: 'week', label: L.week, pct: week, text: pctText(week) },
-    { id: 'codex_week', label: L.codex_week, pct: cx, text: pctText(cx) },
-    { id: 'ctx', label: L.ctx, pct: Number.isFinite(ctxPct) ? ctxPct : null, text: pctText(Number.isFinite(ctxPct) ? ctxPct : null) },
+    codex ? { id: 'codex_week', label: L.codex_week, pct: cx, text: pctText(cx) } : null,
     { id: 'tps', label: L.tps_all, pct: null, text: Number.isFinite(tps) && tps !== null ? `${Math.round(tps)} ${L.tps}` : L.unknown },
-  ]
+  ].filter(Boolean)
 }
 
 /** The running Workflows of factory's Workflow screen (workflowScreen(...).runs), each with its agents. */

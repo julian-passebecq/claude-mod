@@ -12,14 +12,14 @@ import { layout, clip } from '../lib/factory/hooks/screens.mjs'
 import { barSvg } from '../lib/band/hooks/gauge.ts'
 import {
   cockpitConfig, sectionsOf, crumbs, treeRows, scanForRepo, agentCard, canOpenAgent, usageLine, fill, fmtTokens, fmtUsd, short, effortBars, hhmm, LEVELS,
-  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf, menuOf,
+  projectsOf, convHead, convSummary, projectSummary, allSummary, projectLine, globalSummary, findSession, repoOf, consoSummary, tabsOf, menuOf, tabValid,
 } from './nav.mjs'
 import { treeSvg } from './svg.mjs'
 import { drawNuit, drawRelais, drawGalerie } from './decide_view.mjs'
 import { drawDepuis } from './depuis_view.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { drawPanel } from './panel_view.mjs'
-import { panelConfig } from '../lib/panel.mjs'
+import { panelConfig, otherViews } from '../lib/panel.mjs'
 
 const NOOP = () => {}
 
@@ -74,21 +74,18 @@ function drawBody(el, V) {
   const tabs = tabsOf(V.cfg)
   const pc = panelConfig(V.cfg)
   const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' || (V.tab === 'panneau' && pc.enabled !== false) ? V.tab : 'home'
-  // Panneau first, every other tab behind one « Plus ▾ » (Julian, 17 Oct: « trop d'écrans »)
-  const out = []
-  if (pc.enabled !== false) {
-    out.push(h.row([
-      h.btn(pc.labels.panneau, () => V.act.tab('panneau'), tab === 'panneau', 'tab-panneau'),
-      tab === 'panneau' ? h.btn(V.plus ? pc.labels.moins : pc.labels.plus, () => V.act.plus(), false, 'tab-plus') : null,
-    ], { key: 'tabs-main', marginBottom: 1 }))
-  }
-  // on the Panneau the other tabs wait behind « Plus ▾ »; on any other tab they show, so the way back is one press
-  if (pc.enabled === false || V.plus || tab !== 'panneau') out.push(h.row(tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)), { key: 'tabs', marginBottom: 1 }))
+  // The Panneau is one scrolling column with no tab bar at all (Julian, 17 Oct): the old views are reached by their
+  // /cockpit command only, listed in one grey line at its bottom. On an old view the tab row shows, « Panneau » first.
   if (tab === 'panneau') {
-    out.push(...drawPanel(h, { ...V.panel, cfg: V.cfg, columns: V.columns, barEl: (pct, key) => bar(h, V, pct, key, pc.barres.width) }))
+    const extra = [tabValid(V.cfg, 'depuis') ? 'depuis' : '', tabValid(V.cfg, 'nuit') ? 'nuit' : ''].filter(Boolean)
+    const out = drawPanel(h, { ...V.panel, cfg: V.cfg, columns: V.columns, otherViews: otherViews(tabs, extra, V.cfg), barEl: (pct, key) => bar(h, V, pct, key, pc.barres.width) })
     if (V.error) out.push(h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'scan-error' }))
     return h.col(out)
   }
+  const out = [h.row([
+    pc.enabled !== false ? h.btn(pc.labels.panneau, () => V.act.tab('panneau'), false, 'tab-panneau') : null,
+    ...tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)),
+  ], { key: 'tabs', marginBottom: 1 })]
   if (tab === 'nuit') return h.col([...out, ...drawNuit(h, V)])
   if (tab === 'depuis') return h.col([...out, ...drawDepuis(h, V)])
   if (tab === 'relais') return h.col([...out, ...drawRelais(h, V)])

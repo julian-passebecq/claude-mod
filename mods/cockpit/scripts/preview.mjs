@@ -1,5 +1,7 @@
 // Text render of the cockpit at the four zoom levels from this PC's transcripts, at a side-panel width (no Claude Code
 // needed): node mods/cockpit/scripts/preview.mjs [--cols 75] [--project <repo>] [--conv <title or id>] [--agent <id>]
+// --panneau: the default view (the Panneau) from invented fixtures (scripts/fixtures/panneau.mjs), nothing read on this PC:
+//   node mods/cockpit/scripts/preview.mjs --panneau --cols 60   (and --cols 75)
 // Without --conv: the project's most recent lead. The engine's figures ($.session.usage) are not reachable here, so the
 // Usage strip shows the transcripts' part only and the Jauge uses the scan's context of the chosen conversation.
 import { execFileSync } from 'node:child_process'
@@ -21,6 +23,13 @@ const cols = Number(opt('--cols', '75'))
 const project = opt('--project', '')
 const convQ = opt('--conv', '')
 const agentQ = opt('--agent', '')
+if (argv.includes('--panneau')) {
+  const { panneauText } = await import('./fixtures/panneau.mjs')
+  const text = panneauText(cols)
+  console.log(`=========== Panneau (${cols} colonnes, plus large ligne ${widest(text)}) ===========`)
+  console.log(text)
+  process.exit(0)
+}
 const board = process.env.FACTORY_BOARD || join(homedir(), '.claude', 'effort-board')
 const read = (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8').replace(/^﻿/, '')) : {})
 const fcfg = deepMerge(read(join(here, '..', 'lib', 'factory', 'factory.config.json')), read(join(board, 'factory.config.json')))

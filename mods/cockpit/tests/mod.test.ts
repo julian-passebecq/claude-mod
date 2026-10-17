@@ -274,39 +274,58 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-// ---- the Panneau (default view): one vertical panel, every section foldable, other tabs behind « Plus ▾ » -------------
+// ---- the Panneau (default view): one scrolling column, no tab bar, every section foldable -----------------------------
 
 for (const surface of ['terminal', 'desktop'] as const) {
   for (const columns of [60, 75]) {
-    test(`Panneau by default: Fichiers, Cette conversation, Toutes les conversations, Barres; tabs behind « Plus ▾ » (${surface}, ${columns} col.)`, async ($, on) => {
+    test(`Panneau by default: Fichiers, Cette conversation, Contexte, Toutes les conversations, Graphe; no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
       world(on)
       mock.store(on)
       await $.command.run({ command: 'cockpit', args: '' } as any)
-      const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 160 }, props: { ...PANE, bodyColumns: columns } } as any)
-      for (const re of [/^▾ Fichiers$/, /^▾ Cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Barres$/, /^Panneau$/, /^Plus ▾$/]) expect(await has(ui, re)).toBe(true)
-      expect(await has(ui, /^Mission$/)).toBe(false) // behind « Plus ▾ »
-      expect(await has(ui, /^Registres$/)).toBe(false) // no left menu on the Panneau
+      const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 200 }, props: { ...PANE, bodyColumns: columns } } as any)
+      for (const re of [/^▾ Fichiers$/, /^▾ Cette conversation$/, /^▾ Contexte de cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Graphe des conversations$/]) expect(await has(ui, re)).toBe(true)
+      for (const re of [/^Panneau$/, /^Plus ▾$/, /^Mission$/, /^Cockpit$/, /^Registres$/]) expect(await has(ui, re)).toBe(false) // no tab bar, no left menu
+      expect(await has(ui, /^Autres vues, par \/cockpit … : cartes · mission/)).toBe(true)
       // Fichiers: the cwd's first level, a folder opens on a click
       expect(await has(ui, /▸ src/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/src' })
       expect(await has(ui, /· main\.ts/)).toBe(true)
-      // Cette conversation: the lead, its tree
+      // Cette conversation: the lead box (no agent in this invented lead)
+      expect(await has(ui, /^╭─ Lead/)).toBe(true)
       expect(await has(ui, /Galaxy finalisation autonome/)).toBe(true)
-      // Toutes les conversations: invented classement, sorted by tokens
+      expect(await has(ui, /retour au lead · review \+ merge/)).toBe(true)
+      // Contexte: the engine's figure and the hand-off threshold
+      expect(await has(ui, /^10 % · 103K \/ 1\.0M tokens$/)).toBe(true)
+      expect(await has(ui, /^seuil de relais 250K · reste 147K$/)).toBe(true)
+      // Toutes les conversations: invented classement, sorted by tokens, then the bars (the engine's 5 h figure)
       expect(await has(ui, /^1\. Lane beta|^1\. Lane alpha/)).toBe(true)
-      // Barres: the engine's 5 h figure
       expect(await has(ui, /^5 h$/)).toBe(true)
       expect(await has(ui, /^21 %$/)).toBe(true)
-      // « Plus ▾ » shows the other tabs; one press goes there
-      await ui.press({ plugin: 'cockpit', key: 'tab-plus' })
+      expect(await has(ui, /^Codex semaine$/)).toBe(false) // only while Codex is toggled
+      // an old view by its command; its tab row brings the Panneau back
+      await $.command.run({ command: 'cockpit', args: 'mission' } as any)
       expect(await has(ui, /^Mission$/)).toBe(true)
-      await ui.press({ plugin: 'cockpit', key: 'tab-home' })
-      expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'tab-panneau' })
-      expect(await has(ui, /^▾ Barres$/)).toBe(true)
+      expect(await has(ui, /^▾ Graphe des conversations$/)).toBe(true)
+      expect(await has(ui, /^Mission$/)).toBe(false)
     })
   }
 }
+
+test('Panneau: a Workflow layer of this conversation folds (kept in $.store)', async ($, on) => {
+  world(on, { self: 'child-cli' })
+  const kept: Record<string, unknown> = {}
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
+  expect(await has(ui, /^▾ ◇ Workflow package-wave/)).toBe(true)
+  expect(await has(ui, /╭─ ● coder · build/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'pfw-wf_1' })
+  expect(await has(ui, /^▸ ◇ Workflow package-wave/)).toBe(true)
+  expect(await has(ui, /╭─ ● coder · build/)).toBe(false)
+  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":true')
+})
 
 test('Fichiers: a clicked file goes along with the next prompt as filetree’s context line, cleared by Effacer', async ($, on) => {
   world(on)
