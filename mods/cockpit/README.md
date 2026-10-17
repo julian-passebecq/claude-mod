@@ -2,25 +2,51 @@
 
 ## Panneau (default view, 17 Oct)
 
-Opening Cockpit now shows **one vertical panel**, every section foldable (what you fold, open and filter is kept in `$.store`):
+Opening Cockpit shows **one scrolling column with no tab bar at all**, every section foldable (what you fold, open and filter is kept in `$.store`). The old views are reached by their `/cockpit` command only, listed in one grey line at the very bottom. `node mods/cockpit/scripts/preview.mjs --panneau --cols 60` (or 75) draws it from invented fixtures:
 
 ```
-[Panneau] [Plus ▾]
-▾ Fichiers            data-goblin's file tree (vendor/filetree, MIT, Kurt Buhler), embedded: click a folder to open it,
-                      click a file to select it; the next prompt carries filetree's own context line for it
-▾ Cette conversation  its sub-conversations, Workflows and agents: model, effort, state, tokens; each node folds
-▾ Toutes les conversations
-  [1 h] [aujourd'hui] [7 j]   [Projet : tous] [État : tous] [Claude]
-  1. Lane alpha                                   3.6M · $1.00
-     proj-one · en cours · 667 tok/s · dernier outil : Bash
-  … top 15, then « autres (n) », then the total
-▾ Barres              5 h · Semaine · Codex semaine · Contexte (cette conv) · tok/s toutes conv
-  Workflows actifs    ▸ package-wave 1/2 agent(s) · 12K   (unfolds to its agents)
+[▾ Fichiers]
+ proj-one · main [↻]
+ [▾ src] M
+[▾ Cette conversation]
+ ╭─ Lead ───────────────────────────────────────────────╮
+ │ Lane alpha · tableau de bord                         │
+ │ opus 5.5 · ▮▮▯▯ medium · en cours                    │
+ ╰┬─────────────────────────────────────────────────────╯
+ │
+ ├─ Workflows · agents en arrière-plan
+ ├─ [▾ ◇ Workflow package-wave · 1/2 en cours · 1.9M tok]
+ │   ╭─ ● coder · build the panel ──────────────────────╮
+ │   │ opus 5.5 · ▮▮▯▯ medium                           │
+ │   │ en cours · 1.5M tok · 1275 tok/s                 │
+ │   ╰──────────────────────────────────────────────────╯
+ ▼
+ ╭─────────────────────────────────╮
+ │ retour au lead · review + merge │
+ ╰─────────────────────────────────╯
+ Journal de la session
+ 18:00 PR #42 ouverte
+ 18:10 ▶ coder · build the panel démarré
+ 18:20 PR #41 mergée
+[▾ Contexte de cette conversation]
+ ████████████░░░░░░░░░░░░░┃░░░░░░░░░░░░░░
+ 30 % · 120K / 400K tokens
+ seuil de relais 250K · reste 130K
+[▾ Toutes les conversations]
+ [1 h] [aujourd’hui] [7 j]   [Projet : tous] [État : tous] [Claude]
+ 1. Lane alpha · tableau de bord 3.6M · $12.00
+ … top 15, autres (n), Total, then Workflows actifs and the bars (5 h, Semaine, Codex semaine while Codex is on, tok/s)
+[▾ Graphe des conversations]
+ emplacement réservé : le graphe des conversations arrive ici
+Autres vues, par /cockpit … : cartes · mission · focus · arbre · pipeline · workflow · journal · machine · relais · galerie · depuis · nuit
 ```
 
-- Why embedded: two mods' panes in one column become tabs, so the file tree can only sit *above* the rest if Cockpit draws it. The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
-- « Toutes les conversations » is one table, not a factory view: the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days.
-- The other tabs (Cockpit cards, Mission, Focus, Arbre, Pipeline, Workflow, Journal, Machine, Claude ↔ Codex, Galerie, Nuit, Depuis) wait behind « Plus ▾ »; on any of them the tab row shows, and « Panneau » brings you back. The left menu is not drawn on the Panneau (the band's buttons above the prompt do that job). `/cockpit panneau` opens it; `panel.enabled: false` makes the Cockpit tab the default again. Labels, order, limits: `panel` in `cockpit.config.json`.
+- **Fichiers**: data-goblin's file tree, embedded (two mods' panes in one column become tabs, so it can only sit *above* the rest if Cockpit draws it). The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
+- **Cette conversation** is a factory view (the Reference Gallery's style), drawn in box-drawing characters (`lib/panel_conv.mjs`): the lead's box (title, model · effort ▮▮▯▯, state), the layer of Workflows and background agents (one foldable row per Workflow, one for the Agent-tool agents), one card per agent (label, model, effort, state, tokens, tok/s = its tokens over its own run time), the « retour au lead · review + merge » box, then the session log: the last `panel.conv.log_max` (6) events, agent started / finished, PR opened (the scan's PR link), PR merged (a `gh pr merge` / `glab mr merge` the conversation ran).
+- **Contexte de cette conversation**: the engine's context figure (else the scan's), a text bar with the hand-off threshold marked `┃` (`panel.contexte.handoff_tokens`, 250 000), tokens over the window, what is left before the hand-off or that it is passed.
+- **Toutes les conversations** is one table, not a factory view: the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days. Under it: Workflows actifs (every Workflow of the PC, each unfolds to its agents) and the bars (5 h, Semaine, Codex semaine while « Codex » is on, tok/s of all conversations).
+- **Graphe des conversations** is a reserved slot for the next package: `lib/graphe.mjs` `grapheModel(scan, self, cfg, nowMs)` (pure) feeds `hooks/graphe_view.mjs` `drawGraphe(h, model, labels, width)` (also exported by `hooks/panel_view.mjs`).
+- The old views (Cockpit cards, Mission, Focus, Arbre, Pipeline, Workflow, Journal, Machine, Claude ↔ Codex, Galerie, Depuis, Nuit) open with `/cockpit <word>` (`/cockpit cartes` for the cards); on any of them the tab row shows, « Panneau » first, so the way back is one press. The left menu is not drawn on the Panneau (the band's buttons above the prompt do that job). `/cockpit panneau` opens it; `panel.enabled: false` makes the Cockpit tab the default again. Labels, order, limits: `panel` in `cockpit.config.json`.
 
 **One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).
 
