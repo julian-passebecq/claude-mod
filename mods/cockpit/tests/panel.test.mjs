@@ -265,7 +265,7 @@ test('the numbers are never cut at 45 columns: titles are', () => {
 test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, bars, the graph', () => {
   const text = panneauText(75)
   for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · en cours', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
-    'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers 18:55 40m 00s', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
+    'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
     '[Merge ›] 0/1 □', 'Modèle Temps', '● Opus 5.5 20m 00s', 'coder: cockpit-claude-style · medium · 1.5M tok · 1250 tok/s', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
     '● Lane alpha · tableau de bord 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
     'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
@@ -274,7 +274,7 @@ test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, b
   assert.match(panneauText(75, { who: 'codex' }), /Codex semaine/)
   // the Workflow card as it opens in the app: Claude's mini card, name ›, Workflow  N agents  time, one dot per agent
   const folded = panneauText(75, { closed: { 'pfw-wf_1': true } })
-  assert.match(folded, /\[package-wave ›\]\n Workflow  4 agents fin vers 18:55 40m 00s\n ■■■□\n/)
+  assert.match(folded, /\[package-wave ›\]\n Workflow  4 agents fin vers \d\d:\d\d 40m 00s\n ■■■□\n/)
   assert.doesNotMatch(folded.slice(0, folded.indexOf('Toutes les conversations')), /Phases|Modèle Temps/)
   // a phase unfolded is Claude's table: header, ✓ model … time, our extras on the grey line under it
   assert.match(panneauText(75, { closed: { 'pfw-wf_1-ph0': false } }), /\[Wave A ⌄\] 2\/2 ■■\n   Modèle Temps\n   ✓ Sonnet 5\.5 15m 00s\n\s+verify · low · 408K tok · \d+ tok\/s\n   ✓ Haiku 5\.5 5m 00s\n/)
