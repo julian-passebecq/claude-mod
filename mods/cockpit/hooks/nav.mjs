@@ -13,7 +13,7 @@ export const LEVELS = ['mega', 'macro', 'medium', 'micro']
 // relais = Claude ↔ Codex, galerie = the Reference Gallery views (Équipe, Carte, Codex), nuit = « Bilan avant la nuit »
 // (opened by the Nuit button of the Cockpit tab; listed in tabs.order only if you add it), depuis = « Depuis ton dernier
 // message » (its button on the Cockpit tab, /cockpit depuis [8h|24h|nuit|HH:MM]; off with depuis.enabled false).
-export const TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie', 'nuit', 'depuis']
+export const TABS = ['panneau', 'home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie', 'nuit', 'depuis']
 const DEFAULT_TABS = ['home', 'mission', 'focus', 'arbre', 'pipeline', 'workflow', 'journal', 'machine', 'relais', 'galerie']
 // Top to bottom by scope: this conversation, its project, every project, Claude as a whole. Each is foldable.
 export const SECTIONS = ['breadcrumb', 'conv', 'project', 'all', 'conso', 'global', 'fichiers']
@@ -596,6 +596,7 @@ export function tabsOf(cfg) {
 export function tabValid(cfg, id) {
   const c = cockpitConfig(cfg).tabs
   const dep = (cfg && cfg.depuis) || {}
+  if (id === 'panneau') return !(cfg && cfg.panel && cfg.panel.enabled === false)
   return tabsOf(cfg).some((t) => t.id === id) || (id === 'nuit' && c.enabled.includes('nuit')) || (id === 'depuis' && dep.enabled !== false)
 }
 
@@ -625,6 +626,7 @@ export function nightRepos(scan, cfg, nowMs) {
 }
 
 const TAB_WORDS = {
+  panneau: 'panneau', panel: 'panneau', un: 'panneau',
   home: 'home', accueil: 'home', cartes: 'home', cockpit: 'home',
   mission: 'mission', focus: 'focus', arbre: 'arbre', tree: 'arbre', pipeline: 'pipeline', journal: 'journal',
   workflow: 'workflow', workflows: 'workflow', wf: 'workflow',

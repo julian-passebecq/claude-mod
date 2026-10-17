@@ -112,6 +112,12 @@
     ["lib/core/estimate.mjs", "mods/reference/lib/ci/lib/core/estimate.mjs"],
     ["lib/core/gantt.mjs", "mods/reference/lib/ci/lib/core/gantt.mjs"],
     ["mods/export-eta/lib/mask.mjs", "mods/reference/lib/eta/mask.mjs"],
-    ["mods/export-eta/lib/etagit.mjs", "mods/reference/lib/eta/etagit.mjs"]
+    ["mods/export-eta/lib/etagit.mjs", "mods/reference/lib/eta/etagit.mjs"],
+
+    ["vendor/filetree/hooks/tree.ts", "mods/cockpit/lib/filetree/hooks/tree.ts"],
+    ["vendor/filetree/hooks/icons.ts", "mods/cockpit/lib/filetree/hooks/icons.ts"],
+    ["vendor/filetree/types/index.d.ts", "mods/cockpit/lib/filetree/types/index.d.ts"],
+    ["vendor/filetree/LICENSE", "mods/cockpit/lib/filetree/LICENSE"],
+    ["vendor/filetree/NOTICE", "mods/cockpit/lib/filetree/NOTICE"]
   ]
 }

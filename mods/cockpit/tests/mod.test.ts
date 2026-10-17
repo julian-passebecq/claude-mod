@@ -26,7 +26,9 @@ const DEPUIS = { since: NOW - 8 * 3600000, source: 'last', last: { ts: NOW - 8 *
   conversations: [{ cli: 'child-cli', sid: 'local_child', title: 'Mosaic Studio V2 private release', project: 'eta', state: 'completed', at: NOW - 3600000, first: 'PR #7 merged.' }],
   problems: [], atoi: { items: [] }, cost: { usd: 14, tokens: 2e6, byProject: { eta: { usd: 14, tokens: 2e6 } } }, night: null }
 
-function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string } = {}) {
+const TREE = { 'C:/code/eta': [['src', 'dir'], ['README.md', 'file']], 'C:/code/eta/src': [['main.ts', 'file']] }
+
+function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string; cockpitCfg?: unknown } = {}) {
   const opened: string[] = []
   const ran: unknown[] = []
   const scans: string[] = []
@@ -37,14 +39,22 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
   on('command.register', ($: any, e: any) => { registered.push(e.name); return { value: { command: e.name } } })
   on('env.get', ($: any, e: any) => ({ value: e.name === 'USERPROFILE' ? 'C:/Users/me' : undefined }))
   const P = (e: any) => String(e.path).replace(/\\/g, '/') // the kit hands Windows paths with backslashes
-  on('fs.exists', ($: any, e: any) => ({ value: /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/classement\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
-  on('fs.read', ($: any, e: any) => ({ value: P(e).endsWith('cockpit.config.json') ? JSON.stringify({})
+  // the Panneau's file tree: an invented folder
+  on('session.cwd', () => ({ value: 'C:/code/eta' }))
+  on('fs.list', ($: any, e: any) => {
+    const kids = (TREE as any)[P(e)]
+    if (!kids) throw new Error('ENOENT')
+    return { value: kids.map(([name, kind]: [string, string]) => ({ name, kind, size: 1, mtimeMs: NOW - 60000, isLink: false })) }
+  })
+  on('fs.exists', ($: any, e: any) => ({ value: P(e).startsWith('C:/code/eta/') || /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/classement\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
+  on('fs.read', ($: any, e: any) => ({ value: P(e).endsWith('cockpit.config.json') ? JSON.stringify(o.cockpitCfg ?? {})
     : P(e).endsWith('/usage/usage.config.json') ? JSON.stringify({ data_dir: '~/.claude/usage-mod', node: 'node' })
     : P(e).endsWith('/usage-mod/classement.json') ? JSON.stringify(CLS)
     : JSON.stringify({ context_window: 400000, rates: { opus: { in: 4, out: 20, cache_read: 0.4, cache_write_5m: 5, cache_write_1h: 8 } }, thresholds: { handoff_tokens: 250000 } }) }))
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
     argvs.push(argv)
+    if (argv[0] === 'git') return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository', isStdoutTruncated: false, isStderrTruncated: false } }
     if (String((e.init && e.init.stdin) || '').includes('"parts":["depuis"]')) return { value: { exitCode: 0, stdout: JSON.stringify({ depuis: DEPUIS }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     const i = argv.indexOf('--detail')
     const detail = i >= 0 ? argv[i + 1] : ''
@@ -86,7 +96,7 @@ test('start = off: nothing opens at session start', { options: { start: 'off' } 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`/cockpit opens on this conversation (selected, its section open, the others folded); a click drills down (${surface})`, async ($, on) => {
     const w = world(on)
-    await $.command.run({ command: 'cockpit', args: '' } as any)
+    await $.command.run({ command: 'cockpit', args: 'home' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
     expect(await has(ui, /^Méga$/)).toBe(true)
     expect(await has(ui, /^eta$/)).toBe(true)
@@ -115,7 +125,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`« Qui consomme »: top conversations of a window, preset toggle, button to the full Classement (${surface})`, async ($, on) => {
     const w = world(on)
-    await $.command.run({ command: 'cockpit', args: '' } as any)
+    await $.command.run({ command: 'cockpit', args: 'home' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
     expect(await has(ui, /^▸ Qui consomme$/)).toBe(true)
     expect(await has(ui, /aujourd’hui \$5\.00 · Lane alpha 80 % · proj-one 80 %/)).toBe(true)
@@ -158,7 +168,7 @@ test('/factory with the factory mod loaded: cockpit registers nothing and passes
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`cards: the CI card's button runs /ci diagramme when /reference is not loaded; tabs switch in the same pane (${surface})`, async ($, on) => {
     const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'ci', plugin: 'ci' }] })
-    await $.command.run({ command: 'cockpit', args: '' } as any)
+    await $.command.run({ command: 'cockpit', args: 'home' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 120 }, props: PANE } as any)
     expect(await has(ui, /^Problèmes du jour$/)).toBe(true)
     expect(await has(ui, /^En cours$/)).toBe(true)
@@ -175,7 +185,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`left menu, Nuit / Jour / Codex: buttons run the other hubs' and Veille's commands, Lancer never runs one (${surface})`, async ($, on) => {
     const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'veille', plugin: 'veille' }, { name: 'jauge', plugin: 'band' }] })
-    await $.command.run({ command: 'cockpit', args: '' } as any)
+    await $.command.run({ command: 'cockpit', args: 'home' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 80, rows: 120 }, props: PANE } as any)
     for (const label of ['Jauge', 'Cockpit', 'Veille', 'À toi', 'Registres', 'Référence']) expect(await has(ui, new RegExp(`^${label}$`))).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'menu-2' })
@@ -244,7 +254,7 @@ test('« Ouvrir l’agent » stays off on an engine older than 2.1.300', async (
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`« Depuis ton dernier message »: button and /cockpit depuis 8h, headline, groups, VEILLE text shown and never sent (${surface})`, async ($, on) => {
     const w = world(on, { commands: [{ name: 'cockpit' }, { name: 'veille', plugin: 'veille' }] })
-    await $.command.run({ command: 'cockpit', args: '' } as any)
+    await $.command.run({ command: 'cockpit', args: 'home' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 92, rows: 160 }, props: WIDE } as any)
     expect(await has(ui, /^Depuis ton dernier message$/)).toBe(true)
     await ui.press({ plugin: 'cockpit', key: 'btn-depuis' })
@@ -263,3 +273,87 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(w.argvs.some((a) => a.join(' ').includes('cards.mjs'))).toBe(true)
   })
 }
+
+// ---- the Panneau (default view): one vertical panel, every section foldable, other tabs behind « Plus ▾ » -------------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const columns of [60, 75]) {
+    test(`Panneau by default: Fichiers, Cette conversation, Toutes les conversations, Barres; tabs behind « Plus ▾ » (${surface}, ${columns} col.)`, async ($, on) => {
+      world(on)
+      mock.store(on)
+      await $.command.run({ command: 'cockpit', args: '' } as any)
+      const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 160 }, props: { ...PANE, bodyColumns: columns } } as any)
+      for (const re of [/^▾ Fichiers$/, /^▾ Cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Barres$/, /^Panneau$/, /^Plus ▾$/]) expect(await has(ui, re)).toBe(true)
+      expect(await has(ui, /^Mission$/)).toBe(false) // behind « Plus ▾ »
+      expect(await has(ui, /^Registres$/)).toBe(false) // no left menu on the Panneau
+      // Fichiers: the cwd's first level, a folder opens on a click
+      expect(await has(ui, /▸ src/)).toBe(true)
+      await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/src' })
+      expect(await has(ui, /· main\.ts/)).toBe(true)
+      // Cette conversation: the lead, its tree
+      expect(await has(ui, /Galaxy finalisation autonome/)).toBe(true)
+      // Toutes les conversations: invented classement, sorted by tokens
+      expect(await has(ui, /^1\. Lane beta|^1\. Lane alpha/)).toBe(true)
+      // Barres: the engine's 5 h figure
+      expect(await has(ui, /^5 h$/)).toBe(true)
+      expect(await has(ui, /^21 %$/)).toBe(true)
+      // « Plus ▾ » shows the other tabs; one press goes there
+      await ui.press({ plugin: 'cockpit', key: 'tab-plus' })
+      expect(await has(ui, /^Mission$/)).toBe(true)
+      await ui.press({ plugin: 'cockpit', key: 'tab-home' })
+      expect(await has(ui, /^▸ Ce projet · eta$/)).toBe(true)
+      await ui.press({ plugin: 'cockpit', key: 'tab-panneau' })
+      expect(await has(ui, /^▾ Barres$/)).toBe(true)
+    })
+  }
+}
+
+test('Fichiers: a clicked file goes along with the next prompt as filetree’s context line, cleared by Effacer', async ($, on) => {
+  world(on)
+  mock.store(on)
+  on('prompt.submit', ($: any, e: any) => ({ text: e.text, context: e.context }))
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  const ask = async () => JSON.stringify(await $.prompt.submit({ text: 'what is this?', wait: false } as any))
+  expect(await ask()).not.toContain('selected in the file tree')
+  await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/README.md' })
+  expect(await has(ui, /^sélection : README\.md$/)).toBe(true)
+  const sent = await ask()
+  expect(sent).toContain('selected in the file tree')
+  expect(sent).toContain('C:/code/eta/README.md')
+  await ui.press({ plugin: 'cockpit', key: 'f-clear' })
+  expect(await ask()).not.toContain('selected in the file tree')
+})
+
+test('Fichiers: attach_selection false keeps the selection visual only', async ($, on) => {
+  const w = world(on, { cockpitCfg: { panel: { fichiers: { attach_selection: false } } } })
+  mock.store(on)
+  on('prompt.submit', ($: any, e: any) => ({ text: e.text, context: e.context }))
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/README.md' })
+  expect(await has(ui, /non envoyée/)).toBe(true)
+  expect(JSON.stringify(await $.prompt.submit({ text: 'x', wait: false } as any))).not.toContain('selected in the file tree')
+  expect(w.opened).toContain('cockpit')
+})
+
+test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, Claude / Codex', async ($, on) => {
+  world(on)
+  const kept: Record<string, unknown> = {}
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
+  expect(await has(ui, /^▸ Fichiers$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"fichiers":false')
+  await ui.press({ plugin: 'cockpit', key: 'pf-period-7d' })
+  expect(await has(ui, /^1\. Lane beta/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'pf-project' })
+  expect(await has(ui, /^Projet : proj-one$/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'pf-state' })
+  expect(await has(ui, /^État : en cours$/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'pf-who' })
+  expect(await has(ui, /^Codex$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
+})

@@ -1,4 +1,6 @@
 // cockpit - the one zoomable side pane (méga › projet › conversation › agent), read-only, with tabs:
+//   Panneau  the DEFAULT view (lib/panel.mjs, hooks/panel_view.mjs, hooks/files.mjs): Fichiers (data-goblin's tree,
+//            embedded), Cette conversation, Toutes les conversations, Barres; the tabs below wait behind « Plus ▾ »
 //   Cockpit  summary cards (Qui consomme, T'attend, À toi, CI, Quota, Problèmes du jour, En cours), each a button to
 //            its detail, then the scoped sections (Cette conversation › Ce projet › Tous les projets › Qui consomme ›
 //            Claude global), every section foldable with a one-line summary while closed
@@ -11,8 +13,9 @@
 // /factory and /machine keep working: while their own mod is loaded it answers; when it is not, cockpit registers the
 // name as an alias (checked against $.command.list(), as band does to grey a button). Card buttons run the detail's
 // command ($.command.run; a mod cannot open another mod's pane). Opens by itself at session start (userConfig `start`).
-// Read-only: scanners (factory's, workflow's, machine's copies, scanner/cards.mjs over lib/core); nothing blocks,
-// rewrites or adds to a prompt, nothing calls a model. Refresh only while the pane is the one shown.
+// Read-only: scanners (factory's, workflow's, machine's copies, scanner/cards.mjs over lib/core); nothing blocks or
+// rewrites a prompt; the one addition is filetree's context line for a file clicked in Fichiers (panel.fichiers.
+// attach_selection); nothing calls a model. Refresh only while the pane is the one shown.
 import { deepMerge, scanArgs, pickSession, repoOf, engineAtLeast } from '../lib/factory/hooks/logic.mjs'
 import { waitingArgs, waitingRows } from '../lib/factory/hooks/waiting.mjs'
 import { screensConfig } from '../lib/factory/hooks/screens.mjs'
@@ -24,6 +27,9 @@ import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sect
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
+import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows } from '../lib/panel.mjs'
+import { treeRows, convHead, convSummary } from './nav.mjs'
+import { newFiles, filesReset, filesRefresh, filesPress, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
 let options = {}
@@ -33,12 +39,15 @@ const ALIASES = new Set() // old command names this session serves (their own mo
 const D = {
   scan: null, nav: null, self: null, busy: false, error: '', at: 0, open: false, filter: 'all', strips: null,
   usage: null, usageRaw: null, veille: null, columns: 0, conso: null, consoData: null, consoPreset: '', consoScan: false,
-  tab: 'home', jfilter: 'all', jproject: '', cardsRaw: null, cardsError: '', cardsAt: 0,
+  tab: 'panneau', jfilter: 'all', jproject: '', cardsRaw: null, cardsError: '', cardsAt: 0,
   wf: null, wfAt: 0, wfBusy: false, wfError: '', wfScope: null, wfOpen: {}, wfAll: null,
   machine: { sample: null, runner: null, prev: null, tick: 0, missing: false, metricsMissing: false, error: '' },
   who: null, nuitRaw: null, nuitBusy: false, relaisRaw: null, relaisBusy: false, galerieRaw: null, galerieBusy: false,
   galView: 'equipe', launch: null, nuitMsg: '', identity: undefined, engine: '',
   depuisRaw: null, depuisBusy: false, depuisAt: 0, depuisPreset: '', depuisOpen: {}, depuisAsk: false, depuisMsg: '', depuisError: '',
+  // the Panneau (default view): sections open, tree nodes folded, filters (kept in $.store 'panel'), the « Plus ▾ » tabs
+  plus: false, popen: null, pclosed: {}, pf: { period: '', project: '', state: '', who: '' }, pLoaded: false, codexData: null,
+  F: newFiles(), fLimit: 0, fBusy: false,
 }
 
 const decideLabels = () => decideConfig(CFG || {}).nuit.labels
@@ -255,9 +264,11 @@ async function loadConso($, now) {
   const ucfg = (await readJson($, sibling($, 'usage') + '/usage.config.json')) || {}
   const dir = norm(expand(q.data_dir || ucfg.data_dir || '~/.claude/usage-mod', await homeDir($)))
   D.consoData = await readJson($, dir + '/classement.json')
+  D.codexData = await readJson($, dir + '/codex.json')
   D.conso = consoCard(D.consoData, CFG, now, D.consoPreset || q.default)
   const old = !D.consoData || now - (D.consoData.generated || 0) > q.rescan_min * 60000
-  if (old && (D.strips || {}).conso && !D.consoScan && ucfg.data_dir !== undefined) {
+  const wanted = (D.strips || {}).conso || (D.tab === 'panneau' && (D.popen || {}).convs)
+  if (old && wanted && !D.consoScan && ucfg.data_dir !== undefined) {
     D.consoScan = true
     $.clock.after(0, async () => {
       try { await $.process.run([ucfg.node || 'node', sibling($, 'usage') + '/scanner/usage_scan.mjs', 'scan'], { timeoutMs: 600000 }) } catch { /* the card says so */ }
@@ -313,8 +324,86 @@ async function viewAgent($, target) {
   }
 }
 
+// ---- the Panneau ------------------------------------------------------------------------------------------------------
+
+// The viewer's sections, folded nodes and filters, kept across sessions ($.store, this mod's own).
+async function loadPanelState($) {
+  if (D.pLoaded) return
+  D.pLoaded = true
+  const pc = panelConfig(CFG || {})
+  let saved = null
+  try { saved = (await $.store.get('panel')) || null } catch { saved = null }
+  D.popen = saved && saved.open && typeof saved.open === 'object' ? { ...saved.open } : Object.fromEntries(pc.open.map((k) => [k, true]))
+  D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
+  D.pf = { period: '', project: '', state: '', who: pc.convs.who, ...((saved && saved.filter) || {}) }
+}
+
+function savePanelState($) {
+  try { void Promise.resolve($.store.set('panel', { open: D.popen || {}, closed: D.pclosed, filter: D.pf })).catch(() => undefined) } catch { /* not kept */ }
+}
+
+const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
+
+async function refreshFiles($) {
+  if (!(D.popen || {}).fichiers || D.fBusy) return
+  D.fBusy = true
+  try {
+    let cwd = ''
+    try { cwd = String((await $.session.cwd()) || '') } catch { cwd = '' }
+    const want = norm(cwd).replace(/\/+$/, '')
+    if (!D.F.root || D.F.root !== want) await filesReset($, D.F, want, fopts())
+    else await filesRefresh($, D.F, fopts())
+  } catch (err) {
+    D.F.error = String(err && err.message ? err.message : err).slice(0, 200)
+  } finally {
+    D.fBusy = false
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// Everything the Panneau reads: the engine's usage, usage's classement.json and codex.json, the cards scanner's quotas
+// and every Workflow of the PC, the file tree.
+async function refreshPanel($) {
+  await loadPanelState($)
+  const now = await $.clock.now()
+  try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
+  await loadConso($, now).catch(() => undefined)
+  if ((D.popen || {}).barres) await loadCards($).catch(() => undefined)
+  await refreshFiles($)
+  $.ui.invalidate('ui.render')
+}
+
+function panelView(now) {
+  const pc = panelConfig(CFG || {})
+  const F = D.F
+  const fr = filesRows(F, (pc.fichiers.max_rows || 30) + D.fLimit)
+  // Cette conversation: this session's tree (lead → sub-conversations → Workflows → agents), nodes folded by the viewer
+  let tree = []
+  let head = null
+  if (D.scan && D.self) {
+    const me = findSession(D.scan, D.self)
+    head = convHead(D.scan, D.self, FCFG || {}, D.at || now)
+    if (me) tree = foldTree(treeRows({ level: 'medium', repo: repoOf(me), conv: me.cli, agent: null }, D.scan, FCFG || {}, D.at || now, D.self, { convOnly: true }), D.pclosed)
+  }
+  const f = D.pf
+  const syn = synthesis(D.consoData, D.scan, D.codexData, { ...f, fcfg: FCFG || {} }, CFG || {}, now)
+  const tps = f.who === 'codex' ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '' }, CFG || {}, now).tps : syn.tps
+  const ctx = D.usageRaw && D.usageRaw.context && Number.isFinite(D.usageRaw.context.percent) ? D.usageRaw.context.percent : head ? head.ctxPct : NaN
+  let wfScreen = null
+  try { wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null } catch { wfScreen = null }
+  return {
+    open: D.popen || {}, closed: D.pclosed,
+    files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
+    tree, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '', convSummary: head ? convSummary(head, FCFG || {}) : '',
+    syn, filter: f,
+    bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, ctxPct: ctx }, CFG || {}),
+    workflows: activeWorkflows(wfScreen, CFG || {}),
+  }
+}
+
 // What the tab on screen needs, now.
 async function refreshTab($) {
+  if (D.tab === 'panneau') { await rescan($); return refreshPanel($) }
   if (D.tab === 'workflow') return rescanWorkflow($)
   if (D.tab === 'machine') return sampleMachine($)
   if (D.tab === 'relais') return loadPart($, 'relais')
@@ -367,6 +456,32 @@ function setTab($, tab) {
 function actions($) {
   const redraw = () => $.ui.invalidate('ui.render')
   return {
+    // the Panneau
+    plus: () => { D.plus = !D.plus; redraw() },
+    ptoggle: (id) => {
+      D.popen = { ...(D.popen || {}), [id]: !(D.popen || {})[id] }
+      savePanelState($)
+      redraw()
+      if (D.popen[id] && (id === 'fichiers' || id === 'convs' || id === 'barres')) void refreshPanel($)
+    },
+    nodeToggle: (key) => { D.pclosed = { ...D.pclosed, [key]: !D.pclosed[key] }; savePanelState($); redraw() },
+    pfilter: (k, v) => {
+      D.pf = { ...D.pf, [k]: v }
+      if (k === 'who') D.pf = { ...D.pf, project: '', state: '' }
+      savePanelState($)
+      redraw()
+    },
+    pcycle: async (k) => {
+      const now = await $.clock.now()
+      const list = k === 'state' ? ['running', 'waiting', 'done'] : synthesis(D.consoData, D.scan, D.codexData, { ...D.pf, project: '', fcfg: FCFG || {} }, CFG || {}, now).projects
+      D.pf = { ...D.pf, [k]: cycle(list, D.pf[k]) }
+      savePanelState($)
+      redraw()
+    },
+    filePress: async (id) => { await filesPress($, D.F, id); redraw() },
+    filesClear: () => { filesClear(D.F); redraw() },
+    filesMore: () => { D.fLimit += panelConfig(CFG || {}).fichiers.more_step || 30; redraw() },
+    filesRefresh: () => refreshFiles($),
     tab: (id) => setTab($, id),
     crumb: (level) => { D.nav = zoomTo(D.nav, level); redraw() },
     select: (node) => {
@@ -461,6 +576,7 @@ async function runCockpit($, args) {
   await loadConfig($)
   try { D.self = (await $.session.id()) || D.self } catch { /* keep */ }
   try { D.engine = ((await $.session.version()) || {}).version || D.engine } catch { /* keep */ }
+  if (D.tab === 'panneau' && !tabValid(CFG, 'panneau')) D.tab = 'home'
   const p = parseArgs(args)
   if (p.close) { D.open = false; await $.ui.close({ id: PANE }); return {} }
   await openPane($, true)
@@ -515,25 +631,37 @@ export function register(on, opts) {
     try { D.engine = ((await $.session.version()) || {}).version || '' } catch { D.engine = '' }
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
+    if (D.tab === 'panneau' && panelConfig(CFG).enabled === false) D.tab = 'home'
     try {
       await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : Depuis ton dernier message (le résumé de la nuit), cartes (conso, t’attend, à toi, Claude Control, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory, Machine, Claude ↔ Codex, Galerie, Bilan avant la nuit',
         argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit|depuis [8h|24h|nuit|HH:MM]] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
     $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
     $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' ? rescan($) : undefined)) })
-    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : refreshStrips($)) : undefined)) })
+    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : D.tab === 'panneau' ? refreshPanel($) : refreshStrips($)) : undefined)) })
     $.clock.every(Math.max(3, c.machine_refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab === 'machine' ? sampleMachine($) : undefined)) })
     if (c.auto_open && options.start !== 'off') {
       void (async () => {
         await openPane($, false).catch(() => undefined)
         await rescan($)
-        await refreshStrips($).catch(() => undefined)
+        if (D.tab === 'panneau') await refreshPanel($).catch(() => undefined)
+        else await refreshStrips($).catch(() => undefined)
       })()
     }
     return next(e)
   })
 
   on('command.run', { command: 'cockpit' }, async ($, e) => runCockpit($, e.args))
+
+  // Fichiers: while a file is selected by a click in the Panneau's tree, the prompt carries filetree's own context line
+  // (the prompt text itself is never changed). panel.fichiers.attach_selection: false keeps the selection visual only.
+  on('prompt.submit', async ($, e, next) => {
+    const line = filesContext(D.F)
+    if (!line || panelConfig(CFG || {}).fichiers.attach_selection === false) return next(e)
+    let ok = false
+    try { ok = await $.fs.exists(D.F.selected) } catch { ok = false }
+    return ok ? next({ ...e, context: [...(e.context || []), line] }) : next(e)
+  }).catch(($, e, next) => next(e))
   on('command.run', { command: 'factory' }, async ($, e, next) => aliasHook($, e, next, 'factory')).catch(($, e, next) => next(e))
   on('command.run', { command: 'machine' }, async ($, e, next) => aliasHook($, e, next, 'machine')).catch(($, e, next) => next(e))
 
@@ -561,6 +689,7 @@ export function register(on, opts) {
       cards: D.tab === 'home' ? cards(now || D.at) : [],
       depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
+      plus: D.plus, panel: D.tab === 'panneau' ? { ...panelView(now || D.at || 0), act: actions($) } : null,
     })
   })
 }

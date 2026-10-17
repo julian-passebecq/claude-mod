@@ -13,7 +13,7 @@ import {
 } from '../hooks/nav.mjs'
 import { treeSvg } from '../hooks/svg.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
-import { parseArgs } from '../hooks/register.mjs'
+import { parseArgs } from '../hooks/nav.mjs' // register.mjs re-exports it; it imports TypeScript copies node cannot resolve
 import { stale } from '../../../scripts/sync-libs.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
