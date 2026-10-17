@@ -30,6 +30,8 @@ import {
   launcherPress,
   launcherKey,
   launcherTyped,
+  stampKeys,
+  stampText,
   rateOf,
   recentHandoffs,
   repoKey,
@@ -251,9 +253,44 @@ test('scanner: incremental tail, worktree grouping, compaction markers, shared p
   }
 })
 
-test('launcher: preset hubs (default) draws the 5 hubs, Jauge in more_items (▾); a hub not loaded says how to load it', () => {
+test('launcher: preset five (default) draws Usage · Règles · Réf · Cockpit · Exporter; Usage falls back to /conso; actions never show ✕', () => {
   const L = CFG.launcher
-  assert.equal(L.preset, 'hubs')
+  assert.equal(L.preset, 'five')
+  assert.deepEqual(launcherItems(L).map(i => `${i.label}=/${i.command}${i.args ? ' ' + i.args : ''}`), [
+    'Usage=/usage', 'Règles=/reference config', 'Réf=/reference guide', 'Cockpit=/cockpit', 'Exporter=/export-tout',
+  ])
+  // the built-in /usage (no plugin) is loaded; Usage is an action: a press runs it, never « open », never ✕
+  const builtin = [{ name: 'usage' }, { name: 'reference', plugin: 'reference' }, { name: 'cockpit', plugin: 'cockpit' }]
+  let bs = launcherButtons(L, builtin, ['usage', 'export'], CFG.labels)
+  assert.deepEqual(bs.map(b => b.loaded), [true, true, true, true, false])
+  assert.equal(bs[0].open, false)
+  assert.deepEqual(launcherPress(bs[0]), { run: { command: 'usage' }, open: false })
+  assert.deepEqual(launcherPress(bs[1]), { run: { command: 'reference', args: 'config' }, open: true })
+  assert.deepEqual(launcherPress(bs[2]), { run: { command: 'reference', args: 'guide' }, open: true })
+  assert.equal(bs[4].hint, 'non chargé : ajouter mods/export-eta à CLAUDE_CODE_PLUGIN_DIRS')
+  // no /usage in the session: the usage mod's /conso runs instead, under the same label
+  bs = launcherButtons(L, [{ name: 'conso', plugin: 'usage' }], [], CFG.labels)
+  assert.equal(bs[0].label, 'Usage')
+  assert.equal(bs[0].via, '/conso')
+  assert.deepEqual(launcherPress(bs[0]), { run: { command: 'conso' }, open: false })
+  // neither: greyed
+  assert.equal(launcherButtons(L, [], [], CFG.labels)[0].loaded, false)
+  // Exporter from whichever plugin registers /export-tout
+  bs = launcherButtons(L, [{ name: 'export-tout', plugin: 'export-tout' }], [], CFG.labels)
+  assert.equal(bs[4].loaded, true)
+  assert.deepEqual(launcherPress(bs[4]), { run: { command: 'export-tout' }, open: false })
+  // typing /reference guide opens Réf and closes Règles; typing /usage moves no button
+  assert.deepEqual(launcherTyped(L.items, 'reference', 'guide'), { open: ['reference-guide'], close: ['reference-config'] })
+  assert.equal(launcherTyped(L.items, 'usage', ''), null)
+  // the stamp: « dernier export HH:MM » once it ran, for a run of its command or its fallback
+  assert.deepEqual(stampKeys(L.items, 'export-tout'), ['export'])
+  assert.deepEqual(stampKeys(L.items, 'cockpit'), [])
+  assert.match(stampText(L.items[4], NOW), /^dernier export \d\d:\d\d$/)
+  assert.equal(stampText(L.items[4], undefined), '')
+})
+
+test('launcher: preset hubs (own settings) draws the 5 older hubs, Jauge in more_items; a hub not loaded says how to load it', () => {
+  const L = { ...CFG.launcher, preset: 'hubs' }
   assert.equal(L.single, true)
   assert.deepEqual(launcherItems(L).map(i => `${i.label}=${i.mod}:/${i.command}`), [
     'Cockpit=cockpit:/cockpit', 'Veille=veille:/veille', 'À toi=a-faire:/afaire', 'Registres=registres:/registres', 'Référence=reference:/reference',
@@ -507,50 +544,49 @@ const FULL = {
   gpu: 3,
 }
 
-test('Jauge: the shipped default is two_lines, with every field of Julian\'s layout', () => {
+test('Jauge: the shipped default is one line (attendent · contexte · 5 h · sem · tok/s), no second line', () => {
   assert.equal(CFG.gauge.style, 'two_lines')
   const jc = jaugeCfg(CFG.jauge)
   const l1 = fitLine(jc.line1, FULL, jc, 200)
-  const l2 = fitLine(jc.line2, FULL, jc, 200)
-  assert.equal(l1.text, "● 2 t'attendent · 4 à toi │ contexte 41 % (relais 250 k)")
-  assert.equal(l2.text, '5 h 24 % · sem 14 % · Codex 30 % │ 3 agents · 5 conv actives │ 434 tok/s tout · 120 ce projet · 50 cette conv │ CPU 12 % · GPU 3 %')
+  assert.deepEqual(jc.line2, [])
+  assert.equal(l1.text, "● 2 t'attendent │ contexte 41 % │ 5 h 24 % · sem 14 % │ 434 tok/s tout")
+  assert.equal(CFG.jauge.others_above_prompt, 'hide')
   assert.equal(l1.line[0][0].tone, 'bad') // red only when something waits
   const none = fitLine(jc.line1, { ...FULL, waiting: 0 }, jc, 200)
   assert.equal(none.line[0][0].tone, 'dim')
   assert.ok(!none.line.flat().some(f => f.tone === 'bad'))
 })
 
-test('Jauge: nothing is wider than the band at 60 and 75 columns (short labels, then drop_order)', () => {
+test('Jauge: nothing is wider than the band at 40 and 60 columns (short labels, then drop_order)', () => {
   const jc = jaugeCfg(CFG.jauge)
-  for (const cols of [60, 75]) {
-    for (const ids of [jc.line1, jc.line2]) {
-      const f = fitLine(ids, { ...FULL, waiting: 12, todo: 34, tps: { tps_all: 12345, tps_project: 4321, tps_conv: 999 } }, jc, cols)
-      assert.ok(cells(f.text) <= cols, `${cols}: ${f.text} (${cells(f.text)})`)
-    }
+  for (const cols of [40, 60]) {
+    const f = fitLine(jc.line1, { ...FULL, waiting: 12, tps: { tps_all: 12345 } }, jc, cols)
+    assert.ok(cells(f.text) <= cols, `${cols}: ${f.text} (${cells(f.text)})`)
   }
-  const at75 = fitLine(jc.line2, FULL, jc, 75)
-  assert.equal(at75.short, true)
-  assert.ok(at75.text.startsWith('5h 24% · sem 14%'), at75.text)
-  const at60 = fitLine(jc.line2, FULL, jc, 60)
-  assert.ok(at60.dropped.includes('gpu'), at60.dropped.join(','))
-  assert.match(at60.text, /50 ici/) // this conversation's rate stays
-  assert.equal(fitLine(jc.line1, FULL, jc, 60).text, "● 2 t'attendent · 4 à toi │ contexte 41 % (relais 250 k)")
-  // the buttons: full labels at 75, short ones at 60, both fit
+  const at60 = fitLine(jc.line1, FULL, jc, 60)
+  assert.equal(at60.short, true)
+  assert.equal(at60.text, "● 2 attendent │ ctx 41 % │ 5h 24% · sem 14% │ 434 t/s")
+  const at40 = fitLine(jc.line1, FULL, jc, 40)
+  assert.ok(at40.dropped.includes('tps_all'), at40.dropped.join(','))
+  assert.match(at40.text, /^● 2 attendent │ ctx 41 %/) // the counter and the context stay
+  // the five buttons: full labels at 75, Exporter becomes Export when short
   const bs = CFG.launcher.items.map(i => ({ label: i.label, short: i.short }))
-  const b75 = fitButtons(bs, jc, 75, 1)
+  const b75 = fitButtons(bs, jc, 75, 0)
   assert.equal(b75.short, false)
-  assert.ok(b75.width <= 75)
-  const b60 = fitButtons(bs, jc, 60, 1)
-  assert.ok(b60.width <= 60, String(b60.width))
-  assert.deepEqual(b60.labels, ['Cockpit', 'Veille', 'À toi', 'Reg.', 'Réf.'])
+  assert.ok(b75.width <= 75, String(b75.width))
+  const b45 = fitButtons(bs, jc, 45, 0)
+  assert.deepEqual(b45.labels, ['Usage', 'Règles', 'Réf', 'Cockpit', 'Export'])
 })
 
 test('Jauge: a missing figure leaves its field out; the counters and the context always show', () => {
   const jc = jaugeCfg(CFG.jauge)
   const bare = { relayAt: 250000, tps: {} }
-  assert.equal(fitLine(jc.line1, bare, jc, 200).text, "● 0 t'attendent · 0 à toi │ contexte ? (relais 250 k)")
+  assert.equal(fitLine(jc.line1, bare, jc, 200).text, "● 0 t'attendent │ contexte ?")
   assert.equal(fitLine(jc.line2, bare, jc, 200).text, '')
-  assert.equal(fitLine(jc.line2, { ...bare, week: 9, cpu: 40 }, jc, 200).text, 'sem 9 % │ CPU 40 %')
+  assert.equal(fitLine(jc.line1, { ...bare, week: 9 }, jc, 200).text, "● 0 t'attendent │ contexte ? │ sem 9 %")
+  // the older two lines come back with own settings
+  const two = jaugeCfg({ ...CFG.jauge, line2: ['week', '|', 'cpu'] })
+  assert.equal(fitLine(two.line2, { ...bare, week: 9, cpu: 40 }, two, 200).text, 'sem 9 % │ CPU 40 %')
   // own labels and fields
   const own = jaugeCfg({ ...CFG.jauge, line2: ['codex_five', 'codex_week'], labels: { codex_week: 'GPT sem {n} %' } })
   assert.equal(fitLine(own.line2, { ...bare, codexFive: 8, codexWeek: 31 }, own, 200).text, 'Codex 5 h 8 % · GPT sem 31 %')
@@ -565,7 +601,7 @@ test('pcActivity: agents running and conversations active on the whole PC', () =
 })
 
 test('launcher single: opening one hub closes the others known open, not those of the same command', () => {
-  const items = allLauncherItems(CFG.launcher)
+  const items = allLauncherItems({ ...CFG.launcher, preset: 'hubs' })
   assert.deepEqual(othersOpen(items, ['cockpit', 'veille', 'band'], 'a-faire').map(launcherKey), ['cockpit', 'veille', 'band'])
   assert.deepEqual(othersOpen(items, ['cockpit'], 'cockpit'), [])
   assert.deepEqual(othersOpen(items, [], 'cockpit'), [])

@@ -149,6 +149,8 @@ declare module 'claude-code' {
       handoff: HandoffState
       /** the compact band's folding (remembered in $.store under "sections" when sections.remember is "store") */
       ui: BandUi
+      /** when each stamped button (Exporter) last ran, by its open-state key (ms); kept in $.store under "stamps" */
+      stamps: Record<string, number>
     }
   }
 }
