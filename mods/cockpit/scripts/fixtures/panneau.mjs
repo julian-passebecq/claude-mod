@@ -62,15 +62,21 @@ const RA = (id, label, phase, model, effort, status, minAgo, minDur, tokens, cos
 export const RUNS = [{
   id: 'wf_1', cli: 'lead', name: 'package-wave', live: true, status: 'running', elapsed: 40 * 60000, cost: 9.4,
   estimate: { enough: true, eta: { mid: NOW + 25 * 60000 } },
-  agents: [RA('a1', 'coder: cockpit-claude-style', 'Wave B', 'claude-opus-5-5', 'medium', 'running', 20, 20, 1500000, 7.9), RA('a2', 'verify', 'Wave A', 'claude-sonnet-5-5', 'low', 'done', 40, 15, 408000, 1.5)],
-  phases: [{ title: 'Wave A', status: 'done', agents: [{ id: 'a2' }] }, { title: 'Wave B', status: 'running', agents: [{ id: 'a1' }] }, { title: 'Merge', status: 'waiting', agents: [] }],
+  agents: [RA('a1', 'coder: cockpit-claude-style', 'Wave B', 'claude-opus-5-5', 'medium', 'running', 20, 20, 1500000, 7.9), RA('a2', 'verify', 'Wave A', 'claude-sonnet-5-5', 'low', 'done', 40, 15, 408000, 1.5),
+    RA('a3', 'explore-fast: map files', 'Wave A', 'claude-haiku-5-5', 'low', 'done', 40, 5, 100000, 0), RA('a4', 'verify: CI', 'Merge', 'claude-sonnet-5-5', 'low', 'waiting', 0, 0, 0, 0)],
+  phases: [{ title: 'Wave A', status: 'done', agents: [{ id: 'a2' }, { id: 'a3' }] }, { title: 'Wave B', status: 'running', agents: [{ id: 'a1' }] }, { title: 'Merge', status: 'waiting', agents: [{ id: 'a4' }] }],
 }]
 
 const noop = () => {}
 const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
 
-/** The Pane's view model on the Panneau. open: sections unfolded (all but Fichiers by default); closed: folded nodes. */
+/**
+ * The Pane's view model on the Panneau. open: sections unfolded (all but Fichiers by default); closed: folded nodes
+ * (the preview unfolds the live Workflow card, so both its mini-card head with one dot per agent and the « Modèle |
+ * Temps » table show; { 'pfw-wf_1': true } draws it folded as it opens in the app).
+ */
 export function panneauView(columns, o = {}) {
+  o = { ...o, closed: { 'pfw-wf_1': false, ...(o.closed || {}) } }
   // as the Panneau opens: every section unfolded but Fichiers (folded by default, Julian 17 Oct)
   const open = o.open || { conv: true, convs: true, barres: true, graphe: true, 'wf:r1': true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }

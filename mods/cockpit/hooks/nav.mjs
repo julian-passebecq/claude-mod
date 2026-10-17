@@ -435,6 +435,21 @@ export function atText(ms) {
   return `${days[d.getDay()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function creditsOf(spend, L, nowMs) {
+  if (!spend || !Number.isFinite(spend.percentUsed)) return { available: false, text: L.not_readable }
+  const num = (...ks) => { for (const k of ks) if (Number.isFinite(spend[k])) return spend[k]; return undefined }
+  const used = num('usedUsd', 'amountUsed')
+  const limit = num('limitUsd', 'amountLimit')
+  const exp = Date.parse(spend.expiresAt || '')
+  const reset = Date.parse(spend.resetsAt || '')
+  const when = Number.isFinite(reset) ? (reset - nowMs < 24 * 3600000 ? fill(L.reset_in, { in: inText(reset - nowMs) }) : fill(L.reset_at, { at: atText(reset) })) : ''
+  const amounts = Number.isFinite(used) && Number.isFinite(limit)
+  return {
+    available: true, pct: spend.percentUsed, used, limit, expiresAt: Number.isFinite(exp) ? exp : undefined, when,
+    text: amounts ? `${Math.round(used)} $ / ${Math.round(limit)} $` : `${Math.round(spend.percentUsed)} %`,
+  }
+}
+
 // usage: $.session.usage() ({ rateLimits, cost }); me: this conversation's row in the scan (models, subs).
 export function usageCard(usage, me, cfg, nowMs) {
   const L = cockpitConfig(cfg).labels
@@ -448,7 +463,9 @@ export function usageCard(usage, me, cfg, nowMs) {
   }
   const windows = [win('five_hour', L.session), win('seven_day', L.week_all), win(null, L.week_fable, /fable/i)]
   const spend = limits.find((x) => x.kind === 'spend_limit')
-  const credits = spend && Number.isFinite(spend.percentUsed) ? { available: true, pct: spend.percentUsed, text: `${Math.round(spend.percentUsed)} %` } : { available: false, text: L.not_readable }
+  // the engine's SessionRateLimit has kind / percentUsed / resetsAt only; amounts and an expiry are read when a later
+  // engine adds them (usedUsd | amountUsed, limitUsd | amountLimit, expiresAt), never guessed
+  const credits = creditsOf(spend, L, nowMs)
   // this session: cost from the engine, model share, cache hit and contributors from the transcripts (factory's prices)
   const maps = me ? [me.models, ...(me.subs || []).map((x) => x.models)] : []
   const bill = billByModel(maps, cfg)

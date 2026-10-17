@@ -25,8 +25,14 @@ export const PANEL_DEFAULTS = {
   // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct)
   open: ['conv', 'convs', 'barres', 'graphe'],
   // the look: bar_px = px per column of a bar drawn as Svg (desktop); bar_cells = cells of the short bars of a compact row
-  // (narrow under wide_cols columns, wide above); finished_open = « Terminés N › » starts unfolded
-  style: { bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, finished_open: false, dot_done: '■', dot_running: '■', dot_pending: '□', bar_full: '▰', bar_empty: '▱', bar_mark: '|' },
+  // (narrow under wide_cols columns, wide above); finished_open = « Terminés N › » starts unfolded; workflow_open = a
+  // Workflow card starts unfolded (false: Claude's mini card, name › / Workflow  N agents  time / one dot per agent);
+  // dot_tones = the tone of each agent dot (Claude's pane: grey done, amber running); dots_max = dots on one row
+  style: {
+    bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, finished_open: false, workflow_open: false,
+    dot_done: '■', dot_running: '■', dot_pending: '□', dot_tones: { done: 'dim', running: 'warn', failed: 'bad' }, dots_max: 60,
+    bar_full: '▰', bar_empty: '▱', bar_mark: '|',
+  },
   fichiers: {
     // a file clicked in the tree is named to Claude as context of the next prompt, exactly as data-goblin's filetree
     // does (« The user has this file selected in the file tree ... »); off: the selection stays visual only
@@ -157,7 +163,13 @@ export const PANEL_DEFAULTS = {
     total: 'Total',
     five: 'Session 5 h',
     week: 'Semaine',
-    credits: 'Crédits',
+    credits: 'Crédits cloud',
+    credits_amount: '{used} $ sur {limit} $',
+    credits_expire: 'expire le {at}',
+    credits_no_amount: 'montant non lu',
+    col_model: 'Modèle',
+    col_time: 'Temps',
+    months: ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'],
     codex_week: 'Codex semaine',
     tps_all: 'tok/s toutes conv',
     unknown: 'non lu',
@@ -214,13 +226,22 @@ export function textBar(pct, cells, cfg, mark = null) {
 }
 
 /** A duration the way Claude's Background-tasks pane writes it: « 6h 54m 13s », « 4m 02s », « 12s ». */
-export function durText(ms) {
+export function durText(ms, short = false) {
   const t = Math.max(0, Math.round((Number(ms) || 0) / 1000))
   const h = Math.floor(t / 3600)
   const m = Math.floor((t % 3600) / 60)
   const s = t % 60
   const p2 = (n) => String(n).padStart(2, '0')
+  // short: the mini card's « 6h 56m » (seconds only under an hour)
+  if (short && h) return `${h}h ${p2(m)}m`
   return h ? `${h}h ${p2(m)}m ${p2(s)}s` : m ? `${m}m ${p2(s)}s` : `${s}s`
+}
+
+/** A date as Claude's Usage pane writes an expiry: « 5 nov 08:59 ». */
+export function dayText(ms, cfg) {
+  const d = new Date(ms)
+  const M = panelConfig(cfg).labels.months || []
+  return `${d.getDate()} ${M[d.getMonth()] || d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 /**
@@ -359,7 +380,10 @@ export function cycle(list, cur) {
  * usage: $.session.usage() ({ rateLimits }); quotas: core readQuotas ({ claude: {five, week}, codex: {five, week} });
  * tps: tok/s of all conversations (synthesis().tps); codex: the table's « Codex » toggle is on (adds Codex semaine);
  * card: nav.usageCard(...) when known (its reset texts and the credits, shown only when the engine reads them).
- * -> [{ id, label, pct (0..100) | null, text, detail }]
+ * Credits read like Claude's Usage pane, « Crédits cloud … 249 $ sur 250 $ » and a grey « expire le 5 nov 08:59 »
+ * under the bar, when the engine gives the amounts; the engine's SessionRateLimit has only kind / percentUsed /
+ * resetsAt today, so the row shows the % with a grey « montant non lu » (and the reset under it when known).
+ * -> [{ id, label, pct (0..100) | null, text, detail, under }]
  */
 export function barsOf({ usage, quotas, tps, codex, card }, cfg) {
   const L = panelConfig(cfg).labels
@@ -374,12 +398,21 @@ export function barsOf({ usage, quotas, tps, codex, card }, cfg) {
   const cx = qpct(quotas && quotas.codex && quotas.codex.week)
   const pctText = (v) => (v === null || v === undefined ? L.unknown : `${Math.round(v)} %`)
   const when = (i) => (card && card.windows && card.windows[i] && card.windows[i].when) || ''
-  const cr = card && card.credits && card.credits.available ? card.credits.pct : null
+  const k = card && card.credits && card.credits.available ? card.credits : null
+  const cr = k ? k.pct : null
+  const money = (v) => (Math.round(v * 100) % 100 ? v.toFixed(2) : String(Math.round(v)))
+  const amounts = k && Number.isFinite(k.used) && Number.isFinite(k.limit)
+  const credits = k ? {
+    id: 'credits', label: L.credits, pct: cr,
+    text: amounts ? fill(L.credits_amount, { used: money(k.used), limit: money(k.limit) }) : pctText(cr),
+    detail: amounts ? '' : L.credits_no_amount,
+    under: Number.isFinite(k.expiresAt) ? fill(L.credits_expire, { at: dayText(k.expiresAt, cfg) }) : k.when || '',
+  } : null
   return [
     { id: 'five', label: L.five, pct: five, text: pctText(five), detail: when(0) },
     { id: 'week', label: L.week, pct: week, text: pctText(week), detail: when(1) },
     codex ? { id: 'codex_week', label: L.codex_week, pct: cx, text: pctText(cx), detail: '' } : null,
-    cr !== null ? { id: 'credits', label: L.credits, pct: cr, text: pctText(cr), detail: '' } : null,
+    credits,
     { id: 'tps', label: L.tps_all, pct: null, text: Number.isFinite(tps) && tps !== null ? `${Math.round(tps)} ${L.tps}` : L.unknown, detail: L.tps_hint },
   ].filter(Boolean)
 }
