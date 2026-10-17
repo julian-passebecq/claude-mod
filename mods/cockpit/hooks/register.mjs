@@ -29,7 +29,7 @@ import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows } from '../lib/panel.mjs'
 import { treeRows, convHead, convSummary } from './nav.mjs'
-import { newFiles, filesReset, filesRefresh, filesPress, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
+import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
 let options = {}
@@ -344,6 +344,49 @@ function savePanelState($) {
 
 const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
 
+// Fichiers' I/O (files.mjs holds the tree as data, filetree's own logic): one folder listed, links resolved as filetree does.
+async function listDir($, dir) {
+  try {
+    const entries = await $.fs.list(dir)
+    const out = []
+    for (const e of entries) {
+      if (!e.isLink) { out.push({ name: e.name, kind: e.kind, mtimeMs: e.mtimeMs, size: e.size, isLink: false }); continue }
+      try {
+        const t = await $.fs.stat(dir + '/' + e.name)
+        out.push(t.kind === 'dir' ? { name: e.name, kind: 'dir', mtimeMs: t.mtimeMs, size: 0, isLink: false } : { name: e.name, kind: 'file', mtimeMs: t.mtimeMs, size: t.size, isLink: true })
+      } catch {
+        out.push({ name: e.name, kind: 'other', mtimeMs: 0, size: 0, isLink: true })
+      }
+    }
+    return nodesOf(dir, out)
+  } catch {
+    return null
+  }
+}
+
+async function listInto($, dirs) {
+  const listed = new Map()
+  for (const d of dirs) {
+    const kids = await listDir($, d)
+    if (kids) listed.set(d, kids)
+  }
+  applyListed(D.F, listed)
+}
+
+async function gitInto($) {
+  if (!fopts().git || !D.F.root) return
+  const run = (args, timeoutMs) => $.process.run(['git', '--no-optional-locks', '-C', D.F.root, ...args], { timeoutMs, env: { GIT_OPTIONAL_LOCKS: '0' } })
+  try {
+    if (!D.F.top) {
+      const r = await run(['rev-parse', '--show-prefix', '--show-toplevel'], 5000)
+      applyTop(D.F, r.exitCode === 0 ? r.stdout : null)
+    }
+    if (D.F.top === '-') return
+    const st = await run(['status', '--porcelain=v1', '-b', '-z', '--untracked-files=normal', '--', '.'], 20000)
+    if (st.exitCode === 0) applyGit(D.F, st.stdout)
+  } catch { /* no git: the tree shows without letters */ }
+}
+
 async function refreshFiles($) {
   if (!(D.popen || {}).fichiers || D.fBusy) return
   D.fBusy = true
@@ -351,13 +394,24 @@ async function refreshFiles($) {
     let cwd = ''
     try { cwd = String((await $.session.cwd()) || '') } catch { cwd = '' }
     const want = norm(cwd).replace(/\/+$/, '')
-    if (!D.F.root || D.F.root !== want) await filesReset($, D.F, want, fopts())
-    else await filesRefresh($, D.F, fopts())
+    if (!D.F.root || D.F.root !== want) {
+      let windows = false
+      try { windows = (await $.env.get('OS')) === 'Windows_NT' } catch { windows = false }
+      resetTo(D.F, want, windows, fopts().showHidden)
+    }
+    await listInto($, openDirs(D.F))
+    await gitInto($)
   } catch (err) {
     D.F.error = String(err && err.message ? err.message : err).slice(0, 200)
   } finally {
     D.fBusy = false
   }
+  $.ui.invalidate('ui.render')
+}
+
+async function pressFile($, id) {
+  const dir = filesPress(D.F, id)
+  if (dir) { await listInto($, [dir]); openDir(D.F, dir) }
   $.ui.invalidate('ui.render')
 }
 
@@ -478,7 +532,7 @@ function actions($) {
       savePanelState($)
       redraw()
     },
-    filePress: async (id) => { await filesPress($, D.F, id); redraw() },
+    filePress: (id) => pressFile($, id),
     filesClear: () => { filesClear(D.F); redraw() },
     filesMore: () => { D.fLimit += panelConfig(CFG || {}).fichiers.more_step || 30; redraw() },
     filesRefresh: () => refreshFiles($),
