@@ -11,15 +11,29 @@ const md = readFileSync(new URL('MODE-EMPLOI.md', here), 'utf8').replace(/\r\n/g
 const catalog = JSON.parse(readFileSync(new URL('mods.json', here), 'utf8'))
 const doc = parse(md)
 
-const TABS = ['Démarrer', 'Jauge', 'Cockpit', 'Veille', 'À toi', 'Registres', 'Référence', 'La nuit', 'Possible ou pas avec les mods', 'À essayer', 'Écrire un mod', 'Nos mods', 'FAQ et pièges']
+const TABS = ['Démarrer', 'Avancé']
+const ADVANCED = ['Les 6 entrées et ta journée', 'Jauge', 'Cockpit', 'Veille', 'À toi', 'Registres', 'Référence', 'La nuit', 'Possible ou pas avec les mods', 'À essayer', 'Écrire un mod', 'Nos mods', 'FAQ et pièges']
+const advanced = () => doc.tabs.find(t => t.id === 'avancé')
 
-test('MODE-EMPLOI.md has the agreed tabs, each with categories and sub-sections', () => {
+test('MODE-EMPLOI.md has two tabs, Démarrer and Avancé, each with categories and sub-sections', () => {
   assert.equal(doc.title, "Mode d'emploi des mods")
   assert.deepEqual(doc.tabs.map(t => t.title), TABS)
+  assert.deepEqual(advanced().cats.map(c => c.title), ADVANCED)
   for (const t of doc.tabs) {
     assert.ok(t.cats.length > 0, `${t.title} has categories`)
-    for (const c of t.cats) if (t.id !== 'nos-mods' || c.id === 'fiches') assert.ok(c.subs.length > 0, `${t.title} › ${c.title} has sub-sections`)
+    for (const c of t.cats) assert.ok(c.subs.length > 0, `${t.title} › ${c.title} has sub-sections`)
   }
+})
+
+test('Démarrer is the simple setup: the Jauge and its 5 buttons, the Cockpit panel, Export in one click', () => {
+  const start = doc.tabs[0]
+  assert.deepEqual(start.cats.map(c => c.id), ['la-jauge', 'le-panneau-cockpit', 'exporter-en-un-clic'])
+  const all = start.cats.flatMap(c => [c.body, ...c.subs.map(s => s.title + '\n' + s.body)]).join('\n')
+  for (const b of ['**Usage**', '**Règles**', '**Réf**', '**Cockpit**', '**Exporter**', '/export-tout', '/reference config', '/reference guide'])
+    assert.ok(all.includes(b), b)
+  assert.deepEqual(start.cats[1].subs.map(s => s.title), ['Fichiers', 'Cette conversation', 'Toutes les conversations', 'Barres', 'Plus ▾'])
+  for (const x of ['INDEX.md', 'sources/claude-control/snapshots/', 'sources/conversations/']) assert.ok(all.includes(x), x)
+  assert.ok(all.length < 6000, 'Démarrer stays short')
 })
 
 test('every anchor is unique and the table of contents is up to date', () => {
@@ -43,10 +57,10 @@ test('the user guide: the day, the night, the limits, the ideas, old commands, d
   const ids = anchors(doc)
   for (const id of ['ma-journée', 'bilan-avant-la-nuit', 'ce-qui-ne-tourne-pas', 'ce-quun-mod-ne-peut-pas-faire', 'les-cinq-premiers', 'anciennes-commandes', 'tes-données', 'mettre-à-jour'])
     assert.ok(ids.includes(id), id)
-  const old = doc.tabs[0].cats.find(c => c.id === 'anciennes-commandes').subs.map(s => s.body).join('\n')
+  const old = advanced().cats[0].subs.find(s => s.id === 'anciennes-commandes').body
   for (const cmd of ['/factory', '/machine', '/conso', '/problemes', '/tests', '/regles', '/menage', '/config-claude', '/control', '/mods-guide', '/scenarios', '/sante', '/ci', '/export-eta', '/a-toi'])
     assert.ok(old.includes('`' + cmd), cmd)
-  const ideas = doc.tabs.find(t => t.id === 'à-essayer').cats[0].subs.map(s => s.title).join(' | ')
+  const ideas = advanced().cats.find(c => c.id === 'à-essayer').subs[0].body
   for (const x of ['Projects', 'claude agents', '/advisor', '/skill-doctor', 'Auto-continue']) assert.ok(ideas.includes(x), x)
 })
 
@@ -63,9 +77,10 @@ test('slug follows GitHub anchors; parse ignores headings in code fences', () =>
 })
 
 test('locate: a Sommaire link leads to its tab, unfolds its category, marks its sub-section', () => {
-  assert.deepEqual(locate(doc, 'cockpit'), { tab: 'cockpit', cat: '', sub: '' })
-  assert.deepEqual(locate(doc, 'galerie'), { tab: 'cockpit', cat: 'galerie', sub: '' })
-  assert.deepEqual(locate(doc, 'commandes-slash'), { tab: 'écrire-un-mod', cat: 'interface', sub: 'commandes-slash' })
+  assert.deepEqual(locate(doc, 'avancé'), { tab: 'avancé', cat: '', sub: '' })
+  assert.deepEqual(locate(doc, 'cockpit'), { tab: 'avancé', cat: 'cockpit', sub: '' })
+  assert.deepEqual(locate(doc, 'galerie'), { tab: 'avancé', cat: 'cockpit', sub: 'galerie' })
+  assert.deepEqual(locate(doc, 'barres'), { tab: 'démarrer', cat: 'le-panneau-cockpit', sub: 'barres' })
   assert.equal(locate(doc, 'nowhere'), undefined)
 })
 

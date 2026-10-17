@@ -34,6 +34,8 @@ const MD = [
   '',
   '## Nos mods',
   '',
+  '### Nos fiches',
+  '',
   '<!-- mods:start -->',
   '(snapshot)',
   '<!-- mods:end -->',
@@ -75,7 +77,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const pane = await mount($, surface)
     // Sommaire: the whole tree
     expect(await pane.find({ type: 'Text', text: /Sommaire général/ })).toBeDefined()
-    for (const key of ['go-bases', 'go-ce-quest-un-mod', 'go-un-mod-en-une-phrase', 'go-tester', 'go-claude-plugin-validate', 'go-nos-mods', 'go-fiches', 'go-fiche-demo', 'go-fiche-band-v6', 'go-archivés--rejetés']) {
+    for (const key of ['go-bases', 'go-ce-quest-un-mod', 'go-un-mod-en-une-phrase', 'go-tester', 'go-claude-plugin-validate', 'go-nos-mods', 'go-nos-fiches', 'go-fiche-demo', 'go-fiche-band-v6', 'go-archivés--rejetés']) {
       expect(await pane.find({ key } as any)).toBeDefined()
     }
     // a sub-section link opens its tab, unfolds its category and marks it
@@ -91,7 +93,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await pane.find({ type: 'Markdown', text: /Lit le manifeste/ })).toBeDefined()
     // Nos mods: cards rebuilt from the mod's own files, not the snapshot
     await pane.press({ key: 'tab-nos-mods' })
-    await pane.press({ key: 'cat-fiches' })
+    await pane.press({ key: 'cat-nos-fiches' })
     expect(await pane.find({ type: 'Markdown', text: /Un mod de démo lu en direct/ })).toBeDefined()
     expect(await pane.find({ type: 'Markdown', text: /commandes `\/demo`/ })).toBeDefined()
     expect(await pane.find({ type: 'Markdown', text: /\(snapshot\)/ })).toBeUndefined()
