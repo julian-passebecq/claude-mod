@@ -15,7 +15,7 @@
   "first_read_mb": 64,
   "worktree_markers": ["/.claude/worktrees/", "/.worktrees/"],
   "gauge": {
-    "_doc": "Style of the band above the prompt. two_lines (default): the Jauge of the `jauge` block below (two lines of text and the hub buttons, no bar). compact: ONE line, a slim context bar (width px; ticks at the hand-off threshold context.handoff_tokens and at auto-compact, green -> orange -> red) then « ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 % » (tok/s of the first scope in `scopes`) and a ▸ that unfolds `sections`. mark_labels: nearest (only the next threshold is named under its tick), all (every label that does not overlap another), none. gauge: the older bar on its own line plus a second line. text: the older single line of band.items. The desktop draws the bar as an Svg, the terminal as text (text_width cells).",
+    "_doc": "Style of the band above the prompt. two_lines (default, name kept): the Jauge of the `jauge` block below (one line of figures and the five buttons of launcher.items, no bar). compact: ONE line, a slim context bar (width px; ticks at the hand-off threshold context.handoff_tokens and at auto-compact, green -> orange -> red) then « ctx 8 % · compact ~16 min · 434 tok/s · 5 h 24 % · sem 14 % » (tok/s of the first scope in `scopes`) and a ▸ that unfolds `sections`. mark_labels: nearest (only the next threshold is named under its tick), all (every label that does not overlap another), none. gauge: the older bar on its own line plus a second line. text: the older single line of band.items. The desktop draws the bar as an Svg, the terminal as text (text_width cells).",
     "style": "two_lines",
     "scopes": ["conv"],
     "width": 120,
@@ -25,10 +25,13 @@
     "labels": { "ctx": "ctx", "compact_in": "compactage dans", "week": "semaine", "handoff_mark": "relais", "compact_mark": "compact", "no_reading": "pas encore de mesure" }
   },
   "jauge": {
-    "_doc": "The two-line Jauge (gauge.style two_lines). line1 / line2: field ids in order, '|' starts a new group (groups joined by sep, fields by dot). Fields: waiting (● N t'attendent: Veille alerts marked julian, the only red), todo (N à toi), context (contexte N % (relais = context.handoff_tokens)), five / week (Claude 5 h / week: the engine's rate limits, else the usage mod's samples), codex_week / codex_five (Codex, from usage_dir/codex.json), agents (running on the PC, sections.running_s), convs (conversations that wrote within active_s), tps_all / tps_project / tps_conv (tok/s over band_window_s of the scopes in tps_scopes), cpu / gpu (machine). A missing figure leaves its field out. Each line is fitted to the band's width: full labels, else labels_short, else the fields of drop_order left out one by one; the buttons use their short label when the full row is too wide (button_pad = cells a button adds to its label). usage_dir: \"\" turns the quota files off. machine.gpu_source: auto (nvidia-smi, else the Windows 3D counter), nvidia-smi, typeperf, off.",
-    "line1": ["waiting", "todo", "|", "context"],
-    "line2": ["five", "week", "codex_week", "|", "agents", "convs", "|", "tps_all", "tps_project", "tps_conv", "|", "cpu", "gpu"],
-    "drop_order": ["gpu", "tps_project", "convs", "cpu", "codex_week", "five", "tps_all", "agents", "todo"],
+    "_doc": "The Jauge (gauge.style two_lines). line1 (and line2, empty by default: Julian 17 Oct, one line only): field ids in order, '|' starts a new group (groups joined by sep, fields by dot). Fields: waiting (● N t'attendent: Veille alerts marked julian, the only red), todo (N à toi), context (contexte N % (relais = context.handoff_tokens)), five / week (Claude 5 h / week: the engine's rate limits, else the usage mod's samples), codex_week / codex_five (Codex, from usage_dir/codex.json), agents (running on the PC, sections.running_s), convs (conversations that wrote within active_s), tps_all / tps_project / tps_conv (tok/s over band_window_s of the scopes in tps_scopes), cpu / gpu (machine). A missing figure leaves its field out. Each line is fitted to the band's width: full labels, else labels_short, else the fields of drop_order left out one by one; the buttons use their short label when the full row is too wide (button_pad = cells a button adds to its label). usage_dir: \"\" turns the quota files off. machine.gpu_source: auto (nvidia-smi, else the Windows 3D counter), nvidia-smi, typeperf, off.",
+    "line1": ["waiting", "|", "context", "|", "five", "week", "|", "tps_all"],
+    "line2": [],
+    "drop_order": ["tps_all", "five", "week"],
+    "_buttons_inline": "true: the five buttons sit on the figures' line when both fit the band's width, else on a row below. others_above_prompt: hide (default, Julian 17 Oct: only the Jauge above the prompt) leaves out what other mods draw there (Veille's line, export-eta's « N conversations terminées » banner); show keeps them under the Jauge. When the context passes handoff.threshold_tokens (or auto-compact is near) a short orange hint (labels.relay_hint) and one button (labels.relay_button, runs handoff.command) join the line.",
+    "buttons_inline": true,
+    "others_above_prompt": "hide",
     "sep": " │ ",
     "dot": " · ",
     "sep_short": " │ ",
@@ -43,8 +46,8 @@
       "waiting": "● {n} t'attendent",
       "waiting_none": "● 0 t'attendent",
       "todo": "{n} à toi",
-      "context": "contexte {pct} % (relais {relay})",
-      "context_none": "contexte ? (relais {relay})",
+      "context": "contexte {pct} %",
+      "context_none": "contexte ?",
       "five": "5 h {n} %",
       "week": "sem {n} %",
       "codex_week": "Codex {n} %",
@@ -57,13 +60,15 @@
       "cpu": "CPU {n} %",
       "gpu": "GPU {n} %",
       "more": "▾",
-      "less": "▴"
+      "less": "▴",
+      "relay_hint": "relais conseillé",
+      "relay_button": "RESUME"
     },
     "labels_short": {
       "waiting": "● {n} attendent",
       "waiting_none": "● 0 attendent",
-      "context": "ctx {pct} % (relais {relay})",
-      "context_none": "ctx ? (relais {relay})",
+      "context": "ctx {pct} %",
+      "context_none": "ctx ?",
       "five": "5h {n}%",
       "week": "sem {n}%",
       "codex_week": "Cx {n}%",
@@ -101,12 +106,20 @@
     "scopes": ["conv", "all"]
   },
   "launcher": {
-    "_doc": "Mods button bar in the band. preset: hubs (default) = the 5 hub buttons of items (Cockpit, Veille, À toi, Registres, Référence) then ▾, which unfolds more_items (Jauge, band's own detail pane) and « Cette conversation », every older mod shown inside one of them; all = the 15 older buttons of all_items. Your own items (userConfig 'config') replace the list as before. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash, args = what a press passes (optional), key = the open-state id when two buttons share a mod (optional). A press runs /<command> (the mod opens its own pane; band's own Jauge opens directly); a second press, or its ✕, runs /<command> <close_args>. short: the label used when the full row does not fit the band's width. single: true = one hub open at a time: opening one runs /<command> <close_args> for every other hub it knows open (opened from the band, typed, or run by another mod such as the Cockpit menu). A mod whose command is not in this session greys out and says « non chargé : ajouter mods/<x> à CLAUDE_CODE_PLUGIN_DIRS ». Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
+    "_doc": "Mods button bar in the band. preset: five (default) = the five Jauge buttons of items, see _five; hubs = the 5 hub buttons of hub_items (Cockpit, Veille, À toi, Registres, Référence) then ▾, which unfolds more_items (Jauge, band's own detail pane) and « Cette conversation », every older mod shown inside one of them; all = the 15 older buttons of all_items. Your own items (userConfig 'config') replace the list as before. One button per item: label shown, mod = folder under mods/ (the plugin name), command = its slash command without the slash, args = what a press passes (optional), key = the open-state id when two buttons share a mod (optional). A press runs /<command> (the mod opens its own pane; band's own Jauge opens directly); a second press, or its ✕, runs /<command> <close_args>. short: the label used when the full row does not fit the band's width. single: true = one hub open at a time: opening one runs /<command> <close_args> for every other hub it knows open (opened from the band, typed, or run by another mod such as the Cockpit menu). A mod whose command is not in this session greys out and says « non chargé : ajouter mods/<x> à CLAUDE_CODE_PLUGIN_DIRS ». Mods cannot open another mod's pane directly ($.ui.open draws only the caller's own panes), hence the command.",
+    "_five": "preset five (default, Julian 17 Oct): exactly the five buttons of items. action: true = every press runs the command, no ✕ (Usage, Exporter). any_plugin: loaded whichever plugin registers the command, or a built-in. fallback: runs instead when the command is not in the session (Usage: the built-in /usage, else the usage mod's /conso; $.command.run runs a built-in « as if the person typed it », per the engine's types, non vérifié live). stamp: a small dim state after the button once it ran ({hhmm}), kept in $.store. Règles and Réf both open the reference mod (args config / guide). preset hubs brings back hub_items (the older hub row).",
     "enabled": true,
-    "preset": "hubs",
+    "preset": "five",
     "close_args": "close",
     "single": true,
     "items": [
+      { "label": "Usage", "mod": "claude-code", "command": "usage", "key": "usage", "action": true, "any_plugin": true, "fallback": { "mod": "usage", "command": "conso" } },
+      { "label": "Règles", "mod": "reference", "command": "reference", "args": "config", "key": "reference-config" },
+      { "label": "Réf", "mod": "reference", "command": "reference", "args": "guide", "key": "reference-guide" },
+      { "label": "Cockpit", "mod": "cockpit", "command": "cockpit" },
+      { "label": "Exporter", "short": "Export", "mod": "export-eta", "command": "export-tout", "key": "export", "action": true, "any_plugin": true, "stamp": "dernier export {hhmm}" }
+    ],
+    "hub_items": [
       { "label": "Cockpit", "short": "Cockpit", "mod": "cockpit", "command": "cockpit" },
       { "label": "Veille", "short": "Veille", "mod": "veille", "command": "veille" },
       { "label": "À toi", "short": "À toi", "mod": "a-faire", "command": "afaire" },

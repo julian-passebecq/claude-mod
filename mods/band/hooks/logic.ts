@@ -438,8 +438,23 @@ export const compactLabel = (c: Compaction, labels: Record<string, string>, idle
 // ---------- launcher (the Mods button bar) ----------
 
 /** args: what the press passes to the command (« fil » opens /veille fil); key: the open-state id when two buttons share a mod. */
-export type LauncherItem = { label: string; short?: string; mod: string; command: string; args?: string; key?: string }
-/** preset hubs (default): items, the 6 hub entries; all: all_items, the 15 older buttons. */
+export type LauncherItem = {
+  label: string
+  short?: string
+  mod: string
+  command: string
+  args?: string
+  key?: string
+  /** an action, not a pane: every press runs the command and the button never shows ✕ (Usage, Exporter) */
+  action?: boolean
+  /** loaded whichever plugin registers the command, or none (a built-in such as /usage) */
+  any_plugin?: boolean
+  /** what runs instead when the command is not in this session (Usage: built-in /usage, else the usage mod's /conso) */
+  fallback?: { mod: string; command: string; args?: string }
+  /** a small dim state after the button once pressed or typed, « dernier export {hhmm} », kept in $.store */
+  stamp?: string
+}
+/** preset five (default): items, the five Jauge buttons; hubs: hub_items, the older hub row; all: all_items, the 15 older buttons. */
 export type Launcher = {
   enabled?: boolean
   close_args?: string
@@ -447,14 +462,21 @@ export type Launcher = {
   /** one hub open at a time */
   single?: boolean
   items?: LauncherItem[]
+  hub_items?: LauncherItem[]
   /** shown when the band is unfolded (▾): Jauge, band's own detail pane */
   more_items?: LauncherItem[]
   all_items?: LauncherItem[]
 }
 
-/** The items of the chosen preset: all -> all_items (when listed), anything else -> items. */
+/** The items of the chosen preset: all -> all_items, hubs -> hub_items (when listed), anything else -> items. */
 export const launcherItems = (l: Launcher | undefined): LauncherItem[] =>
-  !l ? [] : l.preset === 'all' && Array.isArray(l.all_items) && l.all_items.length ? l.all_items : (l.items ?? [])
+  !l
+    ? []
+    : l.preset === 'all' && Array.isArray(l.all_items) && l.all_items.length
+      ? l.all_items
+      : l.preset === 'hubs' && Array.isArray(l.hub_items) && l.hub_items.length
+        ? l.hub_items
+        : (l.items ?? [])
 /** The preset's items and the unfolded ones (more_items), for the open-state tracking. */
 export const allLauncherItems = (l: Launcher | undefined): LauncherItem[] => [...launcherItems(l), ...(l && Array.isArray(l.more_items) ? l.more_items : [])]
 
@@ -464,12 +486,13 @@ export const othersOpen = (items: readonly LauncherItem[], open: readonly string
 
 /** One slash command as $.command.list() gives it (name, and the plugin that registered it when known). */
 export type CommandSeen = { name: string; plugin?: string }
-export type LauncherButton = LauncherItem & { loaded: boolean; open: boolean; hint?: string }
+/** via: the fallback command that runs in place of the item's own (not in this session). */
+export type LauncherButton = LauncherItem & { loaded: boolean; open: boolean; hint?: string; via?: string }
 export type LauncherAction = { run: { command: string; args?: string }; open: boolean } | { toast: string }
 
 /** A mod counts as loaded when its command is in this session and, where the engine names the plugin, it is that mod. */
-export const isLoaded = (item: LauncherItem, commands: readonly CommandSeen[]) =>
-  commands.some(c => c.name === item.command && (!c.plugin || c.plugin === item.mod || c.plugin.startsWith(`${item.mod}@`)))
+export const isLoaded = (item: Pick<LauncherItem, 'mod' | 'command' | 'any_plugin'>, commands: readonly CommandSeen[]) =>
+  commands.some(c => c.name === item.command && (item.any_plugin || !c.plugin || c.plugin === item.mod || c.plugin.startsWith(`${item.mod}@`)))
 
 /** The buttons to draw, in config order; empty when the launcher is off or lists nothing. */
 export const launcherButtons = (
@@ -481,12 +504,17 @@ export const launcherButtons = (
   if (!l || l.enabled === false) return []
   return launcherItems(l)
     .filter(i => i && i.label && i.mod && i.command)
-    .map(i => {
+    .map((i): LauncherButton => {
       const loaded = isLoaded(i, commands)
+      const fb = i.fallback
+      if (!loaded && fb && fb.command && fb.mod && isLoaded(fb, commands)) {
+        const { args: _own, ...rest } = i
+        return { ...rest, mod: fb.mod, command: fb.command, ...(fb.args ? { args: fb.args } : {}), loaded: true, open: !i.action && open.includes(launcherKey(i)), via: `/${fb.command}` }
+      }
       return {
         ...i,
         loaded,
-        open: loaded && open.includes(launcherKey(i)),
+        open: loaded && !i.action && open.includes(launcherKey(i)),
         ...(loaded ? {} : { hint: (labels.launcher_missing ?? 'not loaded: add mods/{mod} to CLAUDE_CODE_PLUGIN_DIRS').replace('{mod}', i.mod) }),
       }
     })
@@ -495,6 +523,7 @@ export const launcherButtons = (
 /** What a press does: a mod not loaded explains itself; else open (/<command>) or, when open, close (/<command> <close_args>). */
 export const launcherPress = (b: LauncherButton, closeArgs = 'close'): LauncherAction => {
   if (!b.loaded) return { toast: b.hint ?? b.mod }
+  if (b.action) return { run: { command: b.command, ...(b.args ? { args: b.args } : {}) }, open: false }
   return b.open ? { run: { command: b.command, args: closeArgs }, open: false } : { run: { command: b.command, ...(b.args ? { args: b.args } : {}) }, open: true }
 }
 
@@ -504,13 +533,20 @@ export const launcherKey = (i: LauncherItem) => i.key || i.mod
 /** What a typed /<command> <args> does to the buttons: closing closes every button of that command; else the button
  * whose args match opens (the one without args when none matches), and the other buttons of that command close. */
 export const launcherTyped = (items: readonly LauncherItem[], command: string, args: string, closeArgs = 'close') => {
-  const mine = items.filter(i => i && i.command === command)
+  const mine = items.filter(i => i && !i.action && i.command === command)
   if (!mine.length) return null
   const a = (args ?? '').trim()
   if (a === closeArgs) return { open: [] as string[], close: mine.map(launcherKey) }
   const hit = mine.find(i => (i.args ?? '') && a.split(/\s+/)[0] === i.args) ?? mine.find(i => !i.args)
   return { open: hit ? [launcherKey(hit)] : [], close: mine.filter(i => i !== hit).map(launcherKey) }
 }
+
+/** The stamped buttons a run of /<command> concerns (its own command or its fallback's), by open-state key. */
+export const stampKeys = (items: readonly LauncherItem[], command: string) =>
+  items.filter(i => i && i.stamp && (i.command === command || i.fallback?.command === command)).map(launcherKey)
+
+/** « dernier export 14:32 » from the item's stamp template and the time it last ran; '' when it never ran. */
+export const stampText = (item: Pick<LauncherItem, 'stamp'>, t: number | undefined) => (item.stamp && t ? item.stamp.replace('{hhmm}', hhmm(t)) : '')
 
 /** The open list after a press on `mod`. */
 export const toggleOpen = (open: readonly string[], mod: string, isOpen: boolean) =>

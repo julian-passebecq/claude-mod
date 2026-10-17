@@ -1,11 +1,20 @@
 {
   "name": "band",
-  "version": "0.4.0",
-  "description": "Jauge : bandeau au-dessus du prompt, en lecture seule, sur deux lignes qui ne débordent jamais (ajustées à la largeur : libellés courts puis champs retirés dans l'ordre de jauge.drop_order). Ligne 1 en gras : « ● N t'attendent · N à toi │ contexte N % (relais 250 k) », rouge seulement si au moins un t'attend. Ligne 2 en gris : « 5 h N % · sem N % · Codex N % │ N agents · N conv actives │ N tok/s tout · N ce projet · N cette conv │ CPU N % · GPU N % ». Puis les boutons Cockpit · Veille · À toi · Registres · Référence · ▾ (un seul hub ouvert à la fois, réglage launcher.single) ; ▾ déplie Jauge (le détail) et « Cette conversation ». Ligne orange « Passation conseillée » au seuil RESUME. Champs, ordre et libellés dans band.config.json (jauge) ; gauge.style compact garde l'ancienne ligne. /jauge",
-  "author": { "name": "Julian Passebecq" },
+  "version": "0.5.0",
+  "description": "Jauge : bandeau au-dessus du prompt, en lecture seule, sur UNE ligne ajustée à la largeur (libellés courts puis champs retirés dans l'ordre de jauge.drop_order) : « ● N t'attendent │ contexte N % │ 5 h N % · sem N % │ N tok/s tout » (rouge seulement si au moins un t'attend), puis exactement cinq boutons (Julian, 17 oct) : Usage (le /usage intégré, sinon /conso du mod usage) · Règles (/reference config) · Réf (/reference guide) · Cockpit (/cockpit) · Exporter (/export-tout, puis « dernier export HH:MM »). Au-delà du seuil RESUME, un court « relais conseillé » et un bouton RESUME (/handoff) rejoignent la ligne. Rien d'autre au-dessus du prompt (jauge.others_above_prompt: show remet les lignes des autres mods). Champs, boutons et libellés dans band.config.json (jauge, launcher) ; launcher.preset hubs ou all et gauge.style compact gardent les anciennes vues. /jauge ouvre le détail.",
+  "author": {
+    "name": "Julian Passebecq"
+  },
   "license": "MIT",
   "types": "./types/index.d.ts",
-  "keywords": ["mod", "band", "status line", "context", "tokens", "compaction"],
+  "keywords": [
+    "mod",
+    "band",
+    "status line",
+    "context",
+    "tokens",
+    "compaction"
+  ],
   "userConfig": {
     "config": {
       "type": "string",
@@ -18,14 +27,20 @@
       "title": "Band above the prompt",
       "description": "on: the gauge band above the prompt. off: only /jauge and the status line entry.",
       "default": "on",
-      "options": ["on", "off"]
+      "options": [
+        "on",
+        "off"
+      ]
     },
     "status_line": {
       "type": "string",
       "title": "Status line entry",
       "description": "on: a short entry (status_line items and scopes of the settings, ctx and rates by default) in the status line. off: none.",
       "default": "off",
-      "options": ["on", "off"]
+      "options": [
+        "on",
+        "off"
+      ]
     }
   }
 }

@@ -41,11 +41,13 @@ import {
   recentHandoffs,
   resumeCandidates,
   sparkline,
+  stampKeys,
+  stampText,
   toggleOpen,
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
 import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
-import { fitButtons, fitLine, jaugeCfg } from './jauge'
+import { cells, fitButtons, fitLine, jaugeCfg } from './jauge'
 import type { Field, JaugeCfg, JaugeFacts } from './jauge'
 import type { Gauge } from './gauge'
 import {
@@ -124,6 +126,34 @@ const launcherAtom = atom({ plugin: 'band', key: 'launcher' } as const, { comman
 const handoffAtom = atom({ plugin: 'band', key: 'handoff' } as const, { ran: [], show: false })
 const uiAtom = atom({ plugin: 'band', key: 'ui' } as const, { expanded: false, open: [] })
 const STORE_KEY = 'sections'
+const stampsAtom = atom({ plugin: 'band', key: 'stamps' } as const, {})
+const STAMPS_KEY = 'stamps'
+
+const loadStamps = async ($: EngineInterface) => {
+  let stored: unknown
+  try {
+    stored = await $.store.get(STAMPS_KEY)
+  } catch {}
+  if (stored && typeof stored === 'object') {
+    const ok: Record<string, number> = {}
+    for (const [k, t] of Object.entries(stored as Record<string, unknown>)) if (typeof t === 'number' && Number.isFinite(t)) ok[k] = t
+    await update($, stampsAtom, s => ({ ...ok, ...s }))
+  }
+}
+
+// A stamped button (Exporter) ran, pressed or typed: remember when, for « dernier export HH:MM ».
+const noteStamp = async ($: EngineInterface, keys: string[]) => {
+  if (!keys.length) return
+  const now = await $.clock.now()
+  const next = await update($, stampsAtom, s => {
+    const o = { ...s }
+    for (const k of keys) o[k] = now
+    return o
+  })
+  try {
+    await $.store.set(STAMPS_KEY, next)
+  } catch {}
+}
 
 const secCfg = (c: Config): SectionsCfg => sectionsCfg((c as any).sections)
 
@@ -293,7 +323,7 @@ const buttonsOf = async ($: EngineInterface, c: Config) => {
 const moreButtonsOf = async ($: EngineInterface, c: Config) => {
   const l = await read($, launcherAtom)
   const more = c.launcher?.more_items
-  return Array.isArray(more) && more.length ? launcherButtons({ ...c.launcher, preset: 'hubs', items: more }, l.commands, l.open, c.labels) : []
+  return Array.isArray(more) && more.length ? launcherButtons({ ...c.launcher, preset: 'more', items: more }, l.commands, l.open, c.labels) : []
 }
 
 // launcher.single: one hub open at a time. Opening `key` closes every other hub known open (not those of the same
@@ -344,6 +374,8 @@ const press = async ($: EngineInterface, b: LauncherButton, isWorking: boolean) 
     return
   }
   if (isWorking) $.ui.toast(`${b.label} : ${c.labels.launcher_queued ?? 'queued'}`)
+  // $.command.run skips band's own command.run observer, so a stamped press is noted here.
+  if (b.stamp) await noteStamp($, [launcherKey(b)])
   $.command.run(a.run).catch(async (err: unknown) => {
     await update($, launcherAtom, l => ({ ...l, open: toggleOpen(l.open, launcherKey(b), !a.open) }))
     $.ui.toast(`/${b.command} : ${String(err).slice(0, 160)}`)
@@ -479,6 +511,7 @@ export const register: Register = (on, raw) => {
     })
     const c = await loadConfig($)
     await loadUi($, c)
+    await loadStamps($)
     timer?.cancel()
     timer = $.clock.every(Math.max(5, c.refresh_s) * 1000, () => void refresh($))
     void seeCommands($)
@@ -492,6 +525,7 @@ export const register: Register = (on, raw) => {
     try {
       const c = await loadConfig($)
       if (c.handoff && c.handoff.enabled !== false && e.command === c.handoff.command) await noteRan($)
+      await noteStamp($, stampKeys(allLauncherItems(c.launcher), e.command))
       const t = launcherTyped(allLauncherItems(c.launcher), e.command, e.args ?? '', c.launcher?.close_args || 'close')
       if (t) {
         for (const k of t.open) await closeOthers($, c, k, e.command, true)
@@ -555,12 +589,23 @@ export const register: Register = (on, raw) => {
     const isWorking = e.props.isWorking
     const style = (c as any).gauge?.style ?? 'two_lines'
     if (style === 'two_lines') {
+      // The Jauge (Julian, 17 Oct): ONE line of figures, the five buttons (on that line when both fit), a relay hint
+      // and its RESUME button only past the hand-off threshold. No ▾, no second line, nothing else unless configured.
       const jc = jaugeCfg((c as any).jauge)
-      const ui = (await read($, uiAtom)) as BandUi
+      const jx = ((c as any).jauge ?? {}) as { buttons_inline?: boolean; others_above_prompt?: string }
       const cols = Math.max(20, Number((e.props as any).bodyColumns) || jc.columns_fallback)
       const facts = jaugeFacts(c, jc, ctx, v ?? null, en)
-      const l1 = fitLine(jc.line1, facts, jc, cols)
-      const l2 = fitLine(jc.line2, facts, jc, cols)
+      const relayHint = advice.show && c.handoff ? (jc.labels.relay_hint ?? 'relais conseillé') : ''
+      const relayBtn = jc.labels.relay_button ?? 'RESUME'
+      const stamps = (await read($, stampsAtom)) as Record<string, number>
+      const stampOf = (b: LauncherButton) => stampText(b, stamps[launcherKey(b)])
+      const stampW = buttons.reduce((s, b) => s + (stampOf(b) ? cells(stampOf(b)) + 1 : 0), 0)
+      const relayW = relayHint ? cells(relayHint) + cells(relayBtn) + jc.button_pad + 2 : 0
+      const fitted = fitButtons(buttons.map(b => ({ label: b.label, ...(b.short ? { short: b.short } : {}), open: b.open })), jc, cols, 0)
+      const l1full = fitLine(jc.line1, facts, jc, cols)
+      const inline = jx.buttons_inline !== false && cells(l1full.text) + cells(jc.sep) + relayW + fitted.width + stampW <= cols
+      const l1 = inline ? l1full : fitLine(jc.line1, facts, jc, Math.max(10, cols - relayW))
+      const l2 = jc.line2.length ? fitLine(jc.line2, facts, jc, cols) : undefined
       const toneOf = (f: Field) => (f.tone === 'bad' ? { color: c.colors.bad ?? 'error' } : f.tone === 'dim' ? { dimColor: true } : {})
       const segs: { key: string; text: string; field?: Field }[] = []
       l1.line.forEach((g, gi) => {
@@ -570,101 +615,66 @@ export const register: Register = (on, raw) => {
           segs.push({ key: `j1-${f.id}`, text: f.text, field: f })
         })
       })
-      const line1 = (
-        <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap">
-          {segs.map(x => (
-            <Text key={x.key} bold {...(x.field ? toneOf(x.field) : { dimColor: true })} wrap="truncate-end">
-              {x.text}
-            </Text>
-          ))}
-        </Box>
-      )
-      const line2 = l2.text ? (
-        <Box key="jauge-l2" flexDirection="row" flexWrap="nowrap">
-          <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text>
-        </Box>
-      ) : null
-      const fitted = fitButtons(buttons.map(b => ({ label: b.label, ...(b.short ? { short: b.short } : {}), open: b.open })), jc, cols, 1)
-      const toggleLabel = ui.expanded ? (jc.labels.less ?? '▴') : (jc.labels.more ?? '▾')
-      const row = (
-        <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>
-          {buttons.map((b, i) => (
-            <Button
-              key={`mod-${launcherKey(b)}`}
-              {...(b.loaded ? {} : { dimColor: true })}
-              {...(b.open ? { variant: 'primary' as const } : {})}
-              onPress={() => press($, b, isWorking)}
-            >
-              {fitted.labels[i]}
-            </Button>
-          ))}
-          <Button key="band-toggle" onPress={() => toggleUi($, 'band')}>
-            {toggleLabel}
-          </Button>
-        </Box>
-      )
-      let relayJ = null
-      if (advice.show && c.handoff) {
-        const hs = await read($, handoffAtom)
+      const figuresEls = segs.map(x => (
+        <Text key={x.key} bold {...(x.field ? toneOf(x.field) : { dimColor: true })} wrap="truncate-end">
+          {x.text}
+        </Text>
+      ))
+      let relayEls: any[] = []
+      if (relayHint && c.handoff) {
         const lc = await read($, launcherAtom)
-        const hb = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)
-        relayJ = (
-          <Box key="band-relay" flexDirection="row" flexWrap="nowrap" gap={1}>
-            <Text color={c.colors.warn} wrap="truncate-end">{`${c.labels.handoff_advice ?? 'Passation conseillée'} : ${handoffReason(advice, ctx, c.handoff, c.labels)}`}</Text>
-            {hb.map(b => (
-              <Button key={b.key} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, b, isWorking)}>
-                {b.label}
-              </Button>
-            ))}
-          </Box>
-        )
+        const hs = await read($, handoffAtom)
+        const prep = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)[0]
+        relayEls = [
+          <Text key="band-relay-hint" color={c.colors.warn} wrap="truncate-end">{` ${relayHint}`}</Text>,
+          <Button key={prep.key} {...(prep.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, prep, isWorking)}>
+            {relayBtn}
+          </Button>,
+        ]
       }
-      let more = null
-      if (ui.expanded) {
-        const sc = secCfg(c)
-        const L = sc.labels
-        const mb = await moreButtonsOf($, c)
-        const cf = { model: en?.model, effort: en?.effort, agents: v?.conv?.agents, pr: v?.conv?.pr, tokens: ctx?.tokens, handoffAt: c.context.handoff_tokens }
-        const hasConv = sectionList(sc).includes('conv')
-        const convOpen = hasConv && isOpen(ui, 'conv')
-        more = (
-          <Box key="jauge-more" flexDirection="column">
-            <Box key="jauge-more-row" flexDirection="row" flexWrap="nowrap" gap={1}>
-              {mb.map(b => (
-                <Button
-                  key={`mod-${launcherKey(b)}`}
-                  {...(b.loaded ? {} : { dimColor: true })}
-                  {...(b.open ? { variant: 'primary' as const } : {})}
-                  onPress={() => press($, b, isWorking)}
-                >
-                  {b.open ? `${b.label} ✕` : b.label}
-                </Button>
-              ))}
-              {hasConv ? (
-                <Button key="sec-conv" onPress={() => toggleUi($, 'conv')}>
-                  {`${convOpen ? '▾' : '▸'} ${L.conv}`}
-                </Button>
-              ) : null}
-              {hasConv && !convOpen ? <Text dimColor wrap="truncate-end">{convSummary(cf, L)}</Text> : null}
-            </Box>
-            {convOpen ? (
-              <Box flexDirection="column" marginLeft={2}>
-                {convLines(cf, L).map((t, i) => (
-                  <Text key={`cl${i}`} dimColor={i > 0} wrap="truncate-end">{t}</Text>
-                ))}
+      const buttonEls = buttons.flatMap((b, i) => {
+        const st = stampOf(b)
+        const btn = (
+          <Button
+            key={`mod-${launcherKey(b)}`}
+            {...(b.loaded ? {} : { dimColor: true })}
+            {...(b.open ? { variant: 'primary' as const } : {})}
+            onPress={() => press($, b, isWorking)}
+          >
+            {fitted.labels[i]}
+          </Button>
+        )
+        return st ? [btn, <Text key={`stamp-${launcherKey(b)}`} dimColor wrap="truncate-end">{st}</Text>] : [btn]
+      })
+      const keepOthers = jx.others_above_prompt === 'show'
+      if (inline) {
+        return (
+          <Box flexDirection="column">
+            <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap" gap={1}>
+              <Box key="jauge-figures" flexDirection="row" flexWrap="nowrap">
+                {figuresEls}
               </Box>
-            ) : null}
+              {relayEls}
+              {buttonEls}
+            </Box>
+            {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
+            {keepOthers ? (theirs ?? null) : null}
           </Box>
         )
       }
       return (
         <Box flexDirection="column">
-          {line1}
-          {line2}
-          {relayJ}
-          {row}
-          {more}
-          {theirs ?? null}
+          <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap" gap={1}>
+            <Box key="jauge-figures" flexDirection="row" flexWrap="nowrap">
+              {figuresEls}
+            </Box>
+            {relayEls}
+          </Box>
+          {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
+          <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>
+            {buttonEls}
+          </Box>
+          {keepOthers ? (theirs ?? null) : null}
         </Box>
       )
     }
