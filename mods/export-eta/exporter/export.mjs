@@ -8,6 +8,10 @@
 //        ongoing: every ongoing conversation now (snapshot); selection: --ids; batch: the pending batch.
 //        --out <dir>: write into that folder only (no git). --dry-run: render and mask, write nothing, print the plan.
 //   node export.mjs status                    last exports (JSON)
+//   node export.mjs tout [--dry-run] [--out <dir>] [--json]
+//        « Exporter tout »: dated snapshot (status, workflows, CI, usage, problems, veille, to-dos, health, audits,
+//        rules) under sources/claude-control/snapshots/<date-time>/ with an INDEX.md for an AI, plus the conversations
+//        (ongoing and finished since the last export), one PR merged. exporter/tout.mjs.
 // Options: --home <dir> (default ~/.claude/export-eta, or EXPORT_ETA_HOME), --app <dir>, --projects <dir>, --now <ms>.
 // Git flow (no --out): fetch, `git worktree add` under <eta>/.claude/worktrees/export-<date>, branch
 // export/conversations-<date-time>, commit, push, gh pr create, merge (squash) per merge policy, delete the remote
@@ -271,6 +275,12 @@ export async function runExport(cfg, o, nowMs) {
   return { ok: !git.error || (git.merged && !!git.url), ...entry }
 }
 
+const toutHelpers = {
+  build, listExisting, writeAll, loadState, pending: pendingOf, log,
+  saveState: (cfg, st) => writeJson(P(cfg).state, st),
+  takeLock, dropLock: (cfg) => { try { fs.unlinkSync(P(cfg).lock) } catch { /* gone */ } },
+}
+
 // Errors as the health record ~/.claude/mods-health/export-eta.json (lib/core/health.mjs), which Santé and the
 // Problèmes register read: one line, credentials in URLs and token-like words masked.
 export function healthText(err) {
@@ -303,6 +313,13 @@ export async function main(argv) {
     else console.log(`export-eta: ${r.ok ? 'ok' : 'échec'} · ${r.count ?? 0} exportée(s)${r.url ? ' · ' + r.url : ''}${r.merged ? ' (mergée)' : ''}${r.held && r.held.length ? ` · ${r.held.length} retenue(s)` : ''}${r.error ? ' · ' + r.error : ''}`)
     return r.ok ? 0 : 1
   }
+  if (cmd === 'tout') {
+    // loaded on demand: the veille's installed copy of this exporter (its BIN_FILES) only runs pending / run
+    const { runTout } = await import('./tout.mjs')
+    const r = await runTout(cfg, o, nowMs, toutHelpers)
+    console.log(o.json ? JSON.stringify(r) : `export-eta: ${r.line || r.error}`)
+    return r.ok ? 0 : 1
+  }
   if (cmd === 'status') {
     console.log(JSON.stringify(loadState(cfg, nowMs).history.slice(0, 10)))
     return 0
@@ -313,7 +330,7 @@ export async function main(argv) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const cmd = process.argv[2] || 'status'
-  const watched = ['list', 'pending', 'run'].includes(cmd) && !process.argv.includes('--dry-run')
+  const watched = ['list', 'pending', 'run', 'tout'].includes(cmd) && !process.argv.includes('--dry-run')
   // the last line printed (stdout or stderr) says why a run failed
   const orig = { log: console.log, error: console.error }
   let last = ''

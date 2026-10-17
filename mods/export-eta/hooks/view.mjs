@@ -25,7 +25,7 @@ export const maskedText = (m) => {
 export function historyRows(state, n = 10) {
   return ((state && state.history) || []).slice(0, n).map((h) => ({
     at: h.at, when: hm(h.at), mode: h.mode, count: h.count || 0, url: h.url || '', pr: h.pr ? `#${h.pr}` : '',
-    merged: !!h.merged, masked: maskedText(h.masked), held: (h.held || []).map((x) => x.title || x.cli), error: h.error || '', dry: !!h.dry,
+    merged: !!h.merged, files: h.files_count || 0, snapshot: h.snapshot || '', masked: maskedText(h.masked), held: (h.held || []).map((x) => x.title || x.cli), error: h.error || '', dry: !!h.dry,
     tone: h.error && !h.merged ? 'bad' : h.held && h.held.length ? 'warn' : 'ok',
   }))
 }
