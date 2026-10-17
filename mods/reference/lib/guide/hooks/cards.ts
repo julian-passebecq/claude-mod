@@ -93,12 +93,12 @@ export function cardMarkdown(c: Card): string {
   return rows.join('\n')
 }
 
-/** The whole "Nos mods" block: one card per mod, then the archived / rejected table. */
+/** The whole "Nos mods" block (a category of Avancé): one sub-section per mod, then the archived / rejected table. */
 export function modsMarkdown(cards: Card[], catalog: ModsCatalog): string {
-  const parts = ['### Fiches', ...cards.map(cardMarkdown)]
+  const parts = cards.map(cardMarkdown)
   parts.push(
     [
-      '### Archivés / rejetés',
+      '#### Archivés / rejetés',
       '',
       '| Mod | Verdict | Pourquoi |',
       '|---|---|---|',
