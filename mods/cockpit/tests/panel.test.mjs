@@ -309,8 +309,9 @@ test('micro: a click on a conversation unfolds its card, stats, contributors, lo
 
 test('micro: Quotas unfold to the Usage-like bars, Débit to its tables, Graphe to its tree; filters behind « filtres › »', () => {
   const q = panneauText(75, { open: { conv: true, convs: true, barres: true } })
-  for (const k of ['Session 5 h reset dans 2 h 10 21 %', 'Semaine reset dim 20:30 85 %', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv 852 tok/s']) assert.ok(q.includes(k), k + '\n' + q)
+  for (const k of ['Session 5 h reset dans 2 h 10 21 %', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv 852 tok/s']) assert.ok(q.includes(k), k + '\n' + q)
   assert.match(q, /\[QUOTAS\][^\n]*\[⌄\]\n {2}Session 5 h/)
+  assert.match(q, /Semaine reset .+ 85 %/) // the reset day and hour follow the local clock
   assert.doesNotMatch(panneauText(75, { open: { conv: true, convs: true, barres: true } }), /Codex semaine/)
   assert.match(panneauText(75, { who: 'codex', open: { conv: true, convs: true, barres: true } }), /Codex semaine/)
   const g = panneauText(75, { open: { conv: true, convs: true, graphe: true } })
