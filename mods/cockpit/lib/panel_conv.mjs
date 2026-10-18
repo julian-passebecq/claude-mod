@@ -9,7 +9,7 @@
 //   then the session log: the last log_max events (agent started / finished, PR opened / merged), timestamped.
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Input: factory's scan (lib/factory/scanner),
 // optionally factory's Workflow screen runs (phases, ETA, cost), nav's usageCard and the context (lib/panel.mjs).
-import { panelConfig, fill, kTok, contexteOf, activeClis, unfoldPlan, convKey } from './panel.mjs'
+import { panelConfig, fill, kTok, contexteOf, activeClis, unfoldPlan, convKey, lastProgress, liveness, liveState, durText } from './panel.mjs'
 import { titleOf, short, tokensOf, hhmm, billByModel, sumCost, family } from './factory/hooks/logic.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 
@@ -31,7 +31,7 @@ function detailOf(scan, cli) {
   return d && d.cli === cli ? d : findSession(scan, cli)
 }
 
-const LEAD_STATES = { working: 'en cours', julian: 't’attend', blocked: 'bloquée', done: 'terminée', idle: 'au repos', archived: 'archivée' }
+const LEAD_STATES = { working: 'travaille', julian: 't’attend', blocked: 'bloquée', done: 'terminée', idle: 'au repos', archived: 'archivée', stalled: 'bloquée ?' }
 const GENERIC = /^(general-purpose|agent)$/i
 
 /** An agent's label: its own label or task, never « general-purpose » when something better is known. */
@@ -90,7 +90,7 @@ const rank = (s) => (s === 'done' ? 0 : s === 'failed' ? 1 : s === 'running' ? 2
  * The model of « Cette conversation ». scan: factory's scan (detail = this conversation when possible); self: its
  * cli; fcfg: factory's config; closed: { key: bool } folded/unfolded by the viewer; extra: { runs: factory's
  * workflowScreen(...).runs, card: nav.usageCard(...), contexte: contexteOf(...), tps: this conversation's tok/s,
- * prefix: put before every fold key (another conversation's factory drawn under its row: 'cv:<cli>:', so its folds are
+ * rowCost: its row's cost in usage's classement (a fallback), prefix: put before every fold key (another conversation's factory drawn under its row: 'cv:<cli>:', so its folds are
  * its own), cardsOpen: the Workflow / background cards' default (an active conversation's start unfolded) }.
  * -> { available, lead, ctx, stats, share, contributors, cards, finished, log }.
  */
@@ -100,12 +100,15 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   const me = findSession(scan, self)
   if (!me) return { available: false, lead: null, cards: [], log: [] }
   const d = detailOf(scan, self) || me
-  const st = sessionState(me, fcfg || {}).state
+  const subs = d.subs || me.subs || []
+  // a running Workflow or agent decides: wrote within conv.stall_min → « travaille », else « bloquée ? » (Julian, 18 Oct:
+  // « au repos » next to a phase running for 1h10m)
+  const st = liveState(sessionState(me, fcfg || {}).state, liveness({ ...me, subs }, extra.runs || [], self, nowMs, cfg))
+  const leadLabel = { working: L.lead_working, stalled: L.lead_stalled }
   const lead = {
     title: titleOf(me), model: modelName(me.app_model || me.model), effort: me.app_effort || me.effort || '?',
-    state: LEAD_STATES[st] || st, live: st === 'working',
+    state: leadLabel[st] || LEAD_STATES[st] || st, stateId: st, live: st === 'working', tone: st === 'working' ? 'ok' : st === 'stalled' ? 'warn' : undefined,
   }
-  const subs = d.subs || me.subs || []
   // stats: tokens and cost of the lead with its sub-agents, cache hit, the sub-agents' share of the cost
   const maps = [me.models || {}, ...subs.map((x) => x.models || {})]
   const tokens = maps.reduce((a, mp) => a + Object.values(mp).reduce((b, v) => b + tokensOf(v || []), 0), 0)
@@ -120,7 +123,10 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   for (const [m, b] of Object.entries(bill)) fam[family(m)] = (fam[family(m)] || 0) + b.cost
   const share = card && card.session && card.session.share && card.session.share.length ? card.session.share
     : ['opus', 'sonnet', 'haiku', 'fable'].filter((f) => fam[f]).map((f) => ({ family: f, pct: total ? Math.round((100 * fam[f]) / total) : 0 }))
-  const cost = card && card.session && Number.isFinite(card.session.cost) ? card.session.cost : total || null
+  // the cost from the same price table as every other row (factory's rates over the transcripts); then the row's own
+  // figure (usage's classement), then the engine's; never $0.00 for tokens spent (Julian, 18 Oct): « — » when unknown
+  const engine = card && card.session && Number.isFinite(card.session.cost) ? card.session.cost : null
+  const cost = [total, extra.rowCost, engine].find((v) => Number.isFinite(v) && v > 0) ?? (tokens ? null : 0)
   const stats = {
     cost, tokens, cacheHit: card && card.session && card.session.cacheHit !== undefined && card.session.cacheHit !== null ? card.session.cacheHit : all ? Math.round((100 * read) / all) : null,
     subPct: total ? Math.round((100 * (total - mainCost)) / total) : null,
@@ -138,9 +144,12 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   const cards = []
   const wfIds = [...new Set(subs.filter((x) => x.workflow).map((x) => x.workflow))]
   for (const r of extra.runs || []) if (r.cli === self && r.id && !wfIds.includes(r.id)) wfIds.push(r.id)
+  const lim = Math.max(1, Number(c.conv.stall_min) || 30) * 60000
   for (const id of wfIds) {
     const run = runs.get(id) || null
     const src = run && run.agents && run.agents.length ? run.agents : subs.filter((x) => x.workflow === id)
+    // the last write of its agents (run: idle since the transcript's last line; scan: last_ts)
+    const lastAt = lastProgress([...src, ...subs.filter((x) => x.workflow === id)], nowMs)
     const agents = src.map((x) => agentRow(x, nowMs, L, fcfg))
     const key = pre + 'pfw-' + id
     const starts = agents.map((a) => a.ts).filter(Boolean)
@@ -149,8 +158,10 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const ends = agents.map((a) => a.ts + a.ms).filter(Boolean)
     const elapsed = run && run.elapsed ? run.elapsed : starts.length ? (live ? nowMs : Math.max(...ends)) - Math.min(...starts) : 0
     const est = run && run.estimate && run.estimate.enough && live ? run.estimate : null
+    const stalled = Boolean(live && lastAt && nowMs - lastAt > lim)
     cards.push({
       key, kind: 'workflow', title: fill(L.workflow, { name: (run && run.name) || names.get(id) || id }), live, elapsed,
+      stalled, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
       count: agents.length, running, tokens: agents.reduce((a, x) => a + x.tokens, 0),
       cost: run && Number.isFinite(run.cost) ? run.cost : agents.reduce((a, x) => a + x.cost, 0),
       eta: est ? hhmm(est.eta.mid).slice(0, 5) : '', failed: run ? run.status === 'failed' : agents.some((a) => a.status === 'failed'),
@@ -161,8 +172,11 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   if (plain.length) {
     const running = plain.filter((a) => a.status === 'running').length
     const starts = plain.map((a) => a.ts).filter(Boolean)
+    const lastAt = lastProgress(subs.filter((x) => !x.workflow && x.status === 'running'), nowMs)
+    const stalled = Boolean(running && lastAt && nowMs - lastAt > lim)
     cards.push({
       key: pre + 'pfw-bg', kind: 'background', title: L.background, live: running > 0,
+      stalled, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
       elapsed: starts.length ? (running ? nowMs : Math.max(...plain.map((a) => a.ts + a.ms))) - Math.min(...starts) : 0,
       count: plain.length, running, tokens: plain.reduce((a, x) => a + x.tokens, 0), cost: plain.reduce((a, x) => a + x.cost, 0), eta: '',
       failed: plain.some((a) => a.status === 'failed'), phases: phasesOf(pre + 'pfw-bg', null, plain, L, closed, max),
@@ -191,9 +205,13 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     else if (e[1] === 'tool') { const n = /\b(?:gh\s+pr\s+merge|glab\s+mr\s+merge)\s+#?(\d+)/.exec(text); if (n) log.push({ at, text: fill(L.ev_pr_merged, { n: n[1] }), tone: 'ok' }) }
   }
   log.sort((a, b) => a.at - b.at)
+  // no Workflow nor agent and a small usage: two lines (model · effort · state, the context inline) until « détails »
+  const dk = pre + 'pdetails'
+  const compactable = !cards.length && tokens < (Number(c.conv.compact_tokens) || 0)
   return {
     available: true, lead, ctx: extra.contexte || null, stats, share, contributors,
     cards: liveCards, finished, log: log.slice(-Math.max(1, Number(c.conv.log_max) || 6)),
+    compactable, compact: compactable && closed[dk] !== false, detailsKey: dk,
   }
 }
 
@@ -217,7 +235,7 @@ export { kTok }
  * conversation's Workflow cards start unfolded.
  */
 export function convFactories(input, fcfg, cfg, nowMs) {
-  const { scan, runs, syn, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf } = input || {}
+  const { scan, runs, syn, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf, autoWindow } = input || {}
   const c = panelConfig(cfg)
   const active = activeClis({ scan, runs, graphe }, fcfg, nowMs)
   // only a conversation the scan has (its transcript read) unfolds by default: the others would show « non lue »
@@ -233,9 +251,10 @@ export function convFactories(input, fcfg, cfg, nowMs) {
     if (cli === self && selfFactory) { factories[cli] = selfFactory; continue }
     const s = ((scan && scan.sessions) || []).find((x) => x.cli === cli)
     if (!s) { factories[cli] = null; continue }
+    const row = ((syn && syn.rows) || []).find((r) => r.id === cli)
     factories[cli] = convFactory(scan, cli, fcfg, cfg, nowMs, closed, {
-      runs: runs || [], prefix: convKey(cli) + ':', cardsOpen: active.has(cli), card: cardOf ? cardOf(s) : null,
-      contexte: contexteOf({ usage: null, ctxTokens: Number(s.ctx) || NaN, fwin: c.contexte.window || fwin }, cfg), tps: tpsById[cli],
+      runs: runs || [], prefix: convKey(cli) + ':', cardsOpen: active.has(cli), card: cardOf ? cardOf(s) : null, rowCost: row ? row.cost : null,
+      contexte: contexteOf({ usage: null, ctxTokens: Number(s.ctx) || NaN, fwin: c.contexte.window || fwin, auto: autoWindow }, cfg), tps: tpsById[cli],
     })
   }
   return { unfold, factories }

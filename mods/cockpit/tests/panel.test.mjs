@@ -1,7 +1,7 @@
 // node --test mods/cockpit/tests/panel.test.mjs - the Panneau's pure parts (invented fixtures only).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews, textBar, durText, dayText, unfoldPlan, convKey, activeClis } from '../lib/panel.mjs'
+import { panelConfig, foldTree, synthesis, cycle, barsOf, activeWorkflows, stateGroup, contexteOf, otherViews, textBar, durText, dayText, unfoldPlan, convKey, activeClis, liveness, effectiveWindow } from '../lib/panel.mjs'
 import { convFactory, convFactorySummary, convFactories } from '../lib/panel_conv.mjs'
 import { tabValid, parseArgs, usageCard } from '../hooks/nav.mjs'
 
@@ -274,7 +274,7 @@ test('the numbers are never cut at 45 columns: titles are', () => {
 
 test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, bars, the graph', () => {
   const text = panneauText(75)
-  for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · en cours', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
+  for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · travaille', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
     'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
     '[Merge ›] 0/1 □', 'Modèle Temps', '● Opus 5.5 20m 00s', 'coder: cockpit-claude-style · medium · 1.5M tok · 1250 tok/s', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
     '● [Lane alpha · tableau de bord ›] 3.6M ▰▰▰▰▰▰▱▱▱▱ 61 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
@@ -324,7 +324,7 @@ test('Toutes les conversations: an active conversation unfolds under its row wit
   const text = panneauText(75)
   const convs = text.slice(text.indexOf('▾ Toutes les conversations'), text.indexOf('Workflows actifs'))
   // Lane delta works (a running Workflow): unfolded, its lead card, then its Workflow card one step further in
-  assert.match(convs, /● \[Lane delta ⌄\] 800K [▰▱]+ +\d+ % \[ouvrir ↗\]\n   │ Sonnet 5\.5 · low · en cours\n/)
+  assert.match(convs, /● \[Lane delta ⌄\] 800K [▰▱]+ +\d+ % \[ouvrir ↗\]\n   │ Sonnet 5\.5 · low · travaille\n/)
   assert.match(convs, /   │ │ \[wf_2 ⌄\]\n   │ │ Workflow  2 agents/)
   assert.match(convs, /   │ │ │ ● Sonnet 5\.5 12m 00s/) // its agents under their phase, one more step in
   assert.match(convs, /   │ Coût +Tokens +Cache hit/)
@@ -398,4 +398,98 @@ test('the engine bound holds with unfold_max busy conversations unfolded in both
   walk(tree, 1)
   assert.ok(chars < 100000, `${chars} characters of text`)
   assert.ok(depth <= 32, `${depth} deep`)
+})
+
+// Julian's screenshot of 18 Oct (PR #58 state): « au repos » next to a phase running for 1h10m, $0.00 for 243K tokens,
+// « / 1.0M » here and « / 400K » elsewhere, 12 lines of empty stats for an idle conversation (invented fixtures)
+const STALL_SCAN = (lastMin) => ({ sessions: [{ cli: 'w', app_title: 'Wave lane', live: false, model: 'claude-opus-5-5', app_effort: 'medium', ctx: 90000, recent: [],
+  models: { 'claude-opus-5-5': [1000, 0, 0, 0, 0, 1] },
+  subs: [{ id: 'w1', type: 'coder', desc: 'release', workflow: 'wf_s', model: 'claude-opus-5-5', status: 'running', ts: new Date(NOW - 80 * 60000).toISOString(), last_ts: new Date(NOW - lastMin * 60000).toISOString(), models: { 'claude-opus-5-5': [500, 0, 0, 0, 0, 1] } }] }] })
+const STALL_RUN = (lastMin) => [{ id: 'wf_s', cli: 'w', name: 'Preview release', live: true, status: 'running', elapsed: 80 * 60000,
+  agents: [{ id: 'w1', label: 'coder', phase: 'Preview release', model: 'claude-opus-5-5', status: 'running', start: NOW - 80 * 60000, idle: lastMin * 60000, durMs: 80 * 60000, tokens: 500, cost: 0 }],
+  phases: [{ title: 'Preview release', status: 'running', agents: [{ id: 'w1' }] }] }]
+
+test('a running Workflow that wrote nothing for 30 min: card « à l’arrêt ? », conversation « bloquée ? »; written recently: « travaille »', () => {
+  const stuck = convFactory(STALL_SCAN(70), 'w', {}, {}, NOW, {}, { runs: STALL_RUN(70) })
+  assert.equal(stuck.lead.stateId, 'stalled')
+  assert.equal(stuck.lead.state, 'bloquée ?')
+  assert.equal(stuck.lead.tone, 'warn')
+  assert.equal(stuck.cards[0].stalled, true)
+  assert.equal(stuck.cards[0].stalledText, 'à l’arrêt ? rien d’écrit depuis 1h 10m')
+  const moving = convFactory(STALL_SCAN(5), 'w', {}, {}, NOW, {}, { runs: STALL_RUN(5) })
+  assert.equal(moving.lead.state, 'travaille')
+  assert.equal(moving.lead.live, true)
+  assert.equal(moving.cards[0].stalled, false)
+  assert.equal(liveness(STALL_SCAN(70).sessions[0], STALL_RUN(70), 'w', NOW, {}).state, 'stalled')
+  assert.equal(liveness(STALL_SCAN(70).sessions[0], STALL_RUN(70), 'w', NOW, { panel: { conv: { stall_min: 90 } } }).state, 'working')
+  assert.equal(liveness({ subs: [] }, [], 'w', NOW, {}), null)
+  // the same state in « Toutes les conversations »
+  const data = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { w: { t: 'Wave lane', p: 'proj-one' } }, rows: [R(0, 'w', 1000, 1)] }
+  const row = (min) => synthesis(data, STALL_SCAN(min), null, { period: 'today', runs: STALL_RUN(min) }, {}, NOW).rows[0]
+  assert.deepEqual([row(70).mark, row(70).stateLabel], ['stalled', 'bloquée ?'])
+  assert.deepEqual([row(5).mark, row(5).state], ['working', 'running'])
+  assert.equal(synthesis(data, STALL_SCAN(70), null, { period: 'today' }, {}, NOW).rows[0].mark, 'idle') // without the runs: the scan alone
+})
+
+test('cost: the price table over the transcripts, then the row, then the engine; never $0.00 for tokens spent', () => {
+  const s = { cli: 'me', app_title: 'Lead', live: true, model: 'claude-opus-5-5', models: { 'claude-opus-5-5': [200000, 43000, 0, 0, 0, 3] } }
+  const scan = { sessions: [s] }
+  const engineZero = { session: { cost: 0 } }
+  assert.equal(convFactory(scan, 'me', {}, {}, NOW, {}, { card: engineZero }).stats.cost, null) // drawn « — »
+  assert.equal(convFactory(scan, 'me', {}, {}, NOW, {}, { card: engineZero, rowCost: 3.2 }).stats.cost, 3.2)
+  assert.equal(convFactory(scan, 'me', {}, {}, NOW, {}, { card: { session: { cost: 4.5 } } }).stats.cost, 4.5)
+  const priced = convFactory(scan, 'me', PFCFG, {}, NOW, {}, { card: engineZero }).stats.cost
+  assert.ok(Math.abs(priced - (200000 * 5 + 43000 * 25) / 1e6) < 1e-9, String(priced)) // the same rates as every other row
+  assert.equal(convFactory({ sessions: [{ ...s, models: {} }] }, 'me', {}, {}, NOW, {}, { card: engineZero }).stats.cost, 0) // nothing spent
+})
+
+test('context: one effective window for every conversation (CLAUDE_CODE_AUTO_COMPACT_WINDOW), the same label', () => {
+  const engine = { context: { window: 1000000, tokens: 82000, percent: 8.2 } }
+  const here = contexteOf({ usage: engine, ctxTokens: 82000, fwin: 400000, auto: 400000 }, {})
+  assert.equal(here.window, 400000)
+  assert.equal(here.detail, '82K / 400K · relais 250K')
+  assert.equal(Math.round(here.pct), 21) // 82 K of 400 K, not the engine's 8 % of 1 M
+  assert.equal(effectiveWindow({}, 400000, 1000000, 200000), 400000)
+  assert.equal(effectiveWindow({}, 0, 1000000, 400000), 1000000)
+  assert.equal(effectiveWindow({}, 0, null, 400000), 400000)
+  assert.equal(effectiveWindow({ panel: { contexte: { window: 300000 } } }, 400000, 1000000, 400000), 300000)
+  // the other conversations under their rows: the same window and label
+  const view = panneauView(75)
+  const under = convFactories({ scan: PSCAN, runs: [], syn: view.panel.syn, graphe: null, self: 'lead', closed: { 'cv:d': false }, autoWindow: 500000, cardOf: (s) => usageCard(null, s, PFCFG, NOW) }, { context_window: 400000 }, {}, NOW)
+  assert.equal(under.factories.d.ctx.window, 500000)
+  assert.equal(under.factories.d.ctx.detail, '60K / 500K · relais 250K')
+})
+
+test('a conversation with no Workflow nor agent and little spent: two lines until « détails », then the full card', () => {
+  const s = { cli: 'q', app_title: 'Quiet lane', live: false, model: 'claude-sonnet-5-5', app_effort: 'low', ctx: 12000, recent: [], models: { 'claude-sonnet-5-5': [3000, 300, 0, 0, 0, 1] } }
+  const ctx = contexteOf({ ctxTokens: 12000, fwin: 400000 }, {})
+  const m = convFactory({ sessions: [s] }, 'q', {}, {}, NOW, {}, { contexte: ctx, prefix: 'cv:q:' })
+  assert.equal(m.compactable, true)
+  assert.equal(m.compact, true)
+  assert.equal(m.detailsKey, 'cv:q:pdetails')
+  assert.equal(convFactory({ sessions: [s] }, 'q', {}, {}, NOW, { 'cv:q:pdetails': false }, { contexte: ctx, prefix: 'cv:q:' }).compact, false)
+  assert.equal(convFactory({ sessions: [{ ...s, models: { 'claude-sonnet-5-5': [300000, 0, 0, 0, 0, 1] } }] }, 'q', {}, {}, NOW, {}, { contexte: ctx }).compactable, false) // a big one keeps its card
+  assert.equal(convFactory(FSCAN, 'me', {}, {}, NOW).compactable, false) // a Workflow keeps its card
+  // drawn: Lane beta (nothing running, nothing spent) unfolded under its row is two lines, no stats grid
+  const text = panneauText(75)
+  assert.match(text, /◆ \[Lane beta ⌄\][^\n]*\n   │ [^\n]*t’attend \[détails ›\]\n   │ contexte non lu\n\n/)
+  const beta = text.slice(text.indexOf('[Lane beta ⌄]'), text.indexOf('[Lane delta'))
+  assert.doesNotMatch(beta, /Cache hit|Coût|aucun Workflow/)
+  const full = panneauText(75, { closed: { 'cv:b:pdetails': false } })
+  const betaFull = full.slice(full.indexOf('[Lane beta ⌄]'), full.indexOf('[Lane delta'))
+  assert.match(betaFull, /\[détails ⌄\][\s\S]*Cache hit/)
+})
+
+test('stats grid: fixed equal columns, every label over its value; « Ce qui contribue » on thin bars; ⚠ past the hand-off', () => {
+  const text = panneauText(75)
+  const lines = text.split('\n')
+  const i = lines.findIndex((l) => /Coût +Tokens +Cache hit/.test(l))
+  assert.ok(i > 0, text)
+  const starts = (l) => [...l.matchAll(/(?:^|\s{2,})(\S)/g)].map((x) => x.index + x[0].length - 1)
+  for (const [a, b] of [[i, i + 1], [i + 2, i + 3]]) assert.deepEqual(starts(lines[a]), starts(lines[b]), lines[a] + '\n' + lines[b])
+  assert.match(text, /fil principal +▰+▱* +\d+ %/)
+  const data = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { w: { t: 'Wave lane', p: 'proj-one' } }, rows: [R(0, 'w', 1000, 1)] }
+  const big = { sessions: [{ ...STALL_SCAN(5).sessions[0], ctx: 300000 }] }
+  assert.equal(synthesis(data, big, null, { period: 'today' }, {}, NOW).rows[0].over, true)
+  assert.equal(synthesis(data, STALL_SCAN(5), null, { period: 'today' }, {}, NOW).rows[0].over, false)
 })

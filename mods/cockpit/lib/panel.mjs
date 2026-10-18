@@ -31,6 +31,9 @@ export const PANEL_DEFAULTS = {
   marks: {
     working: { glyph: '●', tone: 'ok' }, waiting: { glyph: '◆', tone: 'warn' }, blocked: { glyph: '✕', tone: 'bad' },
     done: { glyph: '✓', tone: 'dim' }, idle: { glyph: '○', tone: 'dim' }, archived: { glyph: '·', tone: 'dim' },
+    // a running Workflow / agent that wrote nothing for conv.stall_min minutes (Julian, 18 Oct: « au repos » next to a
+    // phase running for 1h10m): « bloquée ? », amber
+    stalled: { glyph: '✕', tone: 'warn' },
   },
   // the look: bar_px = px per column of a bar drawn as Svg (desktop); bar_cells = cells of the short bars of a compact row
   // (narrow under wide_cols columns, wide above); finished_open = « Terminés N › » starts unfolded; workflow_open = a
@@ -58,7 +61,7 @@ export const PANEL_DEFAULTS = {
     basis: 'tokens',
     who: 'claude',
     // the scan's states grouped in three: en cours, t'attend (waiting on Julian or blocked), terminée (the rest)
-    states: { working: 'running', julian: 'waiting', blocked: 'waiting', done: 'done', idle: 'done', archived: 'done' },
+    states: { working: 'running', julian: 'waiting', blocked: 'waiting', stalled: 'waiting', done: 'done', idle: 'done', archived: 'done' },
     last_max: 90,
     // each conversation row of « Toutes les conversations » and of the graph unfolds UNDER itself to its own factory
     // (lead card, Workflow cards, background agents, Terminés N ›), drawn as « Cette conversation » (Julian, 18 Oct).
@@ -67,10 +70,13 @@ export const PANEL_DEFAULTS = {
     unfold_max: 6,
   },
   // « Cette conversation »: agents_max per card, log_max = events of the session log, contributors = rows of « Ce qui
-  // contribue »
-  conv: { agents_max: 12, log_max: 6, contributors: 3 },
-  // the lead's context bar: the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K); window: null = factory's
-  // context_window; bar_width = cells of the text bar (a surface without Svg)
+  // contribue »; stall_min = a running Workflow / agent with no journal or transcript write for that long is « à l'arrêt ? »
+  // and its conversation « bloquée ? » (written recently: the conversation « travaille »); compact_tokens = a conversation
+  // with no Workflow nor agent and fewer tokens draws two lines (model · effort · state, context inline) until « détails »
+  conv: { agents_max: 12, log_max: 6, contributors: 3, stall_min: 30, compact_tokens: 100000 },
+  // the lead's context bar: the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K); window: null = the effective
+  // window (CLAUDE_CODE_AUTO_COMPACT_WINDOW when set, else the engine's, else factory's context_window), the same for every
+  // conversation; bar_width = cells of the text bar (a surface without Svg)
   contexte: { handoff_tokens: 250000, window: null, bar_width: 40 },
   barres: { width: 140, workflows_max: 8, agents_max: 12 },
   // 5. Graphe des conversations (lib/graphe.mjs): period = default time filter (24h | 7j | tout); working_min = minutes
@@ -160,6 +166,13 @@ export const PANEL_DEFAULTS = {
     contributing: 'Ce qui contribue',
     agent_states: { running: 'en cours', done: 'terminé', failed: 'échec', stopped: 'arrêté' },
     no_layer: 'aucun Workflow ni agent dans cette conversation',
+    lead_working: 'travaille',
+    lead_stalled: 'bloquée ?',
+    card_stalled: 'à l’arrêt ? rien d’écrit depuis {age}',
+    stalled: 'bloquée ?',
+    details: 'détails',
+    ctx_inline: 'ctx {pct} % · {tokens} / {window}',
+    handoff_mark: '⚠',
     log: 'Journal de la session',
     log_none: 'rien encore',
     ev_start: '▶ {agent} démarré',
@@ -290,19 +303,20 @@ export function dayText(ms, cfg) {
 
 /**
  * The lead's context: usage: $.session.usage() (its context, when the engine gives it); ctxTokens: the scan's context
- * of this conversation; fwin: factory's context_window (window: panel.contexte.window, else the engine's, else fwin).
+ * of this conversation; fwin: factory's context_window; auto: CLAUDE_CODE_AUTO_COMPACT_WINDOW (effectiveWindow()).
  * -> { known, pct, tokens, window, threshold, markPct, over, bar, text, detail, note }. bar: the text bar with the
  * hand-off threshold marked; the Svg one is drawn from pct and markPct.
  */
-export function contexteOf({ usage, ctxTokens, fwin }, cfg) {
+export function contexteOf({ usage, ctxTokens, fwin, auto }, cfg) {
   const c = panelConfig(cfg)
   const L = c.labels
   const q = c.contexte
   const u = (usage && usage.context) || {}
-  const window = Number(q.window) || Number(u.window) || Number(fwin) || 400000
+  const window = effectiveWindow(cfg, auto, u.window, fwin)
   const threshold = Number(q.handoff_tokens) || 250000
   const tok = [u.tokens, u.usedTokens, u.used, ctxTokens].find((x) => Number.isFinite(x) && x > 0)
-  const pct = Number.isFinite(u.percent) ? u.percent : Number.isFinite(tok) ? (100 * tok) / window : null
+  // tokens over the effective window first: the engine's percent is against its own window
+  const pct = Number.isFinite(tok) ? (100 * tok) / window : Number.isFinite(u.percent) && !Number(auto) && !Number(q.window) ? u.percent : null
   const markPct = Math.min(100, (100 * threshold) / window)
   if (pct === null) return { known: false, pct: null, tokens: null, window, threshold, markPct, over: false, bar: '', text: L.ctx_none, detail: '', note: '' }
   const tokens = Number.isFinite(tok) ? tok : Math.round((pct / 100) * window)
@@ -314,6 +328,15 @@ export function contexteOf({ usage, ctxTokens, fwin }, cfg) {
     detail: fill(L.ctx_detail, { tokens: kTok(tokens), window: kTok(window), threshold: kTok(threshold) }),
     note: over ? fill(L.ctx_over, { threshold: kTok(threshold) }) : fill(L.ctx_left, { threshold: kTok(threshold), left: kTok(threshold - tokens) }),
   }
+}
+
+/**
+ * The context window every conversation is measured against (Julian, 18 Oct: this one read « / 1.0M », the others
+ * « / 400K »): panel.contexte.window, else CLAUDE_CODE_AUTO_COMPACT_WINDOW (auto) when set, else the engine's, else
+ * factory's context_window, else 400 K.
+ */
+export function effectiveWindow(cfg, auto, engine, fwin) {
+  return Number(panelConfig(cfg).contexte.window) || Number(auto) || Number(engine) || Number(fwin) || 400000
 }
 
 export function fill(tpl, vars) {
@@ -339,6 +362,63 @@ export function foldTree(rows, closed = {}) {
   return out
 }
 
+// ---- a running Workflow / agent that stopped writing ------------------------------------------------------------------
+
+const msOf = (v) => (!v ? 0 : typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : Date.parse(v) || 0)
+
+/**
+ * The last write of a set of agents (factory's Workflow screen agents: start, end, idle = ms since their transcript's
+ * last line; or the scan's subs: ts, last_ts). 0 when nothing is known.
+ */
+export function lastProgress(agents, nowMs) {
+  let t = 0
+  for (const a of agents || []) {
+    if (!a) continue
+    const idle = Number.isFinite(a.idle) ? nowMs - a.idle : 0
+    t = Math.max(t, idle, msOf(a.last_ts), msOf(a.end), msOf(a.start), msOf(a.ts))
+  }
+  return t
+}
+
+/**
+ * Is a conversation's running work moving? session: its scan row (subs); runs: factory's Workflow screen runs.
+ * -> null (nothing running) | { state: 'working' | 'stalled', lastAt, stalledMs }. Each live Workflow run and the running
+ * agents outside one are groups; the conversation works when one group wrote within conv.stall_min minutes, else it is
+ * « bloquée ? ». A group whose progress is unknown counts as working.
+ */
+export function liveness(session, runs, cli, nowMs, cfg) {
+  const lim = Math.max(1, Number(panelConfig(cfg).conv.stall_min) || 30) * 60000
+  const subs = ((session && session.subs) || []).filter(Boolean)
+  const live = (runs || []).filter((r) => r && r.live && r.cli === cli)
+  const groups = []
+  for (const r of live) {
+    const ids = new Set((r.agents || []).map((a) => a.id))
+    groups.push(lastProgress([...(r.agents || []), ...subs.filter((a) => ids.has(a.id) || a.workflow === r.id)], nowMs))
+  }
+  const liveIds = new Set(live.map((r) => r.id))
+  const byWf = new Map()
+  for (const a of subs) {
+    if (a.status !== 'running' || liveIds.has(a.workflow)) continue
+    const k = a.workflow || ''
+    byWf.set(k, [...(byWf.get(k) || []), a])
+  }
+  for (const list of byWf.values()) groups.push(lastProgress(list, nowMs))
+  if (!groups.length) return null
+  const fresh = groups.some((t) => !t || nowMs - t <= lim)
+  const lastAt = Math.max(...groups)
+  return { state: fresh ? 'working' : 'stalled', lastAt, stalledMs: lastAt ? nowMs - lastAt : 0 }
+}
+
+/**
+ * The scan state corrected by liveness(): an idle or done conversation whose Workflow / agents run « travaille » when
+ * they wrote recently, else is « bloquée ? » (stalled). A wait on Julian, a block or an archive stay as they are.
+ */
+export function liveState(st, live) {
+  if (!live || !['idle', 'done', 'working'].includes(st)) return st
+  if (st === 'working') return st
+  return live.state === 'stalled' ? 'stalled' : 'working'
+}
+
 // ---- 3. Toutes les conversations ---------------------------------------------------------------------------------------
 
 const HOUR = 3600000
@@ -358,7 +438,7 @@ function lastLine(s) {
 
 /** A scan state (factory's sessionState) as one of panel.marks: working | waiting | blocked | done | idle | archived. */
 export function markOf(state) {
-  return { working: 'working', julian: 'waiting', blocked: 'blocked', done: 'done', idle: 'idle', archived: 'archived' }[state] || 'idle'
+  return { working: 'working', julian: 'waiting', blocked: 'blocked', stalled: 'stalled', done: 'done', idle: 'idle', archived: 'archived' }[state] || 'idle'
 }
 
 const clipText = (t, n) => {
@@ -368,7 +448,9 @@ const clipText = (t, n) => {
 
 /**
  * The synthesis table. data: usage's classement.json; scan: factory's scan (state, last line, project of the
- * conversations it knows); codex: usage's codex.json. f: { period, project, state, who }.
+ * conversations it knows); codex: usage's codex.json. f: { period, project, state, who, runs }. runs: factory's
+ * Workflow screen runs: an idle conversation whose Workflow runs « travaille », or « bloquée ? » when it stopped writing
+ * (liveness()). A row past the hand-off threshold (the scan's ctx) gets over: true.
  * Returns { rows, others, total, projects, period, periods, tps, hasData }.
  * rows: [{ id, label, project, state, mark (panel.marks key), stateLabel, tokens, cost, tps, last }], biggest consumer first (basis).
  */
@@ -398,10 +480,12 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const tpsOf = new Map(hour.rows.map((x) => [x.key, tokensOf(x.v) / secs]))
   const all = r.rows.map((x) => {
     const s = sessions.get(x.id)
-    const st = s ? sessionState(s, f.fcfg || {}).state : 'done'
+    const st = s ? liveState(sessionState(s, f.fcfg || {}).state, f.runs ? liveness(s, f.runs, x.id, nowMs, cfg) : null) : 'done'
     const g = stateGroup(st, cfg)
     return {
-      id: x.id, sid: (s && s.sid) || '', label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g, stateLabel: L.states[g] || g, mark: s ? markOf(st) : 'idle',
+      id: x.id, sid: (s && s.sid) || '', label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g,
+      stateLabel: st === 'stalled' ? L.stalled : L.states[g] || g, mark: s ? markOf(st) : 'idle',
+      over: Boolean(s && Number(s.ctx) >= (Number(c.contexte.handoff_tokens) || 250000)),
       tokens: tokensOf(x.v), cost: x.v[7], tps: tpsOf.get(x.id) || 0, last: clipText(s ? lastLine(s) : '', q.last_max),
     }
   })

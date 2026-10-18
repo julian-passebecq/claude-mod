@@ -28,7 +28,7 @@ import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sect
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
-import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf } from '../lib/panel.mjs'
+import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf, effectiveWindow } from '../lib/panel.mjs'
 import { convFactory, convFactories } from '../lib/panel_conv.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
@@ -477,29 +477,35 @@ function panelView(now) {
   const F = D.F
   const fr = filesRows(F, (pc.fichiers.max_rows || 30) + D.fLimit)
   const f = D.pf
-  const syn = synthesis(D.consoData, D.scan, D.codexData, { ...f, fcfg: FCFG || {} }, CFG || {}, now)
-  const claudeAll = f.who === 'codex' || f.project || f.state ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '' }, CFG || {}, now) : syn
-  const tps = claudeAll.tps
   let wfScreen = null
   try { wfScreen = D.wfAll ? workflowScreen(D.wfAll, FCFG || {}, now) : null } catch { wfScreen = null }
+  const runs = (wfScreen && wfScreen.runs) || []
+  // one context window for every conversation: CLAUDE_CODE_AUTO_COMPACT_WINDOW when set (Julian, 18 Oct: « / 1.0M » here,
+  // « / 400K » elsewhere), else the engine's for this one, else factory's
+  const ctxWindow = effectiveWindow(CFG || {}, D.autoWindow, D.usageRaw && D.usageRaw.context && D.usageRaw.context.window, (FCFG || {}).context_window)
+  const fcfgW = { ...(FCFG || {}), context_window: ctxWindow }
+  const syn = synthesis(D.consoData, D.scan, D.codexData, { ...f, fcfg: FCFG || {}, runs }, CFG || {}, now)
+  const claudeAll = f.who === 'codex' || f.project || f.state ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '', runs }, CFG || {}, now) : syn
+  const tps = claudeAll.tps
   // Cette conversation: the lead's Usage-like card and one Background-tasks-like card per Workflow / background agents
   const me = D.scan && D.self ? findSession(D.scan, D.self) : null
   const card = usageCard(D.usageRaw, me, FCFG || {}, now)
-  const contexte = contexteOf({ usage: D.usageRaw, ctxTokens: me ? me.ctx : NaN, fwin: (FCFG || {}).context_window }, CFG || {})
+  const contexte = contexteOf({ usage: D.usageRaw, ctxTokens: me ? me.ctx : NaN, fwin: (FCFG || {}).context_window, auto: ctxWindow }, CFG || {})
+  const selfRow = (claudeAll.rows || []).find((r) => r.id === D.self)
   const factory = D.scan && D.self ? convFactory(D.scan, D.self, FCFG || {}, CFG || {}, D.at || now, D.pclosed,
-    { runs: (wfScreen && wfScreen.runs) || [], card, contexte, tps: (claudeAll.tpsById || {})[D.self] }) : null
+    { runs, card, contexte, tps: (claudeAll.tpsById || {})[D.self], rowCost: selfRow ? selfRow.cost : null }) : null
   let graphe = null
   try {
-    graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: (wfScreen && wfScreen.runs) || [], conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
+    graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: runs, conso: D.consoData, fcfg: fcfgW, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
   } catch { graphe = null }
   // each conversation row unfolds under itself to its own factory; the active ones start unfolded (Julian, 18 Oct)
   let under = { unfold: new Set(), factories: {} }
   try {
-    under = convFactories({ scan: D.scan, runs: (wfScreen && wfScreen.runs) || [], syn, graphe, self: D.self, selfFactory: factory, closed: D.pclosed,
+    under = convFactories({ scan: D.scan, runs, syn, graphe, self: D.self, selfFactory: factory, closed: D.pclosed, autoWindow: ctxWindow,
       tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now) }, FCFG || {}, CFG || {}, D.at || now)
   } catch { /* rows stay folded */ }
   return {
-    unfold: under.unfold, convFactories: under.factories, link: depuisConfig(CFG || {}).session_link,
+    unfold: under.unfold, convFactories: under.factories, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
@@ -748,6 +754,8 @@ export function register(on, opts) {
   on('session.start', async ($, e, next) => {
     try { D.self = await $.session.id() } catch { D.self = null }
     try { D.engine = ((await $.session.version()) || {}).version || '' } catch { D.engine = '' }
+    // the auto-compact window every context bar is measured against (lib/panel.mjs effectiveWindow)
+    try { D.autoWindow = Number(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) || 0 } catch { D.autoWindow = 0 }
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     if (D.tab === 'panneau' && panelConfig(CFG).enabled === false) D.tab = 'home'

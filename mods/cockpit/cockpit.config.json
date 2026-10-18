@@ -5,7 +5,7 @@
     "order": ["fichiers", "conv", "convs", "barres", "debit", "graphe"],
     "open": ["conv", "convs", "barres", "debit", "graphe"],
     "fichiers": { "attach_selection": true, "max_rows": 30, "more_step": 30, "show_hidden": false, "git": true },
-    "conv": { "agents_max": 12, "log_max": 6, "contributors": 3 },
+    "conv": { "agents_max": 12, "log_max": 6, "contributors": 3, "stall_min": 30, "compact_tokens": 100000 },
     "contexte": { "handoff_tokens": 250000, "window": null, "bar_width": 40 },
     "convs": { "period": "today", "top": 15, "basis": "tokens", "who": "claude", "unfold_max": 6 },
     "barres": { "width": 140, "workflows_max": 8, "agents_max": 12 },
