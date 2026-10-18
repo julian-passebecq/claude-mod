@@ -6,10 +6,13 @@
 //   ▸ Fichiers                 filetree's tree (hooks/files.mjs), folded by default
 //   ▾ Cette conversation       lead card (Usage-like), one card per Workflow / background agents (folded: Claude's mini
 //                              card with one dot per agent; unfolded: phases, each a « Modèle | Temps » table), Terminés N ›, log
-//   ▾ Toutes les conversations filters, compact rows (dot, title, tokens, bar, %), Workflows actifs
+//   ▾ Toutes les conversations one filter row (« aujourd'hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »), one line per
+//                              conversation (state mark, title, tokens, thin bar, %), Workflows actifs (name, dots, › only)
 //   ▾ Barres                   Session 5 h, Semaine, Codex, Crédits cloud (« 249 $ sur 250 $ », expire le …), tok/s
 //   ▾ Graphe des conversations À toi de cliquer, filters, projects → conversations (hooks/graphe_view.mjs)
-//   then one grey line: the old views and their /cockpit commands
+//   then one grey line, cut: the old views and their /cockpit commands
+// State marks and colours (panel.marks, Julian 18 Oct): ● travaille green, ◆ t'attend amber, ✕ bloquée red, ✓ finie
+// and ○ inactive grey, the same in « Toutes les conversations », the graph and its legend.
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok } from '../lib/panel.mjs'
 import { convFactorySummary, modelName } from '../lib/panel_conv.mjs'
@@ -35,7 +38,7 @@ export function drawPanel(h, P) {
   const u = ui(h, P, c, width)
   const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, graphe: drawGrapheSection }
   const out = c.order.map((id) => parts[id](u, P, L, width)).filter(Boolean)
-  if (P.otherViews) out.push(h.T(P.otherViews, { dim: true, key: 'p-other-views' }))
+  if (P.otherViews) out.push(h.T(clip(P.otherViews, width), { dim: true, wrap: 'truncate-end', key: 'p-other-views' }))
   return out
 }
 
@@ -64,7 +67,7 @@ function ui(h, P, c, width) {
   const bar = (pct, key, o = {}) => {
     const cells = o.cells || W
     const color = colors[o.tone || 'usage'] || colors.usage || '#2f81f7'
-    const s = h.svg(meterSvg(pct, { width: Math.round(cells * (Number(st.bar_px) || 7)), color, track: colors.track, mark: o.mark, markColor: colors.warn }), `${Math.round(pct)} %`, key)
+    const s = h.svg(meterSvg(pct, { width: Math.max(40, Math.round(cells * (Number(st.bar_px) || 7))), color, track: colors.track, mark: o.mark, markColor: colors.warn }), `${Math.round(pct)} %`, key)
     return s || h.T(textBar(pct, cells, P.cfg, o.mark), { tone: o.tone || 'running', key })
   }
   // a stats grid: cells [{ label, value }], `per` per row, each a grey label over a bold value
@@ -175,7 +178,7 @@ function leadCard(u, P, L, m) {
   const x = m.ctx
   const kids = [
     u.title(lead.title, 'pl-title'),
-    h.T([lead.model, lead.effort, lead.state].filter(Boolean).join(' · '), { dim: !lead.live, tone: lead.live ? 'running' : undefined, wrap: 'truncate-end', key: 'pl-meta' }),
+    h.T([lead.model, lead.effort, lead.state].filter(Boolean).join(' · '), { dim: !lead.live, tone: lead.live ? 'ok' : undefined, wrap: 'truncate-end', key: 'pl-meta' }),
   ]
   if (x && x.known) {
     const tone = x.over ? 'bad' : x.pct >= 50 ? 'warn' : undefined
@@ -253,7 +256,7 @@ function tableHead(u, L, key, indent) {
 function agentLines(u, L, a, key, indent) {
   const { h } = u
   const mark = a.status === 'running' ? '●' : a.status === 'failed' ? '✕' : a.status === 'done' ? '✓' : '○'
-  const tone = a.status === 'running' ? 'warn' : a.status === 'failed' ? 'bad' : a.status === 'done' ? 'ok' : undefined
+  const tone = a.status === 'running' ? 'ok' : a.status === 'failed' ? 'bad' : a.status === 'done' ? 'ok' : undefined
   const w = u.W - indent
   const time = a.ms ? durText(a.ms) : ''
   const nums = [`${kTok(a.tokens)} tok`, a.tps !== null && a.tps !== undefined ? `${tpsText(a.tps)} tok/s` : ''].filter(Boolean)
@@ -285,26 +288,33 @@ function drawConvs(u, P, L, width) {
   const summary = s && s.hasData ? `${s.period.label} · ${fmtTokens(s.total.tokens)} tok${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}${s.rows[0] ? ' · ' + clip(s.rows[0].label, 24) : ''}` : ''
   return section(u, P, 'convs', L.convs, summary, () => {
     const out = []
-    out.push(h.row((s ? s.periods : []).map((p) => h.btn(p.label, () => P.act.pfilter('period', p.id), s.period.id === p.id, 'pf-period-' + p.id)), { key: 'pf-periods', alignItems: 'center' }))
+    // one compact row: each button cycles its filter (the period through panel.convs.periods)
+    const periods = s ? s.periods : []
+    const pi = periods.findIndex((p) => s && p.id === s.period.id)
+    const nextPeriod = periods.length ? periods[(pi + 1) % periods.length].id : ''
     out.push(h.row([
-      h.btn(`${L.project} : ${f.project || L.all_projects}`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
-      h.btn(`${L.state} : ${f.state ? L.states[f.state] : L.all_states}`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
-      h.btn(f.who === 'codex' ? L.who_codex : L.who_claude, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
-    ], { key: 'pf-row2', alignItems: 'center', marginBottom: 1 }))
+      s && s.period ? h.btn(`${s.period.label} ▾`, () => P.act.pfilter('period', nextPeriod), false, 'pf-period') : null,
+      h.btn(`${clip(f.project || L.project, 16)} ▾`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
+      h.btn(`${f.state ? L.states[f.state] : L.state} ▾`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
+      h.btn(`${f.who === 'codex' ? L.who_codex : L.who_claude} ▾`, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
+    ], { key: 'pf-row', alignItems: 'center', marginBottom: 1 }))
     if (!s || !s.hasData) out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' }))
     else if (!s.rows.length) out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' }))
     else {
       const wide = width >= (Number(c.style.wide_cols) || 60)
       const cells = wide ? Number(c.style.bar_cells_wide) || 10 : Number(c.style.bar_cells) || 6
-      const dot = { running: '●', waiting: '◆', done: '○' }
-      const tone = { running: 'running', waiting: 'warn' }
       const tot = s.total.tokens || 1
+      // one line per conversation: mark, title (cut), tokens, the thin bar of Barres (Svg on the desktop), %
       s.rows.forEach((r, i) => {
         const pct = Math.round((100 * r.tokens) / tot)
-        const right = `${fmtTokens(r.tokens)}${wide && r.cost !== null ? ' · ' + fmtUsd(r.cost) : ''} ${textBar(pct, cells, P.cfg)} ${String(pct).padStart(2)} %`
-        out.push(u.line(r.label, '', right, { key: 'pc-' + i, boldValue: false,
-          leftEl: h.row([h.T(dot[r.state] || '○', { tone: tone[r.state], dim: !tone[r.state] }), h.T(clip(r.label, Math.max(4, u.W - len(right) - 4)), { bold: r.state !== 'done', dim: r.state === 'done', wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1 }) }))
-        if (r.state === 'waiting' && r.last) out.push(h.T(clip(`  ${r.last}`, u.W).replace(/^ +/, (x) => String.fromCharCode(160).repeat(x.length)), { tone: 'warn', wrap: 'truncate-end', key: 'pcm-' + i }))
+        const mk = c.marks[r.mark] || c.marks.idle
+        const tok = fmtTokens(r.tokens)
+        const pctText = `${String(pct).padStart(2)} %`
+        const room = Math.max(4, u.W - len(tok) - cells - len(pctText) - 6)
+        out.push(h.row([
+          h.row([h.T(mk.glyph, { tone: mk.tone === 'dim' ? undefined : mk.tone, dim: mk.tone === 'dim' }), h.T(clip(r.label, room), { bold: r.state !== 'done', dim: r.state === 'done', wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1 }),
+          h.row([h.T(tok, { dim: true }), u.bar(pct, 'pcb-' + i, { cells }), h.T(pctText, { bold: true })], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
+        ], { key: 'pc-' + i, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
       })
       if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
       out.push(u.line(L.total, s.period.label, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', bold: true }))
@@ -314,7 +324,8 @@ function drawConvs(u, P, L, width) {
   }, width)
 }
 
-// Workflows actifs of every conversation: one Background-tasks row each, unfolding to its agents
+// Workflows actifs of every conversation: the name as plain text, the agent dots right-aligned, the fold arrow alone a
+// button; unfolded, its agents
 function workflowsBody(u, P, L) {
   const { h } = u
   const wfs = P.workflows || []
@@ -322,10 +333,11 @@ function workflowsBody(u, P, L) {
   if (!wfs.length) out.push(h.T(L.no_workflows, { dim: true, key: 'pw-none' }))
   for (const w of wfs) {
     const open = Boolean(P.open[w.key])
-    const right = `${w.running}/${w.count}`
+    const nums = `${kTok(w.tokens)} ${w.running}/${w.count}`
+    const nd = Math.min(w.agents.length, 10)
     out.push(h.row([
-      h.btn(`${clip(w.name, Math.max(8, u.W - len(right) - Math.min(w.agents.length, 10) - 14))} ${open ? '⌄' : '›'}`, () => P.act.ptoggle(w.key), false, 'pw-' + w.key),
-      h.row([h.T(`${kTok(w.tokens)}`, { dim: true }), h.T(right, { dim: true }), u.dots(w.agents.map((a) => (a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'done' ? 'done' : 'waiting')), 'pwd-' + w.key, 10)], { flexWrap: 'nowrap', gap: 1 }),
+      h.row([h.btn(open ? '⌄' : '›', () => P.act.ptoggle(w.key), false, 'pw-' + w.key), h.T(clip(w.name, Math.max(6, u.W - len(nums) - nd - 10)), { wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
+      h.row([h.T(nums, { dim: true }), u.dots(w.agents.map((a) => (a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'done' ? 'done' : 'waiting')), 'pwd-' + w.key, 10)], { flexWrap: 'nowrap', gap: 1 }),
     ], { key: 'pwr-' + w.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
     if (open) {
       if (w.agents.length) out.push(tableHead(u, L, 'pwa-' + w.key, 2))
@@ -361,5 +373,7 @@ function drawBarres(u, P, L, width) {
 
 function drawGrapheSection(u, P, L, width) {
   const m = P.graphe
-  return section(u, P, 'graphe', L.graphe, m && m.ready ? m.summary : '', () => drawGraphe(u.h, m, L, width - 1, P.act), width)
+  const handoffPct = Math.round((100 * (Number(u.c.contexte.handoff_tokens) || 250000)) / (Number(u.c.contexte.window) || 400000))
+  return section(u, P, 'graphe', L.graphe, m && m.ready ? m.summary : '', () => drawGraphe(u.h, m, L, width - 1, P.act,
+    { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct }), width)
 }

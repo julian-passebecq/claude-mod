@@ -462,7 +462,7 @@ function panelView(now) {
     { runs: (wfScreen && wfScreen.runs) || [], card, contexte, tps: (claudeAll.tpsById || {})[D.self] }) : null
   let graphe = null
   try {
-    graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
+    graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: (wfScreen && wfScreen.runs) || [], conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
   } catch { graphe = null }
   return {
     open: D.popen || {}, closed: D.pclosed,

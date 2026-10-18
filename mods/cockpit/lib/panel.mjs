@@ -24,12 +24,19 @@ export const PANEL_DEFAULTS = {
   order: PANEL_SECTIONS,
   // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct)
   open: ['conv', 'convs', 'barres', 'graphe'],
+  // the state marks of « Toutes les conversations », the graph and its legend, one set (Julian, 18 Oct: « travaille » and
+  // « t'attend » both looked orange): glyph + tone, a tone being a theme colour of the engine (cockpit term_colors:
+  // ok = success green, warn = warning amber, bad = error red, dim = inactive grey)
+  marks: {
+    working: { glyph: '●', tone: 'ok' }, waiting: { glyph: '◆', tone: 'warn' }, blocked: { glyph: '✕', tone: 'bad' },
+    done: { glyph: '✓', tone: 'dim' }, idle: { glyph: '○', tone: 'dim' }, archived: { glyph: '·', tone: 'dim' },
+  },
   // the look: bar_px = px per column of a bar drawn as Svg (desktop); bar_cells = cells of the short bars of a compact row
   // (narrow under wide_cols columns, wide above); finished_open = « Terminés N › » starts unfolded; workflow_open = a
   // Workflow card starts unfolded (false: Claude's mini card, name › / Workflow  N agents  time / one dot per agent);
   // dot_tones = the tone of each agent dot (Claude's pane: grey done, amber running); dots_max = dots on one row
   style: {
-    bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, finished_open: false, workflow_open: false,
+    bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, ctx_cells: 4, finished_open: false, workflow_open: false,
     dot_done: '■', dot_running: '■', dot_pending: '□', dot_tones: { done: 'dim', running: 'warn', failed: 'bad' }, dots_max: 60,
     bar_full: '▰', bar_empty: '▱', bar_mark: '|',
   },
@@ -60,14 +67,15 @@ export const PANEL_DEFAULTS = {
   contexte: { handoff_tokens: 250000, window: null, bar_width: 40 },
   barres: { width: 140, workflows_max: 8, agents_max: 12 },
   // 5. Graphe des conversations (lib/graphe.mjs): period = default time filter (24h | 7j | tout); working_min = minutes
-  // since the last activity under which a conversation « travaille »; coord_match = a title that makes a coordinator (as
+  // since the last activity (app's lastActivityAt or the transcript's mtime, the latest) under which a conversation
+  // « travaille » (so does one with a running Workflow or background agent); done_min = « finie » only after that many
+  // idle minutes and with nothing running; coord_match = a title that makes a coordinator (as
   // does having spawned ≥ 1 session); wait_max_h = « À toi de cliquer » ignores older waits; max_rows = lines over all
   // groups; session_link opens a conversation in the app (the same link as « Depuis »)
   graphe: {
-    period: '24h', working_min: 2, coord_match: '(^|[^A-Za-z])(PM|COORD[A-Z]*|VEILLE|ARCHI|MODS)([^A-Za-z]|$)', wait_max_h: 168,
+    period: '24h', working_min: 2, done_min: 10, coord_match: '(^|[^A-Za-z])(PM|COORD[A-Z]*|VEILLE|ARCHI|MODS)([^A-Za-z]|$)', wait_max_h: 168,
     max_rows: 60, reason_max: 60, peers_max: 2, peer_title_max: 24, refresh_s: 60,
     session_link: 'claude://claude.ai/epitaxy/{id}',
-    dots: { working: '●', waiting: '◆', blocked: '✕', done: '✓', idle: '○', archived: '·' },
   },
   labels: {
     panneau: 'Panneau',
@@ -82,17 +90,21 @@ export const PANEL_DEFAULTS = {
     graphe_wait_line: '{reason} · depuis {age}',
     graphe_reason_awaiting: 'tour interrompu, attend une personne',
     graphe_reason_ask: 'question ouverte',
-    graphe_legend: '● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · ⇢ message envoyé',
+    // the legend: one short line of the state marks (panel.marks), folded behind « Légende › » when the pane is narrower
+    graphe_legend: { working: 'travaille', waiting: 'attend', blocked: 'bloquée', done: 'finie', idle: 'inactive' },
+    graphe_legend_fold: 'Légende',
     graphe_states: { working: 'travaille', waiting: 't’attend', blocked: 'bloquée', done: 'finie', idle: 'inactive depuis {age}', archived: 'archivée' },
     graphe_roles: { coord: 'coordinateur', lane: 'lane', agent: 'agent' },
+    // the grey mark after the title on the one-line row (only a coordinator has one)
+    graphe_role_marks: { coord: 'coord' },
     graphe_tokens: '{tokens} tok auj.',
     graphe_ctx: 'ctx {pct} %',
     graphe_here: '(ici)',
     graphe_from: '↖ lancée par {title}',
     graphe_peer: '⇢ {title}',
-    graphe_project: 'Projet : {name}',
+    graphe_project: 'Projet',
     graphe_all_projects: 'tous',
-    graphe_active: 'Actives seulement',
+    graphe_active: 'Actives',
     graphe_periods: { '24h': '24 h', '7j': '7 j', tout: 'tout' },
     graphe_archived: 'Archivées',
     graphe_group: '{name} · {n}',
@@ -102,7 +114,7 @@ export const PANEL_DEFAULTS = {
     graphe_sum_working: '{n} travaille(nt)',
     graphe_sum_blocked: '{n} bloquée(s)',
     barres: 'Barres',
-    other_views: 'Autres vues, par /cockpit … : {list}',
+    other_views: 'Autres vues : /cockpit {list}',
     lead: 'Lead',
     background: 'Agents en arrière-plan',
     workflow: '{name}',
@@ -312,6 +324,11 @@ function lastLine(s) {
   return ''
 }
 
+/** A scan state (factory's sessionState) as one of panel.marks: working | waiting | blocked | done | idle | archived. */
+export function markOf(state) {
+  return { working: 'working', julian: 'waiting', blocked: 'blocked', done: 'done', idle: 'idle', archived: 'archived' }[state] || 'idle'
+}
+
 const clipText = (t, n) => {
   const s = String(t || '').replace(/\s+/g, ' ').trim()
   return s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s
@@ -321,7 +338,7 @@ const clipText = (t, n) => {
  * The synthesis table. data: usage's classement.json; scan: factory's scan (state, last line, project of the
  * conversations it knows); codex: usage's codex.json. f: { period, project, state, who }.
  * Returns { rows, others, total, projects, period, periods, tps, hasData }.
- * rows: [{ id, label, project, state, stateLabel, tokens, cost, tps, last }], biggest consumer first (basis).
+ * rows: [{ id, label, project, state, mark (panel.marks key), stateLabel, tokens, cost, tps, last }], biggest consumer first (basis).
  */
 export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const c = panelConfig(cfg)
@@ -334,7 +351,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
     const tz = (data && data.tzMin) || 0
     const n = codexTokens(codex, windowOf(period, nowMs, tz), tz)
     if (n === undefined) return { ...base, hasData: false }
-    return { ...base, hasData: true, rows: n ? [{ id: 'codex', label: L.codex_row, project: '', state: 'done', stateLabel: '', tokens: n, cost: null, tps: null, last: '' }] : [], total: { tokens: n, cost: null } }
+    return { ...base, hasData: true, rows: n ? [{ id: 'codex', label: L.codex_row, project: '', state: 'done', mark: 'done', stateLabel: '', tokens: n, cost: null, tps: null, last: '' }] : [], total: { tokens: n, cost: null } }
   }
   if (!base.hasData) return base
   const sessions = new Map()
@@ -352,7 +369,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
     const st = s ? sessionState(s, f.fcfg || {}).state : 'done'
     const g = stateGroup(st, cfg)
     return {
-      id: x.id, label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g, stateLabel: L.states[g] || g,
+      id: x.id, label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g, stateLabel: L.states[g] || g, mark: s ? markOf(st) : 'idle',
       tokens: tokensOf(x.v), cost: x.v[7], tps: tpsOf.get(x.id) || 0, last: clipText(s ? lastLine(s) : '', q.last_max),
     }
   })

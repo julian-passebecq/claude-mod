@@ -142,7 +142,7 @@ test('contexte: %, tokens, the hand-off threshold marked on the bar, over the th
 })
 
 test('other views: one line of /cockpit words, home is « cartes », the Panneau itself left out', () => {
-  assert.equal(otherViews([{ id: 'panneau' }, { id: 'home' }, { id: 'mission' }], ['depuis'], {}), 'Autres vues, par /cockpit … : cartes · mission · depuis')
+  assert.equal(otherViews([{ id: 'panneau' }, { id: 'home' }, { id: 'mission' }], ['depuis'], {}), 'Autres vues : /cockpit cartes · mission · depuis')
   assert.equal(otherViews([], [], {}), '')
 })
 
@@ -249,7 +249,13 @@ for (const columns of [45, 60, 75]) {
     assert.doesNotMatch(text, /\[Panneau\]|\[Plus ▾|\[Moins ▴|\[Mission\]|\[Cockpit\]|\[Journal\]|\[Jauge\]|\[Registres\]/)
     // the old views by their command, one grey line at the very bottom
     const body = text.split('\n').slice(1).join('\n').trimEnd()
-    assert.match(body.slice(body.lastIndexOf('Autres vues')).replace(/\s+/g, ' '), /^Autres vues, par \/cockpit … : cartes · mission/)
+    // one grey line, cut at the pane's width (Julian, 18 Oct: it took 3 lines)
+    const foot = body.slice(body.lastIndexOf('Autres vues'))
+    assert.match(foot, /^Autres vues : \/cockpit cartes · mission/)
+    assert.equal(foot.split('\n').length, 1, foot)
+    // one compact filter row in each section (Julian, 18 Oct: 2 rows of chips)
+    assert.ok(body.includes('[aujourd’hui ▾] [Projet ▾] [État ▾] [Claude ▾]') || columns < 60, body)
+    assert.ok(body.includes('[24 h ▾] [Projet ▾] [Actives] [Archivées]'), body)
     assert.ok(body.indexOf('Autres vues') > body.indexOf('▾ Graphe des conversations'))
     assert.ok(widest(body) <= columns, `${widest(body)} columns\n${body}`)
     assert.doesNotMatch(body, BOX, body)
@@ -267,7 +273,7 @@ test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, b
   for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · en cours', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
     'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
     '[Merge ›] 0/1 □', 'Modèle Temps', '● Opus 5.5 20m 00s', 'coder: cockpit-claude-style · medium · 1.5M tok · 1250 tok/s', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
-    '● Lane alpha · tableau de bord 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
+    '● Lane alpha · tableau de bord 3.6M ▰▰▰▰▰▰▰▱▱▱ 71 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
     'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
   assert.doesNotMatch(text, /general-purpose/)
   assert.doesNotMatch(text, /Codex semaine/) // only while Codex is toggled
