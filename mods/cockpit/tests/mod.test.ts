@@ -292,7 +292,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 200 }, props: { ...PANE, bodyColumns: columns } } as any)
       for (const re of [/^▸ Fichiers$/, /^▾ Cette conversation$/, /^▾ Toutes les conversations$/, /^▾ Barres$/, /^▾ Graphe des conversations$/]) expect(await has(ui, re)).toBe(true)
       for (const re of [/^Panneau$/, /^Plus ▾$/, /^Mission$/, /^Cockpit$/, /^Registres$/]) expect(await has(ui, re)).toBe(false) // no tab bar, no left menu
-      expect(await has(ui, /^Autres vues, par \/cockpit … : cartes · mission/)).toBe(true)
+      expect(await has(ui, /^Autres vues : \/cockpit cartes · mission/)).toBe(true)
       // Fichiers: folded by default (Julian, 17 Oct); unfolded, the cwd's first level, a folder opens on a click
       expect(await has(ui, /▸ src/)).toBe(false)
       await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
@@ -392,14 +392,16 @@ test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, C
   await ui.press({ plugin: 'cockpit', key: 'p-sec-barres' })
   expect(await has(ui, /^▸ Barres$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"barres":false')
-  await ui.press({ plugin: 'cockpit', key: 'pf-period-7d' })
+  // one compact filter row: each button cycles (aujourd'hui ▾ -> 7 j ▾)
+  await ui.press({ plugin: 'cockpit', key: 'pf-period' })
+  expect(await has(ui, /^7 j ▾$/)).toBe(true)
   expect(await has(ui, /^Lane beta/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'pf-project' })
-  expect(await has(ui, /^Projet : proj-one$/)).toBe(true)
+  expect(await has(ui, /^proj-one ▾$/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'pf-state' })
-  expect(await has(ui, /^État : en cours$/)).toBe(true)
+  expect(await has(ui, /^en cours ▾$/)).toBe(true)
   await ui.press({ plugin: 'cockpit', key: 'pf-who' })
-  expect(await has(ui, /^Codex$/)).toBe(true)
+  expect(await has(ui, /^Codex ▾$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
 })
 
@@ -424,10 +426,15 @@ test('Panneau: Graphe des conversations shows who waits, the tree, keeps its fil
   expect(await has(ui, /^À toi de cliquer \(1\)$/)).toBe(true)
   expect(await has(ui, /^eta · 2$/)).toBe(true)
   expect(await has(ui, /^◆$/)).toBe(true)
-  expect(await has(ui, /inactive depuis 10 min · coordinateur/)).toBe(true)
+  // one line per conversation: the mark, the title, « coord » in grey; no state word line
+  expect(await has(ui, /^○$/)).toBe(true)
+  expect(await has(ui, /^coord$/)).toBe(true)
+  expect(await has(ui, /· coordinateur/)).toBe(false)
+  expect(await has(ui, /^travaille$/)).toBe(true) // the legend, one line of marks
   expect(await has(ui, /^[│├└]/)).toBe(false) // no box-drawing connectors
   expect(await has(ui, /^Old lane$/)).toBe(false)
-  await ui.press({ plugin: 'cockpit', key: 'pg-f-tout' })
+  await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 24 h -> 7 j
+  await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 7 j -> tout
   expect(await has(ui, /^Old lane$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"period":"tout"')
   await ui.press({ plugin: 'cockpit', key: 'pgw-g-wait' })

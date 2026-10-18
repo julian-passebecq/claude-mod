@@ -31,7 +31,7 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**, every sec
  [Wave B ⌄] 0/1 ■
    Modèle Temps
    ● Opus 5.5 20m 00s
-     coder: cockpit-claude… · medium · 1.5M tok · 1250 tok/s
+     coder: cockpit-claude… · medium · 1.5M tok · 1250 tok/s
  [Merge ›] 0/1 □
 
  [Terminés 1 ›]
@@ -45,21 +45,19 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**, every sec
  18:20  PR #41 mergée
 
 [▾ Toutes les conversations]
- [1 h] [aujourd’hui] [7 j]
- [Projet : tous] [État : tous] [Claude]
+ [aujourd’hui ▾] [Projet ▾] [État ▾] [Claude ▾]
 
- ● Lane alpha · tableau de b… 3.6M · $12.00 ▰▰▰▰▰▰▰▱▱▱ 71 %
- ◆ Lane beta 1.0M · $4.00 ▰▰▱▱▱▱▱▱▱▱ 20 %
-   Choisir la version
- ○ Lane gamma 500K · $0.50 ▰▱▱▱▱▱▱▱▱▱ 10 %
+ ● Lane alpha · tableau de bord 3.6M ▰▰▰▰▰▰▰▱▱▱ 71 %
+ ◆ Lane beta 1.0M ▰▰▱▱▱▱▱▱▱▱ 20 %
+ ○ Lane gamma 500K ▰▱▱▱▱▱▱▱▱▱ 10 %
  Total aujourd’hui 5.1M · $16.50
  Workflows actifs
- [package-wave ⌄] 380K 1/2 ■■
+ [⌄] package-wave 380K 1/2 ■■
    Modèle Temps
    ● Opus 5.5
-     coder · 300K tok
+     coder · 300K tok
    ✓ Sonnet 5.5
-     verify · 80K tok
+     verify · 80K tok
 
 [▾ Barres]
  Session 5 h reset dans 2 h 10 21 %
@@ -76,36 +74,27 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**, every sec
 [▾ Graphe des conversations]
  À toi de cliquer (1)
  ◆ [Lane beta]
-   Choisir la version · depuis 2 h
- ● travaille ◆ t’attend ✕ bloquée ✓ finie ○ inactive · ⇢
- message envoyé
- [Projet : tous] [Actives seulement]
- [24 h] [7 j] [tout] [Archivées]
+   Choisir la version · depuis 2 h
+ ● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive
+ [24 h ▾] [Projet ▾] [Actives] [Archivées]
  ★ proj-one · 4
- ● [Lane alpha · tableau de bord ★ (ici)] 3.6M · ctx 30 %
-   travaille · coordinateur
-    ● [Package two]
-     travaille · coordinateur · ⇢ PM BETA
-      ○ [Package two · verify]
-       inactive depuis 9 h · lane
-    ✓ [Package one: a rather long lane title that must b…]
-     finie · lane
+    ● [Lane alpha · tab… ★ (ici)] coord 3.6M · ctx 30 % ▰▱▱▱
+      ● [Package two] coord
+       ⇢ PM BETA
+        ○ [Package two · verify]
+      ✓ [Package one: a rather long lane title that must …]
  proj-two · 2
- ○ [PM BETA]
-   inactive depuis 40 min · coordinateur
-    ◆ [Lane beta] 1.0M
-     t’attend · lane
+    ○ [PM BETA] coord
+      ◆ [Lane beta] 1.0M
 
-Autres vues, par /cockpit … : cartes · mission · focus ·
-arbre · pipeline · workflow · journal · machine · relais ·
-galerie · depuis · nuit
+Autres vues : /cockpit cartes · mission · focus · arbre · p…
 ```
 
 - **Fichiers**: data-goblin's file tree, embedded (two mods' panes in one column become tabs, so it can only sit *above* the rest if Cockpit draws it). The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
 - **Cette conversation** (`lib/panel_conv.mjs`, drawn by `hooks/panel_view.mjs`): a Usage-like card for the lead (title, model · effort · state, the context row « Contexte  120K / 400K · relais 250K  30 % » over a bar with the hand-off mark at `panel.contexte.handoff_tokens`, a stats grid Coût / Tokens / Cache hit / Sous-agents / Agents / tok/s, the model share, « Ce qui contribue » with short bars), then one Background-tasks-like card per Workflow, folded by default as Claude's mini card: « package-wave › », grey « Workflow  4 agents  fin vers 18:55  40m 00s », one dot per agent (grey ■ done, amber ■ running, □ pending); unfolded: « 2.0M tokens  $9.40 » and **Phases** (each « Wave A › 2/2 ■■ », from factory's Workflow screen when it has the run, else one phase), each unfolding to Claude's table: a grey « Modèle … Temps » header, one row per agent « ✓ Sonnet 5.5 … 15m 00s » (amber ● while it runs) and a grey line under it with our extras (label, never « general-purpose », effort, tokens, tok/s); one card for the background agents; finished cards folded into « Terminés N › » like Claude's « Finished N › »; then the session log (the last `log_max` events: agents started / finished, PR opened, PR merged).
-- **Toutes les conversations**: compact rows (state dot, title, tokens, a short bar and the share of the period), the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days. Under it: Workflows actifs (every Workflow of the PC, each unfolds to its agents) and the bars (5 h, Semaine, Codex semaine while « Codex » is on, tok/s of all conversations).
+- **Toutes les conversations**: one filter row of cycling buttons (« aujourd’hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »), then one line per conversation (state mark, title cut, tokens, the thin bar of Barres (Svg on the desktop), the share of the period), the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days. Under it: Workflows actifs (every Workflow of the PC: its name as plain text, the agent dots on the right, only the › arrow is a button; each unfolds to its agents) and the bars (5 h, Semaine, Codex semaine while « Codex » is on, tok/s of all conversations).
 - **Barres**: Claude's Usage rows: Session 5 h and Semaine with their reset in grey, Codex semaine while Codex is toggled, Crédits cloud when the engine reads a spend limit (« 249 $ sur 250 $ » and « expire le 5 nov 08:59 » under the bar when the engine gives the amounts; the engine's `SessionRateLimit` has only kind / percentUsed / resetsAt today, so the row shows the % and « montant non lu »), tok/s of all conversations.
-- **Graphe des conversations** answers « who is active, who consumes, who coordinates, who is blocked or idle, what must I click » (Julian, 17 Oct). On top, **À toi de cliquer**: the conversations waiting for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with a short reason. Then a legend, the filters (Projet, Actives seulement, 24 h / 7 j / tout, Archivées; default: last 24 h, archived hidden; kept in `$.store` with the Panneau's) and one group per project like the app's sidebar (folder name of `originCwd`, worktrees folded into their repo; starred first). Inside a group the children (`spawnedFrom`) sit under their parent with `├ └`, a peer message is a dashed `┄┄⇢ <short title>` note. Each conversation: state dot + word (travaille under `panel.graphe.working_min` = 2 min, t'attend, bloquée, finie when a PR merged and idle, inactive depuis N h, archivée), role (coordinateur = spawned ≥ 1 session or a title matching `panel.graphe.coord_match` PM|COORD|VEILLE|ARCHI|MODS; lane = spawned by another; agent), tokens today (usage's `classement.json`, as section 4) and context % (factory's scan). **A title is a button that opens that conversation in the desktop app** (the `claude://claude.ai/epitaxy/<id>` link « Depuis » already uses). Data: `scanner/cards.mjs` part `graphe` over `lib/core/sessions.mjs` `graphRow`, which keeps a fixed list of session-file fields (ids, title, folders, archived/starred, times, model, effort, spawnedFrom.sessionId, peerReceipts target + sentAt, interruptedAwaitingPerson, prs, branch) and never the prompts or settings; read at most every `panel.graphe.refresh_s` (60 s) while the section is open. Code: `lib/graphe.mjs` (pure model), `hooks/graphe_view.mjs` (drawing).
+- **Graphe des conversations** answers « who is active, who consumes, who coordinates, who is blocked or idle, what must I click » (Julian, 17 Oct). On top, **À toi de cliquer**: the conversations waiting for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with a short reason. Then one short legend line of coloured marks (● travaille green, ◆ attend amber, ✕ bloquée red, ✓ finie and ○ inactive grey: `panel.marks`, theme tones, the same in Toutes les conversations; folded behind « Légende › » when the pane is too narrow), one filter row (« 24 h ▾ » cycles 24 h / 7 j / tout, « Projet ▾ », Actives, Archivées; default: last 24 h, archived hidden; kept in `$.store` with the Panneau's) and one group per project like the app's sidebar (folder name of `originCwd`, worktrees folded into their repo; starred first). A group of 2+ has a small grey header and its rows indented, the children (`spawnedFrom`) under their parent; a group of one has no header, its project name is grey on the row. Each conversation is ONE line (Julian, 18 Oct): state mark, title (cut), grey « coord » for a coordinator, tokens today · ctx % and a tiny context bar on the right; a second grey line only for a « ↖ lancée par » / « ⇢ message » relation; a conversation waiting for you is a ◆ line there, its detail only in À toi de cliquer. State: travaille when the latest of the app's `lastActivityAt` and the transcript's mtime is under `panel.graphe.working_min` (2 min), or a Workflow / background agent of it runs; t'attend; bloquée; finie only after `panel.graphe.done_min` (10 min) idle with nothing running and a PR merged; else inactive; archivée. Role (coordinateur = spawned ≥ 1 session or a title matching `panel.graphe.coord_match` PM|COORD|VEILLE|ARCHI|MODS; lane = spawned by another; agent), tokens today (usage's `classement.json`, as section 4) and context % (factory's scan). **A title is a button that opens that conversation in the desktop app** (the `claude://claude.ai/epitaxy/<id>` link « Depuis » already uses). Data: `scanner/cards.mjs` part `graphe` over `lib/core/sessions.mjs` `graphRow`, which keeps a fixed list of session-file fields (ids, title, folders, archived/starred, times, model, effort, spawnedFrom.sessionId, peerReceipts target + sentAt, interruptedAwaitingPerson, prs, branch) and never the prompts or settings; read at most every `panel.graphe.refresh_s` (60 s) while the section is open. Code: `lib/graphe.mjs` (pure model), `hooks/graphe_view.mjs` (drawing).
 - The old views (Cockpit cards, Mission, Focus, Arbre, Pipeline, Workflow, Journal, Machine, Claude ↔ Codex, Galerie, Depuis, Nuit) open with `/cockpit <word>` (`/cockpit cartes` for the cards); on any of them the tab row shows, « Panneau » first, so the way back is one press. The left menu is not drawn on the Panneau (the band's buttons above the prompt do that job). `/cockpit panneau` opens it; `panel.enabled: false` makes the Cockpit tab the default again. Labels, order, limits: `panel` in `cockpit.config.json`.
 
 **One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).

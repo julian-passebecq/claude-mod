@@ -103,9 +103,15 @@ for (const columns of [60, 75]) {
   test(`graph drawn at ${columns} columns: every part, nothing wider than the pane`, () => {
     const text = panneauText(columns)
     const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
-    for (const k of ['À toi de cliquer (1)', '◆ [Lane beta]', 'Choisir la version · depuis 2 h', '● travaille', '[Actives seulement]', '[24 h]', '[Archivées]',
-      '★ proj-one · 4', '(ici)] 3.6M · ctx 30 %', 'travaille · coordinateur', '● [Package two]', '○ [Package two · verify]', '⇢ PM BETA',
+    for (const k of ['À toi de cliquer (1)', '◆ [Lane beta]', 'Choisir la version · depuis 2 h', '● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
+      '★ proj-one · 4', '(ici)] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two] coord', '○ [Package two · verify]', '⇢ PM BETA',
       'proj-two · 2', '◆ [Lane beta] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
+    // one line per conversation: no state word line, the waiting one not repeated in full under À toi de cliquer
+    assert.doesNotMatch(g, /travaille · coordinateur|t’attend · lane|finie · lane/)
+    assert.equal(g.split('\n').filter((l) => l.includes('Choisir la version')).length, 1)
+    // the legend on one line at 60 columns and more, no wrapped « message envoyé »
+    assert.equal(g.split('\n').filter((l) => /travaille|inactive$/.test(l)).length, 1, g)
+    assert.doesNotMatch(g, /message envoyé/)
     // children are indented under their parent, without box-drawing connectors
     assert.doesNotMatch(g, /[│├└┄]/)
     const ind = (k) => { const l = g.split('\n').find((x) => x.includes(k)); return l.length - l.trimStart().length }
@@ -113,5 +119,39 @@ for (const columns of [60, 75]) {
     assert.doesNotMatch(g, /Archived lane|Lane gamma/)
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
     assert.ok(panneauText(columns, { graphe: { period: 'tout', archived: true } }).includes('Archived lane'))
+    // a group of one conversation: no header, one line with the project name in grey
+    const all = panneauText(columns, { graphe: { period: 'tout' } })
+    const gamma = all.split('\n').filter((l) => l.includes('[Lane gamma]'))
+    assert.equal(gamma.length, 1, all)
+    assert.match(gamma[0], /\[Lane gamma\] proj-three/)
+    assert.doesNotMatch(all, /proj-three · 1/)
   })
 }
+
+test('graph at 45 columns: the legend folds behind « Légende › », nothing wraps', () => {
+  const text = panneauText(45)
+  const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
+  assert.match(g, /\[Légende ›\]/)
+  assert.match(panneauText(45, { open: { graphe: true, 'pg-legend': true } }), /○ inactive/)
+  assert.ok(widest(text.split('\n').slice(1).join('\n')) <= 45, text)
+})
+
+test('state: a coordinator running a Workflow is « travaille », « finie » only after done_min idle with nothing running', () => {
+  // MODS 1 (Julian, 18 Oct): the app's lastActivityAt is 20 min old and a PR merged, but its transcript moved 30 s ago
+  const mods = { ...GRAPH_ROWS[6], cli: 'mods', sid: 'local_mods', title: 'MODS 1', repo: 'proj-three', last_activity: NOW - 20 * 60000, prs: [{ number: 9, state: 'merged' }] }
+  const at = (scan, workflows = []) => line(grapheModel({ rows: [mods], scan: { sessions: scan }, workflows, filter: { period: 'tout' } }, '', {}, NOW), 'mods')
+  assert.equal(at([{ cli: 'mods', live: false, mtime: (NOW - 30000) / 1000 }]).state, 'working')
+  assert.equal(at([{ cli: 'mods', live: false, mtime: (NOW - 30000) / 1000 }]).word, 'travaille')
+  // its transcript is quiet too, but a Workflow of it runs, or a background agent
+  assert.equal(at([], [{ cli: 'mods', live: true }]).state, 'working')
+  assert.equal(at([{ cli: 'mods', subs: [{ id: 'x', status: 'running' }] }]).state, 'working')
+  // nothing runs, 20 min idle, a PR merged: finie; a finished Workflow does not count
+  assert.equal(at([], [{ cli: 'mods', live: false }]).state, 'done')
+  // only 5 min idle: not yet finie
+  assert.equal(line(grapheModel({ rows: [{ ...mods, last_activity: NOW - 5 * 60000 }], filter: { period: 'tout' } }, '', {}, NOW), 'mods').state, 'idle')
+  // the colours: travaille green, attend amber, bloquée red, finie and inactive grey (theme tones)
+  const m = model()
+  assert.deepEqual(m.legend.map((x) => [x.glyph, x.tone]), [['●', 'ok'], ['◆', 'warn'], ['✕', 'bad'], ['✓', 'dim'], ['○', 'dim']])
+  assert.equal(line(m, 'lead').tone, 'ok')
+  assert.equal(line(m, 'b').tone, 'warn')
+})

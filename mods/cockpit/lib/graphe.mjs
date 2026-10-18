@@ -2,12 +2,16 @@
 // active, who consumes, who is coordinator, who is blocked or idle, what I must click »).
 //   À toi de cliquer   the conversations waiting for Julian (interruptedAwaitingPerson, or the open question factory's
 //                      scan already detects), oldest first, with a short reason
-//   legend             one line
+//   legend             one short line of the state marks (panel.marks)
 //   groups             by project like the app's sidebar (folder name of originCwd, else cwd; worktrees folded into
-//                      their repo), starred first; children (spawnedFrom) under their parent with ├ └, peer messages as
-//                      a dashed « ┄⇢ <short title> » note; each conversation: state dot + word, role, tokens today, context %
+//                      their repo), starred first; children (spawnedFrom) under their parent, peer messages as a
+//                      « ⇢ <short title> » note; each conversation ONE line (state dot, title, tokens today, context %),
+//                      a second grey line only for a « lancée par / ⇢ message » relation
+// State (Julian, 18 Oct: a coordinator running Workflows showed « finie »): the latest activity of the app's
+// lastActivityAt and the transcript's mtime under working_min, a live scan or a running Workflow / background agent =
+// travaille; « finie » needs done_min idle minutes and nothing running.
 // Pure: no $, no I/O. Input: rows = lib/core/sessions.mjs graphRow (scanner part « graphe »), scan = factory's scan
-// (live, ask, ctx), conso = usage's classement.json (tokens today, as section 4). Labels and limits: panel.graphe and
+// (live, mtime, subs, ask, ctx), workflows = factory's Workflow screen runs ({ cli, live }), conso = usage's classement.json (tokens today, as section 4). Labels and limits: panel.graphe and
 // panel.labels.graphe_* in cockpit.config.json (lib/panel.mjs PANEL_DEFAULTS).
 import { panelConfig, fill, kTok } from './panel.mjs'
 import { rank } from './usage/lib/classement.mjs'
@@ -27,6 +31,14 @@ export function grapheFilter(f, cfg) {
   return x
 }
 
+// a scan time: seconds or ms or ISO
+const tsMs = (v) => {
+  if (!v) return 0
+  if (typeof v === 'number') return v > 1e12 ? v : v * 1000
+  const t = Date.parse(v)
+  return Number.isFinite(t) ? t : 0
+}
+
 const clip = (t, n) => {
   const s = String(t || '').replace(/\s+/g, ' ').trim()
   return s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s
@@ -44,7 +56,7 @@ function coordRx(g) {
 }
 
 /**
- * input: { rows, scan, conso, fcfg, filter, link } (link: 'claude://claude.ai/epitaxy/{id}', from depuis.session_link).
+ * input: { rows, scan, workflows, conso, fcfg, filter, link } (link: 'claude://claude.ai/epitaxy/{id}', from depuis.session_link).
  * self: this conversation's CLI id. Returns { ready, waiting, legend, groups, projects, filter, hidden, summary, empty }.
  */
 export function grapheModel(input, self, cfg, nowMs) {
@@ -72,19 +84,24 @@ export function grapheModel(input, self, cfg, nowMs) {
   const window = Number(c.contexte.window) || Number(fcfg.context_window) || 400000
   const rx = coordRx(g)
   const linkTpl = input.link || g.session_link
+  // conversations with a running Workflow (factory's Workflow screen) or a running background agent (the scan's subs)
+  const busy = new Set(((input && input.workflows) || []).filter((w) => w && w.live && w.cli).map((w) => w.cli))
+  for (const s of scanBy.values()) if ((s.subs || []).some((a) => a && a.status === 'running')) busy.add(s.cli)
 
   const info = new Map()
   for (const r of rows) {
     const s = scanBy.get(r.cli)
-    const last = r.last_activity || 0
+    // the latest sign of life: the app's lastActivityAt, the scan's last activity and its transcript's mtime
+    const last = Math.max(r.last_activity || 0, s ? tsMs(s.last_activity) : 0, s ? tsMs(s.mtime) : 0)
     const idle = nowMs - last
     const st = s ? sessionState(s, fcfg) : { state: '', reason: '' }
+    const running = busy.has(r.cli)
     let state
     if (r.archived) state = 'archived'
-    else if (idle < g.working_min * MIN || (s && s.live)) state = 'working'
+    else if (idle < g.working_min * MIN || (s && s.live) || running) state = 'working'
     else if (r.awaiting || st.state === 'julian') state = 'waiting'
     else if (st.state === 'blocked') state = 'blocked'
-    else if (r.prs.some((p) => p.state === 'merged') || st.state === 'done') state = 'done'
+    else if (idle >= (Number(g.done_min) || 10) * MIN && (r.prs.some((p) => p.state === 'merged') || st.state === 'done')) state = 'done'
     else state = 'idle'
     const role = spawned.get(r.sid) || spawned.get(r.cli) || (rx && rx.test(r.title || '')) ? 'coord' : r.parent ? 'lane' : 'agent'
     const reason = state === 'waiting' ? clip(st.state === 'julian' && st.reason ? st.reason : r.awaiting ? L.graphe_reason_awaiting : L.graphe_reason_ask, g.reason_max) : ''
@@ -127,7 +144,7 @@ export function grapheModel(input, self, cfg, nowMs) {
     const peers = [...new Map(r.peers.slice().sort((a, b) => b.at - a.at).map((x) => [x.target, x])).values()]
       .map((x) => find(x.target)).filter(Boolean).slice(0, g.peers_max).map((t) => clip(t.title || t.cli, g.peer_title_max))
     return {
-      key: r.cli, depth, prefix, cont, state: i.state, word: i.word, dot: g.dots[i.state] || '·', tone: { working: 'running', waiting: 'warn', blocked: 'bad', done: 'ok' }[i.state],
+      key: r.cli, depth, prefix, cont, state: i.state, word: i.word, dot: (c.marks[i.state] || {}).glyph || '·', tone: (c.marks[i.state] || {}).tone,
       title: r.title || r.cli, starred: r.starred, self: r.cli === self, role: L.graphe_roles[i.role], roleId: i.role,
       tokens: i.tok, ctx: i.ctx, peers, from: p && !keep.has(p) ? clip(p.title || p.cli, g.peer_title_max) : (p && p.repo !== r.repo ? clip(p.title || p.cli, g.peer_title_max) : ''),
       link: i.link,
@@ -163,7 +180,8 @@ export function grapheModel(input, self, cfg, nowMs) {
     fill(L.graphe_sum_working, { n: count('working') }),
     count('blocked') ? fill(L.graphe_sum_blocked, { n: count('blocked') }) : '',
   ].filter(Boolean).join(' · ')
-  return { ready: true, waiting, legend: L.graphe_legend, groups, projects, filter: f, hidden, summary, empty: !groups.length }
+  const legend = ['working', 'waiting', 'blocked', 'done', 'idle'].map((k) => ({ glyph: (c.marks[k] || {}).glyph || '·', tone: (c.marks[k] || {}).tone, label: (L.graphe_legend || {})[k] || k }))
+  return { ready: true, waiting, legend, groups, projects, filter: f, hidden, summary, empty: !groups.length }
 }
 
 export { kTok }
