@@ -27,6 +27,9 @@ export const DEBIT_DEFAULTS = {
   ref_window: '1d',
   recent: 10,
   cards_max: 8,
+  // a model with no reply in the last active_hours goes under « anciens › » (Julian, 19 Oct: sonnet 5, haiku 4.5 and
+  // fable with only 30 j figures); the macro line gives the weighted TPS of the shortest window of each model in use
+  active_hours: 168,
   // short model names: { "<model id>": "<name>" }; otherwise claude-opus-5-5 -> opus 5.5
   aliases: {},
 }
@@ -128,7 +131,13 @@ export function debitModel({ debit, codex, showCodex, now }, cfg = {}) {
     cards.push({ key: g.key, source: g.source, label: g.label, rows, ref, total: all.out })
   }
   cards.sort((a, b) => (a.source === b.source ? b.total - a.total : a.source === 'claude' ? -1 : 1))
-  const shown = cards.slice(0, Math.max(1, Number(c.cards_max) || 8))
+  // in use: a reply within active_hours (any window that short); the others are « anciens »
+  const act = Math.max(1, Number(c.active_hours) || 168) * HOUR
+  const shortWins = wins.filter((w) => spanOf(w) <= act).map((w) => w.id)
+  const inUse = (k) => !shortWins.length || k.rows.some((r) => shortWins.includes(r.id) && r.n > 0)
+  const old = cards.filter((k) => !inUse(k))
+  const used = cards.filter(inUse)
+  const shown = used.slice(0, Math.max(1, Number(c.cards_max) || 8))
   // the last streams, newest first: Claude's recent and newest ones (deduplicated), Codex's when shown
   const seen = new Set()
   const pool = []
@@ -150,7 +159,17 @@ export function debitModel({ debit, codex, showCodex, now }, cfg = {}) {
   })
   const pick = (k) => k.rows.find((r) => r.id === c.ref_window && r.n) || k.rows.find((r) => r.n)
   const summary = shown.slice(0, 3).map((k) => `${k.label} ${tpsText(pick(k).weighted)} TPS`).join(' · ')
-  return { ready: Boolean(debit), cards: shown, hidden: cards.length - shown.length, streams, summary, codex: codexState, windows: wins }
+  // the macro line: the shortest window where a model in use has replies (30 min, else 1 j...), each model's weighted TPS
+  const byLen = wins.slice().sort((a, b) => spanOf(a) - spanOf(b))
+  const mw = byLen.find((w) => shown.some((k) => (k.rows.find((r) => r.id === w.id) || {}).n > 0))
+  const fam = (l) => l.split(' ').slice(0, l.startsWith('Codex ') ? 2 : 1).join(' ')
+  const names = shown.map((k) => fam(k.label))
+  const macro = mw ? {
+    window: mw.label || mw.id,
+    list: shown.map((k, i) => ({ label: names.filter((n) => n === names[i]).length > 1 ? k.label : names[i], row: k.rows.find((r) => r.id === mw.id) }))
+      .filter((x) => x.row && x.row.n > 0).map((x) => ({ label: x.label, tps: x.row.weighted })),
+  } : { window: '', list: [] }
+  return { ready: Boolean(debit), cards: shown, old, hidden: used.length - shown.length, streams, summary, macro, codex: codexState, windows: wins }
 }
 
 /** « 59.1 », « 120 », « ? ». */

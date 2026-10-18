@@ -22,7 +22,10 @@ const SCAN = { sessions: [
 test('defaults: six sections, Fichiers folded, Claude only, top 15, hand-off at 250 k', () => {
   const c = panelConfig({})
   assert.deepEqual(c.order, ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe'])
-  assert.deepEqual(c.open, ['conv', 'convs', 'barres', 'debit', 'graphe']) // the file tree starts folded (Julian, 17 Oct)
+  // the macro view (Julian, 19 Oct): the conversations as rows; Quotas, Débit, Graphe one line each; Fichiers folded
+  assert.deepEqual(c.open, ['conv', 'convs'])
+  assert.equal(c.convs.unfold_max, 0) // nothing unfolds by itself
+  assert.equal(c.style.ctx_warn_pct, 62.5)
   assert.equal(c.contexte.handoff_tokens, 250000)
   // an order written with « contexte » (now in the lead's card) gets « barres » back after « convs »
   assert.deepEqual(panelConfig({ panel: { order: ['fichiers', 'conv', 'contexte', 'convs', 'graphe'] } }).order, c.order)
@@ -238,154 +241,162 @@ import { panneauText, panneauView, SCAN as PSCAN, FCFG as PFCFG } from '../scrip
 import { drawCockpit } from '../hooks/view.mjs'
 
 const PREVIEW = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'preview.mjs')
-const HEADERS = ['▸ Fichiers', '▾ Cette conversation', '▾ Toutes les conversations', '▾ Barres', '▾ Débit', '▾ Graphe des conversations']
-// box-drawing borders and connectors (Julian, 17 Oct: they look weird and eat the width)
-// (since 18 Oct a thin « │ » rule runs down an unfolded factory and a « ─ » rule separates the sections: both allowed)
-const BOX = /[╭╮╰╯├└┬┴┼┃┄█░]/
+// the macro view's headers, in order (Julian, 19 Oct: small one-line headers, no big chips)
+const HEADERS = ['▸ Fichiers', 'CETTE CONVERSATION', 'CONVERSATIONS · 3 actives', '[QUOTAS]', '[DÉBIT]', '[GRAPHE]']
+// box-drawing borders and connectors (Julian, 17 Oct: they look weird and eat the width); since 18 Oct a thin « │ » rule
+// runs down an unfolded detail and since 19 Oct the Workflows hang under their conversation with ├ / └: both allowed
+const BOX = /[╭╮╰╯┬┴┼┃┄█░]/
+const find = (n, key) => { if (!n || typeof n !== 'object') return null; if (n.props && n.props.key === key) return n; for (const c of (n.props && n.props.children) || []) { const f = find(c, key); if (f) return f } return null }
+const texts = (n, out = []) => { if (!n || typeof n !== 'object') return out; if (n.type === 'Text') out.push(n); for (const c of (n.props && n.props.children) || []) texts(c, out); return out }
 
 for (const columns of [45, 60, 75]) {
-  test(`preview --panneau at ${columns} columns: the 6 section headers in order, no tab bar, no box drawing, nothing wider than the pane`, () => {
+  test(`preview --panneau at ${columns} columns: the macro view, headers in order, no tab bar, nothing wider than the pane`, () => {
     const text = execFileSync(process.execPath, [PREVIEW, '--panneau', '--cols', String(columns)], { encoding: 'utf8' })
     const at = HEADERS.map((k) => text.indexOf(k))
     assert.ok(at.every((i) => i >= 0), text)
     assert.deepEqual([...at].sort((a, b) => a - b), at, text)
-    // no tab bar at all: no Panneau / Plus button, no old tab, no left menu
     assert.doesNotMatch(text, /\[Panneau\]|\[Plus ▾|\[Moins ▴|\[Mission\]|\[Cockpit\]|\[Journal\]|\[Jauge\]|\[Registres\]/)
-    // the old views by their command, one grey line at the very bottom
     const body = text.split('\n').slice(1).join('\n').trimEnd()
-    // one grey line, cut at the pane's width (Julian, 18 Oct: it took 3 lines)
     const foot = body.slice(body.lastIndexOf('Autres vues'))
     assert.match(foot, /^Autres vues : \/cockpit cartes · mission/)
     assert.equal(foot.split('\n').length, 1, foot)
-    // one compact filter row in each section (Julian, 18 Oct: 2 rows of chips)
-    assert.ok(body.includes('[aujourd’hui ▾] [Projet ▾] [État ▾] [Claude ▾]') || columns < 60, body)
-    assert.ok(body.includes('[24 h ▾] [Projet ▾] [Actives] [Archivées]'), body)
-    assert.ok(body.indexOf('Autres vues') > body.indexOf('▾ Graphe des conversations'))
+    assert.ok(body.indexOf('Autres vues') > body.indexOf('[GRAPHE]'))
     assert.ok(widest(body) <= columns, `${widest(body)} columns\n${body}`)
     assert.doesNotMatch(body, BOX, body)
+    // macro: no card, no table, no stats, no « Workflows actifs » (the tree under each conversation says it)
+    assert.doesNotMatch(body, /Workflows actifs|Cache hit|Ce qui contribue|Journal de la session|Modèle Temps|Fenêtre|Phases|Session 5 h/)
+    // À toi de cliquer: one amber line at the very top
+    assert.match(body, /^◆ À toi de cliquer : \[Lane beta\]/)
+    // every macro row is ONE line: the quotas, the débit and the graph lines, each conversation, each Workflow
+    for (const re of [/^\[QUOTAS\] 5 h .*21 % sem .*85 %.* \[›\]$/m, /^\[DÉBIT\] opus 56 .*TPS \(30 min\) \[›\]$/m, /^\[GRAPHE\] 7 conv · 3 coord · 1 t’attend.* \[›\]$/m,
+      /^● \[Lane alpha[^\n]*30 % \$9\.50 \[›\]$/m, /^ {2}└ ● \[package-wave\] 2\/4 ■■●□ .*40 min.* \[›\]$/m, /^● \[Lane delta\][^\n]* 15 % 800K \[›\]$/m, /^ {2}└ ● \[wf_2\] 1\/2 ■● .*15 min \[›\]$/m,
+      /^○ \[Lane gamma\] 500K \[›\]$/m]) assert.match(body, re)
   })
 }
 
-test('the numbers are never cut at 45 columns: titles are', () => {
-  const text = panneauText(45)
-  for (const k of ['30 %', '$9.50', '5.1M', '80 %', '40m 00s', '2/2', '■■■□', 'Modèle Temps', '20m 00s', '1.5M tok', '1250 tok/s', '3.6M', '61 %', '21 %', '85 %', '852 tok/s', '3.6M · ctx 30 %']) assert.ok(text.includes(k), k + '\n' + text)
-  assert.match(text, /Lane alpha · tablea… ›] 3\.6M/) // the title is the part that gives way
+test('macro rows: the title is cut first, then the ETA, then the model, then the bars; the numbers never', () => {
+  const t75 = panneauText(75)
+  const t60 = panneauText(60)
+  const t45 = panneauText(45)
+  assert.match(t75, /└ ● \[package-wave\] 2\/4 ■■●□ Wave B · 1 opus 40 min · fin ~\d\d:\d\d \[›\]/) // phase, who runs on which model, ETA
+  assert.match(t60, /└ ● \[package-wave\] 2\/4 ■■●□ Wave B · 1 opus 40 min \[›\]/) // the ETA goes first
+  assert.match(t45, /└ ● \[package-wave\] 2\/4 ■■●□ 40 min \[›\]/) // then the model and the phase
+  assert.match(t75, /● \[Lane alpha · tableau de bord\] opus·med ctx [▰▱|]{10} 30 % \$9\.50/)
+  assert.match(t45, /● \[Lane alpha · …\] ctx [▰▱|]{6} 30 % \$9\.50 \[›\]/) // the model dropped, the title cut
+  for (const t of [t45, t60, t75]) for (const k of ['30 %', '$9.50', '3.6M', '800K', '500K', '1.0M', '2/4', '1/2', '40 min', '15 min', '21 %', '85 %', '852 tok/s']) assert.ok(t.includes(k), k + '\n' + t)
 })
 
-test('Panneau: Claude-style cards for the lead and the Workflow, compact rows, bars, the graph', () => {
-  const text = panneauText(75)
-  for (const k of ['Lane alpha · tableau de bord', 'Opus 5.5 · medium · travaille', 'Contexte 120K / 400K · relais 250K 30 %', '|', 'Coût', 'Cache hit', 'Sous-agents', '40 %',
-    'Modèles : Opus 100 %', 'Ce qui contribue', '[package-wave ⌄]', 'Workflow  4 agents fin vers', '■■■□', '2.0M tokens  $9.40', 'Phases', '[Wave A ›] 2/2 ■■', '[Wave B ⌄] 0/1 ■',
-    '[Merge ›] 0/1 □', 'Modèle Temps', '● Opus 5.5 20m 00s', 'coder: cockpit-claude-style · medium · 1.5M tok · 1250 tok/s', '[Terminés 1 ›]', 'PR #42 ouverte', 'PR #41 mergée',
-    '● [Lane alpha · tableau de bord ›] 3.6M ▰▰▰▰▰▰▱▱▱▱ 61 %', 'Workflows actifs', 'Session 5 h reset dans 2 h 10 21 %', 'Semaine', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv',
-    'À toi de cliquer (1)', '★ proj-one · 4']) assert.ok(text.includes(k), k + '\n' + text)
-  assert.doesNotMatch(text, /general-purpose/)
-  assert.doesNotMatch(text, /Codex semaine/) // only while Codex is toggled
-  assert.match(panneauText(75, { who: 'codex' }), /Codex semaine/)
-  // the Workflow card as it opens in the app: Claude's mini card, name ›, Workflow  N agents  time, one dot per agent
-  const folded = panneauText(75, { closed: { 'pfw-wf_1': true } })
-  assert.match(folded, /\[package-wave ›\]\n │ Workflow  4 agents fin vers \d\d:\d\d 40m 00s\n │ ■■■□\n/)
-  assert.doesNotMatch(folded.slice(0, folded.indexOf('Toutes les conversations')), /Phases|Modèle Temps/)
-  // a phase unfolded is Claude's table: header, ✓ model … time, our extras on the grey line under it
-  assert.match(panneauText(75, { closed: { 'pfw-wf_1-ph0': false } }), /\[Wave A ⌄\] 2\/2 ■■\n │ │ Modèle Temps\n │ │ ✓ Sonnet 5\.5 15m 00s\n │ │\s+verify · low · 408K tok · \d+ tok\/s\n │ │ ✓ Haiku 5\.5 5m 00s\n/)
-  // « Terminés » unfolds to the finished background agents
-  assert.match(panneauText(75, { closed: { 'pfw-finished': false } }), /Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
+test('micro: a click on a conversation unfolds its card, stats, contributors, log; on a Workflow its phases and tables', () => {
+  const self = panneauText(75, { closed: { pself: false } })
+  for (const k of ['Opus 5.5 · medium · travaille', 'Contexte 120K / 400K · relais 250K 30 %', 'Coût', 'Cache hit', 'Sous-agents', 'Modèles : Opus 100 %', 'Ce qui contribue',
+    '[Terminés 1 ›]', 'Journal de la session', 'PR #42 ouverte', 'PR #41 mergée']) assert.ok(self.includes(k), k + '\n' + self)
+  assert.match(self, /\$9\.50 \[⌄\]\n {2}└ ● \[package-wave\][^\n]*\n {2}│ Opus 5\.5 · medium · travaille/) // its Workflow line stays right under its row
+  assert.doesNotMatch(self, /general-purpose/)
+  const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
+  assert.match(wf, /└ ● \[package-wave\][^\n]*\[⌄\]\n {4}│ 4 agents {2}2\.0M tokens {2}\$9\.40 {2}40m 00s {2}fin vers \d\d:\d\d\n {4}│ Phases\n {4}│ \[Wave A ›\] 2\/2 ■■\n {4}│ \[Wave B ⌄\] 0\/1 ■\n {4}│ │ Modèle Temps\n {4}│ │ ● Opus 5\.5 20m 00s\n {4}│ │\s{3}coder: cockpit-claude-style · medium · 1\.5M tok · 1250 tok\/s\n {4}│ \[Merge ›\] 0\/1 □/)
+  assert.match(panneauText(75, { closed: { 'pfw-wf_1': false, 'pfw-wf_1-ph0': false } }), /\[Wave A ⌄\] 2\/2 ■■\n {4}│ │ Modèle Temps\n {4}│ │ ✓ Sonnet 5\.5 15m 00s\n {4}│ │\s+verify · low · 408K tok · \d+ tok\/s\n {4}│ │ ✓ Haiku 5\.5 5m 00s\n/)
+  assert.match(panneauText(75, { closed: { pself: false, 'pfw-finished': false } }), /Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
+  // another conversation: its Workflow line, then « ouvrir ↗ » and its card; the Workflow drawn once
+  const d = panneauText(75, { closed: { [convKey('d')]: false } })
+  assert.match(d, /● \[Lane delta\][^\n]*\[⌄\]\n {2}└ ● \[wf_2\][^\n]*\n {2}│ \[ouvrir ↗\]\n {2}│ Sonnet 5\.5 · low · travaille\n/)
+  assert.equal(d.split('\n').filter((l) => l.includes('[wf_2')).length, 1, d)
+  assert.match(panneauText(75, { closed: { [convKey('c')]: false } }), /○ \[Lane gamma\] 500K \[⌄\]\n {2}│ fabrique non lue/)
+  // a conversation with no Workflow nor agent and little spent: two lines until « détails »
+  const b = panneauText(75, { closed: { [convKey('b')]: false } })
+  assert.match(b, /◆ \[Lane beta\] 1\.0M \[⌄\]\n {2}│ \[ouvrir ↗\]\n {2}│ t’attend \[détails ›\]\n {2}│ contexte non lu\n/)
+  assert.match(panneauText(75, { closed: { [convKey('b')]: false, 'cv:b:pdetails': false } }), /\[détails ⌄\][\s\S]*Cache hit/)
 })
 
-test('Panneau folded: one header line per section with its summary', () => {
-  const text = panneauText(75, { open: {} })
-  for (const k of HEADERS) assert.ok(text.includes(k.replace('▾', '▸')), text)
-  // the file tree, unfolded on demand
-  assert.match(panneauText(60, { open: { fichiers: true } }), /▾ Fichiers\][\s\S]*proj-one · main/)
-  assert.match(text, /▸ Cette conversation\] Opus 5\.5 · medium · ctx 30 %/)
-  assert.match(text, /▸ Barres\] Session 5 h 21 %/)
-  assert.doesNotMatch(text, /Workflows actifs|Cache hit/)
+test('micro: Quotas unfold to the Usage-like bars, Débit to its tables, Graphe to its tree; filters behind « filtres › »', () => {
+  const q = panneauText(75, { open: { conv: true, convs: true, barres: true } })
+  for (const k of ['Session 5 h reset dans 2 h 10 21 %', 'Crédits cloud montant non lu 12 %', 'tok/s toutes conv 852 tok/s']) assert.ok(q.includes(k), k + '\n' + q)
+  assert.match(q, /\[QUOTAS\][^\n]*\[⌄\]\n {2}Session 5 h/)
+  assert.match(q, /Semaine reset .+ 85 %/) // the reset day and hour follow the local clock
+  assert.doesNotMatch(panneauText(75, { open: { conv: true, convs: true, barres: true } }), /Codex semaine/)
+  assert.match(panneauText(75, { who: 'codex', open: { conv: true, convs: true, barres: true } }), /Codex semaine/)
+  const g = panneauText(75, { open: { conv: true, convs: true, graphe: true } })
+  for (const k of ['[24 h ▾] [Projet ▾] [Actives] [Archivées]', '★ proj-one · 5', '● travaille ◆ attend']) assert.ok(g.includes(k), k + '\n' + g)
+  // À toi de cliquer is at the top only, not repeated in the graph
+  assert.equal(g.split('\n').filter((l) => l.includes('Choisir la version')).length, 1, g)
+  assert.doesNotMatch(panneauText(75), /\[aujourd’hui ▾\]/)
+  const f = panneauText(75, { open: { conv: true, convs: true, convs_filters: true } })
+  assert.match(f, /CONVERSATIONS · 3 actives \[filtres ⌄\]\n {2}\[aujourd’hui ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n {2}Total aujourd’hui/)
+  assert.match(panneauText(45, { open: { conv: true, convs: true, convs_filters: true } }), /\n {2}\[auj\. ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n/)
 })
 
-// ---- every conversation's factory under its row (Julian, 18 Oct 02:20) -----------------------------------------------
-
-test('unfoldPlan: active conversations unfold by default (unfold_max of them), this one and the others folded, the viewer wins', () => {
-  const active = new Set(['a', 'b', 'c', 'me'])
-  assert.deepEqual([...unfoldPlan(['me', 'a', 'x', 'b', 'c', 'a'], active, {}, 'me', {})], ['a', 'b', 'c'])
-  assert.deepEqual([...unfoldPlan(['a', 'b', 'c'], active, {}, 'me', { panel: { convs: { unfold_max: 2 } } })], ['a', 'b'])
-  // the viewer's folds: { 'cv:<cli>': true } folded, false unfolded, whatever the default
-  assert.deepEqual([...unfoldPlan(['me', 'a', 'x'], active, { [convKey('a')]: true, [convKey('x')]: false, [convKey('me')]: false }, 'me', {})].sort(), ['me', 'x'])
-  assert.equal(convKey('abc'), 'cv:abc')
+test('colours: one state colour per line, numbers bold only when alarming (ctx at 62.5 % amber, past the hand-off red ⚠)', () => {
+  const view = panneauView(75)
+  const pick = (tree, k) => texts(find(tree, k)).map((t) => [String(t.props.children[0]), Boolean(t.props.bold)])
+  const alpha = pick(drawCockpit(el, view), 'pc-lead')
+  assert.deepEqual(alpha.find((x) => x[0] === '30 %'), ['30 %', false]) // 30 %: grey, not bold
+  assert.equal(alpha.filter((x) => x[1]).length, 0, JSON.stringify(alpha))
+  // a conversation at 70 % of 400 K (amber, bold) and one past the 250 K hand-off (red, bold, ⚠)
+  const base = view.panel.syn.rows[2]
+  const syn = { ...view.panel.syn, rows: [{ ...base, id: 'w', ctx: 280000 }, { ...base, id: 'x', ctx: 300000 }] }
+  const tree = drawCockpit(el, { ...view, panel: { ...view.panel, syn } })
+  assert.deepEqual(pick(tree, 'pc-w').find((x) => x[0] === '70 %'), ['70 %', true])
+  assert.ok(pick(tree, 'pc-x').some((x) => x[0] === '75 %' && x[1]) && pick(tree, 'pc-x').some((x) => x[0] === '⚠'), JSON.stringify(pick(tree, 'pc-x')))
+  // a stalled Workflow: amber ⚠ and « à l'arrêt 1 h 10 » in bold
+  const stuck = convFactory(STALL_SCAN(70), 'w', {}, {}, NOW, {}, { runs: STALL_RUN(70) })
+  const t = renderText(drawCockpit(el, { ...view, panel: { ...view.panel, factory: stuck } }), 75)
+  assert.match(t, /└ ⚠ \[Preview release\] 0\/1 ● [^\n]*à l’arrêt 1 h 10 \[›\]/)
 })
 
-test('activeClis: travaille / attend lines of the graph, a live or waiting scan row, a running agent, a live Workflow run', () => {
-  const scan = { sessions: [{ cli: 'live', live: true }, { cli: 'wait', awaiting: true }, { cli: 'sub', subs: [{ status: 'running' }] }, { cli: 'old' }, { cli: 'arch', live: true, archived: true }] }
-  const graphe = { ready: true, waiting: [{ key: 'gw' }], groups: [{ lines: [{ key: 'gl', state: 'working' }, { key: 'gd', state: 'done' }] }] }
-  const a = activeClis({ scan, runs: [{ cli: 'run', live: true }, { cli: 'gone', live: false }], graphe }, {}, NOW)
-  assert.deepEqual([...a].sort(), ['gl', 'gw', 'live', 'run', 'sub', 'wait'])
+test('section headers: small bold one-liners, a plain button for the one-line sections; every row toggles its own key', () => {
+  const tree = drawCockpit(el, panneauView(75))
+  const head = find(tree, 'p-sec-barres')
+  assert.equal(head.type, 'Button')
+  assert.equal(head.props.label, 'QUOTAS')
+  assert.equal(head.props.plain, true)
+  assert.equal(head.props.children[0].props.bold, true)
+  assert.equal(head.props.children[0].props.size, undefined) // no heading size, no big chip
+  const convs = find(tree, 'p-sec-convs')
+  assert.equal(convs.type, 'Text')
+  assert.equal(convs.props.bold, true)
+  const toggled = []
+  const opened = []
+  const view = panneauView(75)
+  view.panel.act = { ...view.panel.act, ptoggle: (id) => toggled.push(id), nodeToggle: (k, o) => toggled.push([k, o]), openConv: (l) => opened.push(l) }
+  const t2 = drawCockpit(el, view)
+  for (const k of ['p-sec-barres', 'p-sec-debit-x', 'p-sec-graphe', 'pcv-d', 'pcv-d-x', 'pcv-lead', 'pk-pfw-wf_1-t', 'pgw-b']) find(t2, k).props.onPress()
+  assert.deepEqual(toggled, ['barres', 'debit', 'graphe', [convKey('d'), false], [convKey('d'), false], ['pself', false], ['pfw-wf_1', false]])
+  assert.deepEqual(opened, ['claude://claude.ai/epitaxy/local_b'])
 })
 
-test('Toutes les conversations: an active conversation unfolds under its row with its Workflow card, a finished one stays folded, indented behind a rule', () => {
-  const text = panneauText(75)
-  const convs = text.slice(text.indexOf('▾ Toutes les conversations'), text.indexOf('Workflows actifs'))
-  // Lane delta works (a running Workflow): unfolded, its lead card, then its Workflow card one step further in
-  assert.match(convs, /● \[Lane delta ⌄\] 800K [▰▱]+ +\d+ % \[ouvrir ↗\]\n   │ Sonnet 5\.5 · low · travaille\n/)
-  assert.match(convs, /   │ │ \[wf_2 ⌄\]\n   │ │ Workflow  2 agents/)
-  assert.match(convs, /   │ │ │ ● Sonnet 5\.5 12m 00s/) // its agents under their phase, one more step in
-  assert.match(convs, /   │ Coût +Tokens +Cache hit/)
-  // Lane beta waits for Julian: unfolded too; Lane gamma finished: folded; this conversation's row folded (shown above)
-  assert.match(convs, /◆ \[Lane beta ⌄\]/)
-  assert.match(convs, /○ \[Lane gamma ›\] 500K/)
-  assert.match(convs, /● \[Lane alpha · tableau de bord ›\] 3\.6M [▰▱]+ 61 %\n/) // no « ouvrir » on its own row
-  // an empty line and a thin rule after each unfolded conversation, and between the sections
-  assert.match(convs, /tok\/s\n\n   ─{20,}\n\n ○ \[Lane gamma/)
-  assert.match(text, /\n\n─{40,}\n\n\[▾ Toutes les conversations\]/)
-  // the viewer's choices win and are the same fold key in both lists
-  const mine = panneauText(75, { closed: { [convKey('d')]: true, [convKey('c')]: false } })
-  assert.match(mine, /● \[Lane delta ›\] 800K/)
-  assert.match(mine, /○ \[Lane gamma ⌄\] 500K[^\n]*\n   │ fabrique non lue/)
-  // under its row the conversation keeps its own folds: its Workflow card folds to Claude's mini card
-  assert.match(panneauText(75, { closed: { 'cv:d:pfw-wf_2': true } }), /   │ │ \[wf_2 ›\]\n   │ │ Workflow  2 agents 15m 00s\n   │ │ ■■\n\n/)
-})
-
-test('Graphe: an active conversation unfolds under its row, its title folds it, « ouvrir ↗ » opens it', () => {
+test('Graphe unfolded: an active conversation unfolds under its row, its title folds it, « ouvrir ↗ » opens it', () => {
   const opened = []
   const toggled = []
-  const view = panneauView(75)
+  const view = panneauView(75, { open: { conv: true, convs: true, graphe: true }, closed: { [convKey('b')]: false } })
   view.panel.act = { ...view.panel.act, openConv: (l) => opened.push(l), nodeToggle: (k, o) => toggled.push([k, o]) }
   const tree = drawCockpit(el, view)
   const text = renderText(tree, 75)
-  const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
-  assert.match(g, /◆ \[Lane beta ⌄\] 1\.0M \[ouvrir ↗\]\n {7}│ \? · \? · t’attend|◆ \[Lane beta ⌄\] 1\.0M \[ouvrir ↗\]\n {7}│ /)
+  const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
+  assert.match(g, /◆ \[Lane beta ⌄\] 1\.0M \[ouvrir ↗\]\n {6,}│ /)
   assert.match(g, /○ \[PM BETA ›\] coord \[ouvrir ↗\]/) // inactive: folded
-  const find = (n, key) => { if (!n || typeof n !== 'object') return null; if (n.props && n.props.key === key) return n; for (const c of (n.props && n.props.children) || []) { const f = find(c, key); if (f) return f } return null }
   find(tree, 'pgl-b').props.onPress()
   find(tree, 'pgo-b').props.onPress()
   assert.deepEqual(toggled, [[convKey('b'), true]])
   assert.deepEqual(opened, ['claude://claude.ai/epitaxy/local_b'])
 })
 
-test('section titles are bold, heading size; at 45 columns the filter row fits on one line', () => {
-  const tree = drawCockpit(el, panneauView(75))
-  const find = (n, key) => { if (!n || typeof n !== 'object') return null; if (n.props && n.props.key === key) return n; for (const c of (n.props && n.props.children) || []) { const f = find(c, key); if (f) return f } return null }
-  const head = find(tree, 'p-sec-convs')
-  assert.equal(head.type, 'Button')
-  assert.equal(head.props.label, '▾ Toutes les conversations')
-  assert.equal(head.props.children[0].props.bold, true)
-  assert.equal(head.props.children[0].props.size, 'heading')
-  const narrow = panneauText(45)
-  assert.match(narrow, /\n \[auj\. ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n/)
-})
-
 // The engine draws the first 100,000 characters of a tree's texts (children, labels, alts) and cuts the rest; the pane
-// itself scrolls with no line limit (plugin reference, ui.render). unfold_max keeps a busy evening under that bound.
-test('the engine bound holds with unfold_max busy conversations unfolded in both lists (100,000 characters of text drawn, 32 deep)', () => {
-  const view = panneauView(75)
+// itself scrolls with no line limit (plugin reference, ui.render). The macro view keeps a busy evening far under it,
+// even with 6 busy conversations unfolded by the viewer.
+test('the engine bound holds with 6 busy conversations unfolded in both lists (100,000 characters of text drawn, 32 deep)', () => {
+  const view = panneauView(75, { open: { conv: true, convs: true, graphe: true } })
   const subs = (w) => Array.from({ length: 12 }, (_, i) => ({ id: `${w}-${i}`, type: 'coder', desc: 'a rather long task description for this agent', model: 'claude-opus-5-5', effort: 'medium',
     status: i % 3 ? 'done' : 'running', workflow: w, ts: new Date(NOW - 3600000).toISOString(), last_ts: new Date(NOW).toISOString(), models: { 'claude-opus-5-5': [1000, 100, 9000, 0, 0, 3] } }))
   const sessions = Array.from({ length: 10 }, (_, i) => ({ cli: 'busy' + i, sid: 'local_busy' + i, app_title: 'Busy lane number ' + i, cwd: 'C:/code/proj-one', live: true, model: 'claude-opus-5-5', ctx: 200000, recent: [], models: { 'claude-opus-5-5': [1000, 100, 9000, 0, 0, 3] }, subs: subs('wf_b' + i) }))
   const scan = { sessions: [...PSCAN.sessions, ...sessions], detail: PSCAN.detail }
-  const syn = { ...view.panel.syn, rows: sessions.map((s, i) => ({ id: s.cli, sid: s.sid, label: s.app_title, project: 'proj-one', state: 'running', mark: 'working', tokens: 1000 * (i + 1), cost: 1, tps: 1, last: '' })) }
+  const syn = { ...view.panel.syn, rows: sessions.map((s, i) => ({ id: s.cli, sid: s.sid, label: s.app_title, project: 'proj-one', state: 'running', mark: 'working', tokens: 1000 * (i + 1), cost: 1, tps: 1, last: '', ctx: 200000, model: s.model, effort: 'medium' })) }
   const graphe = { ...view.panel.graphe, groups: [{ name: 'proj-one', count: 10, starred: false, lines: sessions.map((s) => ({ key: s.cli, depth: 0, prefix: '', cont: '', state: 'working', word: 'travaille', dot: '●', tone: 'ok', title: s.app_title, starred: false, self: false, role: 'lane', roleId: 'lane', tokens: 1000, ctx: 50, peers: [], from: '', link: 'claude://claude.ai/epitaxy/' + s.sid })) }] }
-  const under = convFactories({ scan, runs: [], syn, graphe, self: 'lead', selfFactory: view.panel.factory, closed: {}, tpsById: {}, cardOf: (s) => usageCard(null, s, PFCFG, NOW) }, PFCFG, {}, NOW)
-  assert.equal(under.unfold.size, panelConfig({}).convs.unfold_max)
+  const closed = Object.fromEntries(sessions.slice(0, 6).map((s) => [convKey(s.cli), false]))
+  const under = convFactories({ scan, runs: [], syn, graphe, self: 'lead', selfFactory: view.panel.factory, closed, tpsById: {}, cardOf: (s) => usageCard(null, s, PFCFG, NOW) }, PFCFG, {}, NOW)
+  assert.equal(under.unfold.size, 6)
+  assert.equal(under.tree.size, panelConfig({}).convs.tree_max)
+  assert.equal(convFactories({ scan, runs: [], syn, graphe, self: 'lead', closed: {} }, PFCFG, {}, NOW).unfold.size, 0) // nothing by itself
   const svgEl = { ...el, Svg: (props) => ({ type: 'Svg', props }) }
-  const tree = drawCockpit(svgEl, { ...view, panel: { ...view.panel, syn, graphe, unfold: under.unfold, convFactories: under.factories }, colors: { usage: '#2f81f7' } })
+  const tree = drawCockpit(svgEl, { ...view, panel: { ...view.panel, syn, graphe, unfold: under.unfold, tree: under.tree, convFactories: under.factories }, colors: { usage: '#2f81f7' } })
   let chars = 0
   let depth = 0
   const walk = (n, d) => {
@@ -398,6 +409,21 @@ test('the engine bound holds with unfold_max busy conversations unfolded in both
   walk(tree, 1)
   assert.ok(chars < 100000, `${chars} characters of text`)
   assert.ok(depth <= 32, `${depth} deep`)
+})
+
+test('unfoldPlan: the viewer decides; unfold_max > 0 brings back the active conversations unfolded', () => {
+  const active = new Set(['a', 'b', 'c', 'me'])
+  assert.deepEqual([...unfoldPlan(['me', 'a', 'x', 'b', 'c', 'a'], active, {}, 'me', {})], [])
+  assert.deepEqual([...unfoldPlan(['a', 'b', 'c'], active, {}, 'me', { panel: { convs: { unfold_max: 2 } } })], ['a', 'b'])
+  assert.deepEqual([...unfoldPlan(['me', 'a', 'x'], active, { [convKey('a')]: true, [convKey('x')]: false, [convKey('me')]: false }, 'me', {})].sort(), ['me', 'x'])
+  assert.equal(convKey('abc'), 'cv:abc')
+})
+
+test('activeClis: travaille / attend lines of the graph, a live or waiting scan row, a running agent, a live Workflow run', () => {
+  const scan = { sessions: [{ cli: 'live', live: true }, { cli: 'wait', awaiting: true }, { cli: 'sub', subs: [{ status: 'running' }] }, { cli: 'old' }, { cli: 'arch', live: true, archived: true }] }
+  const graphe = { ready: true, waiting: [{ key: 'gw' }], groups: [{ lines: [{ key: 'gl', state: 'working' }, { key: 'gd', state: 'done' }] }] }
+  const a = activeClis({ scan, runs: [{ cli: 'run', live: true }, { cli: 'gone', live: false }], graphe }, {}, NOW)
+  assert.deepEqual([...a].sort(), ['gl', 'gw', 'live', 'run', 'sub', 'wait'])
 })
 
 // Julian's screenshot of 18 Oct (PR #58 state): « au repos » next to a phase running for 1h10m, $0.00 for 243K tokens,
@@ -470,18 +496,10 @@ test('a conversation with no Workflow nor agent and little spent: two lines unti
   assert.equal(convFactory({ sessions: [s] }, 'q', {}, {}, NOW, { 'cv:q:pdetails': false }, { contexte: ctx, prefix: 'cv:q:' }).compact, false)
   assert.equal(convFactory({ sessions: [{ ...s, models: { 'claude-sonnet-5-5': [300000, 0, 0, 0, 0, 1] } }] }, 'q', {}, {}, NOW, {}, { contexte: ctx }).compactable, false) // a big one keeps its card
   assert.equal(convFactory(FSCAN, 'me', {}, {}, NOW).compactable, false) // a Workflow keeps its card
-  // drawn: Lane beta (nothing running, nothing spent) unfolded under its row is two lines, no stats grid
-  const text = panneauText(75)
-  assert.match(text, /◆ \[Lane beta ⌄\][^\n]*\n   │ [^\n]*t’attend \[détails ›\]\n   │ contexte non lu\n\n/)
-  const beta = text.slice(text.indexOf('[Lane beta ⌄]'), text.indexOf('[Lane delta'))
-  assert.doesNotMatch(beta, /Cache hit|Coût|aucun Workflow/)
-  const full = panneauText(75, { closed: { 'cv:b:pdetails': false } })
-  const betaFull = full.slice(full.indexOf('[Lane beta ⌄]'), full.indexOf('[Lane delta'))
-  assert.match(betaFull, /\[détails ⌄\][\s\S]*Cache hit/)
 })
 
 test('stats grid: fixed equal columns, every label over its value; « Ce qui contribue » on thin bars; ⚠ past the hand-off', () => {
-  const text = panneauText(75)
+  const text = panneauText(75, { closed: { pself: false } })
   const lines = text.split('\n')
   const i = lines.findIndex((l) => /Coût +Tokens +Cache hit/.test(l))
   assert.ok(i > 0, text)

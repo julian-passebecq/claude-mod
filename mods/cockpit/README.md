@@ -1,103 +1,41 @@
 # cockpit
 
-## Panneau (default view, 17 Oct)
+## Panneau (default view; macro view since 19 Oct)
 
-Opening Cockpit shows **one scrolling column with no tab bar at all**, every section foldable (what you fold, open and filter is kept in `$.store`), **Fichiers folded by default**. It is drawn like Claude's own **Usage** and **Background tasks** panes (Julian, 17 Oct 18:10), with our extra figures: cards with a bold title, rows « label … grey detail **value** » over a thin full-width bar (an `Svg` on the desktop, `▰▱` text on the terminal), small stats grids, phases with `■□` dots, no box-drawing borders; at 45, 60 or 75 columns the title is cut, never the numbers. The old views are reached by their `/cockpit` command only, listed in one grey line at the very bottom. `node mods/cockpit/scripts/preview.mjs --panneau --cols 60` (or 75) draws it from invented fixtures:
+Opening Cockpit shows **one scrolling column with no tab bar at all**. Since 19 Oct it opens on a **macro view** (Julian: « all the good info but hard to read: a macro view where I see everything quickly, a micro view when I click »): **one line per conversation, one line per Workflow** hanging under it with `├` / `└`, and **one line each** for the quotas, the tokens per second and the graph. Every detail of the earlier cards is still there, one click away on the title or its `›` (`⌄` folds it back), and what you unfold is kept in `$.store`. Section headers are small bold one-liners with their summary on the same line (« CONVERSATIONS · 3 actives »), no big chips. Colours: one state colour per line (its mark), numbers bold and coloured only when alarming (context at `panel.style.ctx_warn_pct` 62.5 % amber, past the hand-off threshold red with ⚠, a quota at 80 % amber and 90 % red, a stalled Workflow amber ⚠ « à l’arrêt 1 h 09 »); the rest grey or plain. At 45, 60 or 75 columns a row cuts its title first, then drops the ETA, then the model, then the bars: a number is never cut. The old views are reached by their `/cockpit` command only, listed in one grey line at the very bottom. `node mods/cockpit/scripts/preview.mjs --panneau --cols 60` (or 45, 75) draws it from invented fixtures:
 
 ```
+◆ À toi de cliquer : [Lane beta] Choisir la version · depu…
+
 [▸ Fichiers] proj-one · main · sélection : src/panel.ts
 
-[▾ Cette conversation]
- Lane alpha · tableau de bord
- Opus 5.5 · medium · en cours
- Contexte 120K / 400K · relais 250K 30 %
- ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱|▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱
- Coût                Tokens              Cache hit
- $9.50               5.1M                80 %
- Sous-agents         Agents              tok/s
- 40 %                1/3                 667
- Modèles : Opus 100 %
- Ce qui contribue
- fil principal ▰▰▰▰▰▱▱▱▱ 60 %
- coder ▰▰▰▱▱▱▱▱▱ 30 %
- verify ▰▱▱▱▱▱▱▱▱ 8 %
+CETTE CONVERSATION
+● [Lane alpha · ta…] opus·med ctx ▰▰▰▱▱▱|▱▱▱ 30 % $9.50 [›]
+  └ ● [package-wave] 2/4 ■■●□ Wave B · 1 opus 40 min [›]
 
- [package-wave ⌄]
- Workflow  4 agents fin vers 18:55 40m 00s
- ■■■□
- 2.0M tokens  $9.40
- Phases
- [Wave A ›] 2/2 ■■
- [Wave B ⌄] 0/1 ■
-   Modèle Temps
-   ● Opus 5.5 20m 00s
-     coder: cockpit-claude… · medium · 1.5M tok · 1250 tok/s
- [Merge ›] 0/1 □
+CONVERSATIONS · 3 actives [filtres ›]
+● [Lane alpha · tab…] opus·med ctx ▰▰▰▱▱▱|▱▱▱ 30 % 3.6M [›]
+◆ [Lane beta] 1.0M [›]
+● [Lane delta] sonnet·low ctx ▰▰▱▱▱▱|▱▱▱ 15 % 800K [›]
+  └ ● [wf_2] 1/2 ■● 1 sonnet 15 min [›]
+○ [Lane gamma] 500K [›]
 
- [Terminés 1 ›]
-
- Journal de la session
- 17:42  ✓ explore-fast · find the tests terminé
- 17:50  ▶ verify · wait for CI démarré
- 18:00  PR #42 ouverte
- 18:05  ✓ verify · wait for CI terminé
- 18:10  ▶ coder · build the panel démarré
- 18:20  PR #41 mergée
-
-[▾ Toutes les conversations]
- [aujourd’hui ▾] [Projet ▾] [État ▾] [Claude ▾]
-
- ● Lane alpha · tableau de bord 3.6M ▰▰▰▰▰▰▰▱▱▱ 71 %
- ◆ Lane beta 1.0M ▰▰▱▱▱▱▱▱▱▱ 20 %
- ○ Lane gamma 500K ▰▱▱▱▱▱▱▱▱▱ 10 %
- Total aujourd’hui 5.1M · $16.50
- Workflows actifs
- [⌄] package-wave 380K 1/2 ■■
-   Modèle Temps
-   ● Opus 5.5
-     coder · 300K tok
-   ✓ Sonnet 5.5
-     verify · 80K tok
-
-[▾ Barres]
- Session 5 h reset dans 2 h 10 21 %
- ▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱
-
- Semaine reset dim 20:30 85 %
- ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱
-
- Crédits cloud montant non lu 12 %
- ▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱
-
- tok/s toutes conv 852 tok/s
-
-[▾ Graphe des conversations]
- À toi de cliquer (1)
- ◆ [Lane beta]
-   Choisir la version · depuis 2 h
- ● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive
- [24 h ▾] [Projet ▾] [Actives] [Archivées]
- ★ proj-one · 4
-    ● [Lane alpha · tab… ★ (ici)] coord 3.6M · ctx 30 % ▰▱▱▱
-      ● [Package two] coord
-       ⇢ PM BETA
-        ○ [Package two · verify]
-      ✓ [Package one: a rather long lane title that must …]
- proj-two · 2
-    ○ [PM BETA] coord
-      ◆ [Lane beta] 1.0M
+[QUOTAS] 5 h ▰▱▱▱▱▱ 21 % sem ▰▰▰▰▰▱ 85 % 852 tok/s [›]
+[DÉBIT] opus 56 · sonnet 88 · haiku 164 TPS (30 min) [›]
+[GRAPHE] 7 conv · 3 coord · 1 t’attend(ent) [›]
 
 Autres vues : /cockpit cartes · mission · focus · arbre · p…
 ```
 
-- **Fichiers**: data-goblin's file tree, embedded (two mods' panes in one column become tabs, so it can only sit *above* the rest if Cockpit draws it). The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
-- **Cette conversation** (`lib/panel_conv.mjs`, drawn by `hooks/panel_view.mjs`): a Usage-like card for the lead (title, model · effort · state, the context row « Contexte  120K / 400K · relais 250K  30 % » over a bar with the hand-off mark at `panel.contexte.handoff_tokens`, a stats grid Coût / Tokens / Cache hit / Sous-agents / Agents / tok/s, the model share, « Ce qui contribue » with short bars), then one Background-tasks-like card per Workflow, folded by default as Claude's mini card: « package-wave › », grey « Workflow  4 agents  fin vers 18:55  40m 00s », one dot per agent (grey ■ done, amber ■ running, □ pending); unfolded: « 2.0M tokens  $9.40 » and **Phases** (each « Wave A › 2/2 ■■ », from factory's Workflow screen when it has the run, else one phase), each unfolding to Claude's table: a grey « Modèle … Temps » header, one row per agent « ✓ Sonnet 5.5 … 15m 00s » (amber ● while it runs) and a grey line under it with our extras (label, never « general-purpose », effort, tokens, tok/s); one card for the background agents; finished cards folded into « Terminés N › » like Claude's « Finished N › »; then the session log (the last `log_max` events: agents started / finished, PR opened, PR merged).
-  A running Workflow (or agent) whose agents wrote nothing for `panel.conv.stall_min` (30) minutes shows an amber « à l’arrêt ? rien d’écrit depuis 1h 10m » and its conversation « bloquée ? »; written recently, the conversation « travaille » (never « au repos » next to a running phase), the same in Toutes les conversations. The cost uses the same price table as every other row (then the row's own figure, then the engine's), « — » when unknown, never $0.00 for tokens spent. Every context bar is measured against one window: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set, else the engine's, else factory's `context_window`. A conversation with no Workflow nor agent and under `panel.conv.compact_tokens` draws two lines (model · effort · state, the context inline) until « détails › ». The stats grid has fixed equal columns; « Ce qui contribue » uses the thin bars of Barres; a row past the hand-off threshold gets a red ⚠ while folded.
-- **Toutes les conversations**: one filter row of cycling buttons (« aujourd’hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »), then one line per conversation (state mark, title cut, tokens, the thin bar of Barres (Svg on the desktop), the share of the period), the usage mod's `classement.json` (tokens and list-price $ of the period), the state from factory's scan (en cours / t'attend / terminée), tok/s averaged over the last hour, the last line (the app's status or the last tool). Codex has no per-conversation figures: with « Codex » the table is one line from `codex.json`, by whole days. Under it: Workflows actifs (every Workflow of the PC: its name as plain text, the agent dots on the right, only the › arrow is a button; each unfolds to its agents) and the bars (5 h, Semaine, Codex semaine while « Codex » is on, tok/s of all conversations).
-- **Barres**: Claude's Usage rows: Session 5 h and Semaine with their reset in grey, Codex semaine while Codex is toggled, Crédits cloud when the engine reads a spend limit (« 249 $ sur 250 $ » and « expire le 5 nov 08:59 » under the bar when the engine gives the amounts; the engine's `SessionRateLimit` has only kind / percentUsed / resetsAt today, so the row shows the % and « montant non lu »), tok/s of all conversations.
-- **Débit** (Julian, 18 Oct, after Codex's « tokens per second » table; right after Barres, unfolded by default, the fold kept in `$.store`): one card per model in use, « Modèle : opus 5.5 » (Codex models only while « Codex » is toggled in Toutes les conversations), a row per window 30 min / 1 j / 7 j / 30 j with Réponses · Tokens · Temps · TPS pondéré (sum of tokens ÷ sum of time) · Médiane · Plage (min–max), numbers right-aligned in fixed columns; under the pane's width Plage then Temps are left out (then the headers get short), numbers are never cut. Then « 10 derniers flux »: « 18:29:48  opus 5.5 medium : 59.2 TPS (171 tok en 2.89 s) », TPS green at or above the model's 1 j median, grey under. **How time is measured** (the grey footnote says it too): the usage mod's scanner (`lib/core/transcripts.mjs`) times every API response once (message.id + requestId) from the last transcript line that sent it (the prompt or the tool result) to its last content block, so it includes the wait for the first token (the transcripts have no streaming events); tokens = output tokens, thinking included; under 50 tokens or over 30 min left out; effort per stream from the transcript line. It writes `debit.json`: TPS rows per `hour|model|effort` over the 31 kept days and every stream of the last hour, so **30 min** is exact and **1 j / 7 j / 30 j** are whole clock hours, medians and ranges read in x1.15 buckets (±7 %). Codex: `codex.json`, the same rule from Codex's own rollout files (task_started or a tool output → token_usage_record), by whole local days; « Codex : non lu » when it has no timings. Cached: `debit.json` is re-read only when its mtime changes, the model computed again only when a file, the minute or the Codex toggle changes. Code: `lib/debit.mjs` (pure), `drawDebit` in `hooks/panel_view.mjs`; settings `panel.debit` (windows, ref_window, recent, cards_max, aliases).
-- **Every conversation's factory under its row** (Julian, 18 Oct): in Toutes les conversations and in the graph, a conversation unfolds UNDER itself to its live factory, drawn exactly as Cette conversation (model · effort · state, context bar, stats, its Workflow cards with phases and agent dots, background agents, Terminés N ›), one step in behind a thin grey « │ » rule; its Workflows one step further, their agents one more (the engine draws a Box border on all four sides only, so the rule is text). The data is factory's scan the cockpit already reads: every session row carries its sub-agents (workflow, status, models), and the Workflow screen's runs carry each run's `cli`; nothing new is read. Active conversations (travaille, attend, a running Workflow or agent) start unfolded with their Workflow cards open, at most `panel.convs.unfold_max` (6) of them; finie, inactive and archived start folded; this conversation's own row starts folded (it is the section above); your folds win and are kept in `$.store` (key `cv:<cli>`, shared by both lists). An empty line and a thin grey rule separate the sections and the unfolded conversations; section titles are bold, heading size where the surface has sizes. The engine has no line limit for a pane (it scrolls) but draws only the first 100,000 characters of a tree's texts: `unfold_max` keeps a busy evening well under it (a test draws 6 busy conversations in both lists).
-- **Graphe des conversations** answers « who is active, who consumes, who coordinates, who is blocked or idle, what must I click » (Julian, 17 Oct). On top, **À toi de cliquer**: the conversations waiting for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with a short reason. Then one short legend line of coloured marks (● travaille green, ◆ attend amber, ✕ bloquée red, ✓ finie and ○ inactive grey: `panel.marks`, theme tones, the same in Toutes les conversations; folded behind « Légende › » when the pane is too narrow), one filter row (« 24 h ▾ » cycles 24 h / 7 j / tout, « Projet ▾ », Actives, Archivées; default: last 24 h, archived hidden; kept in `$.store` with the Panneau's) and one group per project like the app's sidebar (folder name of `originCwd`, worktrees folded into their repo; starred first). A group of 2+ has a small grey header and its rows indented, the children (`spawnedFrom`) under their parent; a group of one has no header, its project name is grey on the row. Each conversation is ONE line (Julian, 18 Oct): state mark, title (cut), grey « coord » for a coordinator, tokens today · ctx % and a tiny context bar on the right; a second grey line only for a « ↖ lancée par » / « ⇢ message » relation; a conversation waiting for you is a ◆ line there, its detail only in À toi de cliquer. State: travaille when the latest of the app's `lastActivityAt` and the transcript's mtime is under `panel.graphe.working_min` (2 min), or a Workflow / background agent of it runs; t'attend; bloquée; finie only after `panel.graphe.done_min` (10 min) idle with nothing running and a PR merged; else inactive; archivée. Role (coordinateur = spawned ≥ 1 session or a title matching `panel.graphe.coord_match` PM|COORD|VEILLE|ARCHI|MODS; lane = spawned by another; agent), tokens today (usage's `classement.json`, as section 4) and context % (factory's scan). **A title (› / ⌄) unfolds that conversation's own factory under its row; « ouvrir ↗ » at the right opens it in the desktop app** (the `claude://claude.ai/epitaxy/<id>` link « Depuis » already uses; À toi de cliquer still opens on a click). Data: `scanner/cards.mjs` part `graphe` over `lib/core/sessions.mjs` `graphRow`, which keeps a fixed list of session-file fields (ids, title, folders, archived/starred, times, model, effort, spawnedFrom.sessionId, peerReceipts target + sentAt, interruptedAwaitingPerson, prs, branch) and never the prompts or settings; read at most every `panel.graphe.refresh_s` (60 s) while the section is open. Code: `lib/graphe.mjs` (pure model), `hooks/graphe_view.mjs` (drawing).
+- **À toi de cliquer**: one amber line at the very top while a conversation waits for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with its reason and age; a click on its title opens it in the app. Nothing at all when nobody waits.
+- **Fichiers**: data-goblin's file tree, embedded, folded by default (two mods' panes in one column become tabs, so it can only sit *above* the rest if Cockpit draws it). The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
+- **CETTE CONVERSATION** (`lib/panel_conv.mjs`, drawn by `hooks/panel_view.mjs`). Macro: « ● title  opus·med  ctx ▰▰▰▱ 30 %  $9.50  › » (state mark, model · effort, the context bar with the hand-off mark at `panel.contexte.handoff_tokens`, the cost), then one line per running Workflow (or the background agents): « └ ● package-wave  2/4 ■■●□  Wave B · 1 opus  40 min · fin ~18:55  › » = done / count and one dot per agent (grey ■ done, ● running, grey □ pending, red ✕ failed), the running phase(s), how many agents run on which model, the elapsed time (or « à l’arrêt 1 h 10 » in amber when its agents wrote nothing for `panel.conv.stall_min` minutes), the ETA. Micro, on the conversation's `›`: the Usage-like card (model · effort · state, the context row « Contexte  120K / 400K · relais 250K  30 % » over a full bar, the stats grid Coût / Tokens / Cache hit / Sous-agents / Agents / tok/s with fixed equal columns, the model share, « Ce qui contribue » on thin bars), « Terminés N › » (finished cards, Claude's mini cards), the session log (the last `log_max` events: agents started / finished, PR opened, PR merged). On a Workflow's `›`: its tokens, cost, exact time and ETA, and **Phases** (each « Wave A › 2/2 ■■ », from factory's Workflow screen when it has the run, else one phase), each unfolding to Claude's « Modèle … Temps » table, one row per agent and a grey line of extras (label, never « general-purpose », effort, tokens, tok/s).
+  The cost uses the same price table as every other row (then the row's own figure, then the engine's), « — » when unknown, never $0.00 for tokens spent. Every context bar is measured against one window: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set, else the engine's, else factory's `context_window`. A conversation with no Workflow nor agent and under `panel.conv.compact_tokens` unfolds to two lines (model · effort · state, the context inline) until « détails › ».
+- **CONVERSATIONS · N actives**: one line per conversation of the period (the usage mod's `classement.json`, biggest first): state mark, title, model · effort, context bar and %, tokens, `›`; its running Workflows as `├` / `└` lines under it (the first `panel.convs.tree_max` (8) active conversations), drawn as under Cette conversation. Its `›` unfolds, one step in behind a thin grey « │ » rule, « ouvrir ↗ » (opens it in the desktop app) and its card, exactly as Cette conversation's micro. Nothing unfolds by itself (`panel.convs.unfold_max` 0; set it to bring back 18 Oct's « active conversations unfolded »); your folds are kept in `$.store` (key `cv:<cli>`, shared with the graph). « filtres › » at the right of the header unfolds the filter row of cycling buttons (« aujourd’hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ ») and the total; it stays shown while a filter is set. Codex has no per-conversation figures: with « Codex » the list is one line from `codex.json`, by whole days. The separate « Workflows actifs » block is gone: the tree under each conversation says the same.
+- **QUOTAS**: one line « 5 h ▰▰▱ 21 % · reset 2 h 10  sem ▰▰▰▰ 85 %  852 tok/s ›» (the reset goes first when short of room, then the bars get short, then they go). `›`: Claude's Usage rows: Session 5 h and Semaine with their reset in grey, Codex semaine while Codex is toggled, Crédits cloud when the engine reads a spend limit (« 249 $ sur 250 $ » and « expire le 5 nov 08:59 » under the bar when the engine gives the amounts; the engine's `SessionRateLimit` has only kind / percentUsed / resetsAt today, so the row shows the % and « montant non lu »), tok/s of all conversations.
+- **DÉBIT** (Julian, 18 Oct, after Codex's « tokens per second » table): one line « opus 85 · sonnet 76 TPS (30 min) › » = the weighted TPS of each model in use over the shortest window that has replies (30 min, else 1 j…). `›` (« tableau »): one card per model **with a reply in the last 7 days** (`panel.debit.active_hours`), « Modèle : opus 5.5 » (Codex models only while « Codex » is toggled), a row per window 30 min / 1 j / 7 j / 30 j with Réponses · Tokens · Temps · TPS pondéré (sum of tokens ÷ sum of time) · Médiane · Plage (min–max), numbers right-aligned in fixed columns; under the pane's width Plage then Temps are left out (then the headers get short), numbers are never cut. The models with no reply in 7 days (only 30 j figures) are behind « anciens (N) › ». Then « 10 derniers flux »: « 18:29:48  opus 5.5 medium : 59.2 TPS (171 tok en 2.89 s) », TPS green at or above the model's 1 j median, grey under. The footnote is behind « comment c’est mesuré › »: the usage mod's scanner (`lib/core/transcripts.mjs`) times every API response once (message.id + requestId) from the last transcript line that sent it (the prompt or the tool result) to its last content block, so it includes the wait for the first token (the transcripts have no streaming events); tokens = output tokens, thinking included; under 50 tokens or over 30 min left out; effort per stream from the transcript line. It writes `debit.json`: TPS rows per `hour|model|effort` over the 31 kept days and every stream of the last hour, so **30 min** is exact and **1 j / 7 j / 30 j** are whole clock hours, medians and ranges read in x1.15 buckets (±7 %). Codex: `codex.json`, the same rule from Codex's own rollout files (task_started or a tool output → token_usage_record), by whole local days; « Codex : non lu » when it has no timings. Cached: `debit.json` is re-read only when its mtime changes, the model computed again only when a file, the minute or the Codex toggle changes. Code: `lib/debit.mjs` (pure), `drawDebit` in `hooks/panel_view.mjs`; settings `panel.debit` (windows, ref_window, recent, cards_max, active_hours, aliases).
+- **GRAPHE** answers « who is active, who consumes, who coordinates, who is blocked or idle » (Julian, 17 Oct): one line « 6 conv · 1 coord · rien ne t’attend › ». `›`: one short legend line of coloured marks (● travaille green, ◆ attend amber, ✕ bloquée red, ✓ finie and ○ inactive grey: `panel.marks`, theme tones, the same everywhere; folded behind « Légende › » when the pane is too narrow), one filter row (« 24 h ▾ » cycles 24 h / 7 j / tout, « Projet ▾ », Actives, Archivées; default: last 24 h, archived hidden; kept in `$.store`) and one group per project like the app's sidebar (folder name of `originCwd`, worktrees folded into their repo; starred first). A group of 2+ has a small grey header and its rows indented, the children (`spawnedFrom`) under their parent; a group of one has no header, its project name is grey on the row. Each conversation is ONE line: state mark, title (cut), grey « coord » for a coordinator, tokens today · ctx % and a tiny context bar on the right; a second grey line only for a « ↖ lancée par » / « ⇢ message » relation. State: travaille when the latest of the app's `lastActivityAt`, the scan's activity and the transcript's mtime is under `panel.graphe.working_min` (2 min), or a Workflow / background agent of it runs; t'attend; bloquée; finie only after `panel.graphe.done_min` (10 min) idle with nothing running and a PR merged; else inactive; archivée. **The 24 h / 7 j filter tests the same latest sign of life, and a conversation that works, waits or is blocked is always listed** (19 Oct fix: the filter read the app's `lastActivityAt` alone, which hid conversations working for hours in one long turn, and the graph said « aucune conversation avec ces filtres » while 3 worked); a project filter kept in `$.store` for a project with no conversation left is ignored; a conversation factory's scan reads but whose session file was not read is drawn from the scan. A title (› / ⌄) unfolds that conversation's own factory under its row; « ouvrir ↗ » at the right opens it in the desktop app (the `claude://claude.ai/epitaxy/<id>` link « Depuis » already uses). Data: `scanner/cards.mjs` part `graphe` over `lib/core/sessions.mjs` `graphRow`, which keeps a fixed list of session-file fields (ids, title, folders, archived/starred, times, model, effort, spawnedFrom.sessionId, peerReceipts target + sentAt, interruptedAwaitingPerson, prs, branch) and never the prompts or settings; read at most every `panel.graphe.refresh_s` (60 s), whatever the folds (its line and À toi de cliquer are always drawn). Code: `lib/graphe.mjs` (pure model), `hooks/graphe_view.mjs` (drawing).
+- The engine has no line limit for a pane (it scrolls) but draws only the first 100,000 characters of a tree's texts: the macro view keeps a busy evening far under it (a test draws 6 busy conversations unfolded in both lists).
 - The old views (Cockpit cards, Mission, Focus, Arbre, Pipeline, Workflow, Journal, Machine, Claude ↔ Codex, Galerie, Depuis, Nuit) open with `/cockpit <word>` (`/cockpit cartes` for the cards); on any of them the tab row shows, « Panneau » first, so the way back is one press. The left menu is not drawn on the Panneau (the band's buttons above the prompt do that job). `/cockpit panneau` opens it; `panel.enabled: false` makes the Cockpit tab the default again. Labels, order, limits: `panel` in `cockpit.config.json`.
 
 **One of the 6 entries of the band's Mods bar** (Jauge, Cockpit, Veille, À toi, Registres, Référence).

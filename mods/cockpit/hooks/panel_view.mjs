@@ -1,23 +1,25 @@
-// cockpit « Panneau » - draws the default view: ONE scrolling column, no tab bar, top to bottom, each section foldable
-// (its header is a button ▾/▸ with a one-line summary while closed). The look copies Claude's own Usage and
-// Background-tasks panes (Julian, 17 Oct 18:10): a card is a bold title and rows, a row is « label … grey detail
-// bold value » over a thin full-width bar (Svg where the surface has it, ▰▱ otherwise), small stats grids, phases with
-// ■□ dots; no box-drawing borders. The left text is cut, never the numbers.
+// cockpit « Panneau » - draws the default view: ONE scrolling column, no tab bar. Since 19 Oct it opens on a MACRO view
+// (Julian: « all the good info but hard to read; a macro view where I see everything quickly, a micro view when I
+// click »): one line per conversation and one line per Workflow under it (├ / └), one line each for the quotas, the
+// tokens per second and the graph. Every detail of the earlier cards is still there, one click away (› / ⌄, kept in
+// $.store): the lead's Usage-like card, the stats grid, « Ce qui contribue », the session log, the phases and their
+// « Modèle | Temps » tables, the bars, the Débit tables, the graph.
+//   À toi de cliquer           one amber line at the very top while a conversation waits for Julian, nothing otherwise
 //   ▸ Fichiers                 filetree's tree (hooks/files.mjs), folded by default
-//   ▾ Cette conversation       lead card (Usage-like), one card per Workflow / background agents (folded: Claude's mini
-//                              card with one dot per agent; unfolded: phases, each a « Modèle | Temps » table), Terminés N ›, log
-//   ▾ Toutes les conversations one filter row (« aujourd'hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »), one line per
-//                              conversation (state mark, title, tokens, thin bar, %), Workflows actifs (name, dots, › only)
-//   ▾ Barres                   Session 5 h, Semaine, Codex, Crédits cloud (« 249 $ sur 250 $ », expire le …), tok/s
-//   ▾ Débit                    one card per model « Modèle : opus 5.5 », a row per window (30 min, 1 j, 7 j, 30 j):
-//                              Réponses · Tokens · Temps · TPS pondéré · Médiane · Plage, then the last streams
-//   ▾ Graphe des conversations À toi de cliquer, filters, projects → conversations (hooks/graphe_view.mjs)
+//   CETTE CONVERSATION         ● title  opus·med  ctx ▰▰▰▱ 30 %  $9.50  ›   then its running Workflows:
+//                                ├ ● name  1/4 ■●□□  phase · 1 opus  20 min · fin ~16:55  ›
+//   CONVERSATIONS · N actives  one line per conversation (filters behind « filtres › »), its Workflows under it
+//   QUOTAS                     5 h ▰▰▱ 21 % · reset …  sem ▰▰▰▰ 85 %  852 tok/s  ›   (› the Usage-like bars)
+//   DÉBIT                      opus 59 · sonnet 88 TPS (30 min)  tableau ›   (› one table per model, the last streams)
+//   GRAPHE                     6 conv · 1 coord · rien ne t'attend  ›   (› filters, projects → conversations)
 //   then one grey line, cut: the old views and their /cockpit commands
-// State marks and colours (panel.marks, Julian 18 Oct): ● travaille green, ◆ t'attend amber, ✕ bloquée red, ✓ finie
-// and ○ inactive grey, the same in « Toutes les conversations », the graph and its legend.
+// Colours: one state colour per line (its mark: ● travaille green, ◆ t'attend amber, ✕ bloquée red, ⚠ à l'arrêt amber,
+// ✓ / ○ grey); a number is bold and coloured only when it is alarming (context at style.ctx_warn_pct amber, past the
+// hand-off red with ⚠, a quota at 80 % amber, 90 % red); the rest is grey or plain. At 45, 60 or 75 columns a row cuts
+// its title first, then drops the ETA, then the model, then the bars; a number is never cut.
 // Pure except for the kit `h` and the callbacks in P.act.
-import { panelConfig, fill, textBar, durText, kTok, convKey } from '../lib/panel.mjs'
-import { convFactorySummary, modelName } from '../lib/panel_conv.mjs'
+import { panelConfig, fill, textBar, durText, kTok, convKey, markOf, minText, modelShort } from '../lib/panel.mjs'
+import { modelName } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
@@ -32,9 +34,8 @@ const clip = (t, n) => {
 /**
  * P = { cfg, columns, open: {id: bool}, closed: {nodeKey: bool}, act, files: { head, rows, more, selected, attach, busy, error },
  *       factory (lib/panel_conv.mjs convFactory), syn (synthesis()), filter: {period, project, state, who}, bars: [...],
- *       workflows: [...], graphe, colors, unfold: Set of the clis whose factory is drawn under their row,
- *       convFactories: { [cli]: convFactory(...) of that conversation | null } }
- * Between two sections: an empty line and a thin grey rule (Julian, 18 Oct: « breathing room »).
+ *       graphe, debit, colors, ctxWindow, unfold: Set of the clis unfolded by the viewer, tree: Set of the clis whose
+ *       running Workflows are drawn under their row, convFactories: { [cli]: convFactory(...) | null } }
  */
 export function drawPanel(h, P) {
   const c = panelConfig(P.cfg)
@@ -43,23 +44,193 @@ export function drawPanel(h, P) {
   const u = ui(h, P, c, width)
   const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, debit: drawDebit, graphe: drawGrapheSection }
   const out = []
+  const click = drawClick(u, P, L)
+  if (click) out.push(click)
+  // the one-line sections sit together; a block of rows (Fichiers, the conversations) is followed by an empty line
+  const oneLine = new Set(['barres', 'debit', 'graphe'])
+  let prev = ''
   for (const id of c.order) {
     const part = parts[id](u, P, L, width)
     if (!part) continue
-    if (out.length) out.push(sep(h, width, 'p-sep-' + id))
+    if (prev && !(oneLine.has(prev) && oneLine.has(id) && !P.open[prev])) out.push(u.blank('p-gap-' + id))
     out.push(part)
+    prev = id
   }
-  if (P.otherViews) out.push(h.T(clip(P.otherViews, width), { dim: true, wrap: 'truncate-end', key: 'p-other-views' }))
+  if (P.otherViews) out.push(u.blank('p-gap-other'), h.T(clip(P.otherViews, width), { dim: true, wrap: 'truncate-end', key: 'p-other-views' }))
   return out
 }
 
-/** A thin grey rule across the pane, under an empty line (the section above keeps its marginBottom). */
+/** A thin grey rule across the pane (between unfolded conversations of the graph). */
 function sep(h, width, key, indent = 0) {
   return h.col([h.T('─'.repeat(Math.max(4, width - 1 - indent)), { dim: true, wrap: 'truncate-end' })], { key, marginBottom: 1, ...(indent ? { marginLeft: indent } : {}) })
 }
 
-/** The render hook of section 5 (« Graphe des conversations »). */
+/** The render hook of the graph. */
 export { drawGraphe }
+
+// ---- À toi de cliquer: one amber line per waiting conversation, at the very top -----------------------------------
+
+function drawClick(u, P, L) {
+  const { h } = u
+  const m = P.graphe
+  const list = (m && m.ready && m.waiting) || []
+  if (!list.length) return null
+  const open = (P.act && P.act.openConv) || (() => {})
+  const lines = []
+  const one = list.length === 1
+  if (!one) lines.push(h.T(`◆ ${L.click_line} (${list.length})`, { tone: 'warn', bold: true, key: 'pk-click-h' }))
+  for (const w of list) {
+    const head = one ? `◆ ${L.click_line} :` : ' ◆'
+    const tail = fill(L.graphe_wait_line, { reason: w.reason, age: w.age })
+    // the title first (it is what Julian clicks), the reason takes what is left
+    const room = Math.max(6, u.W - len(head) - 4 - Math.min(len(tail), 10))
+    const title = clip(w.title + (w.self ? ' ' + L.graphe_here : ''), room)
+    lines.push(h.row([
+      h.T(head, { tone: 'warn', bold: one }),
+      h.btn(title, () => open(w.link), true, 'pgw-' + w.key),
+      h.T(clip(tail, Math.max(4, u.W - len(head) - len(title) - 4)), { tone: 'warn', wrap: 'truncate-end' }),
+    ], { key: 'pk-click-' + w.key, flexWrap: 'nowrap', alignItems: 'center' }))
+  }
+  return h.col(lines, { key: 'p-click', marginBottom: 1 })
+}
+
+// ---- the macro rows ---------------------------------------------------------------------------------------------------
+
+/**
+ * One macro line: `lead` items (tree glyph, state mark), the title (a plain button when onPress), then the first of
+ * `variants` (lists of items, fullest first) that leaves the title minTitle cells, else the barest. An item is
+ * { el, w } (w = its cells). The title is what gives way; the numbers are in the items and never cut.
+ */
+function macroRow(u, o) {
+  const { h } = u
+  const width = o.width || u.W
+  const sum = (xs) => xs.reduce((a, x) => a + x.w + 1, 0)
+  const btn = o.onPress ? 2 : 0
+  const room = (v) => width - sum(o.lead || []) - sum(v) - btn
+  const min = o.minTitle ?? 12
+  const v = o.variants.find((x) => room(x) >= Math.min(min, len(o.title))) || o.variants[o.variants.length - 1]
+  const r = Math.max(3, room(v))
+  const text = clip(o.title, r)
+  const title = o.onPress
+    ? h.tbtn(text, o.onPress, o.titleKey, { plain: true, bold: o.bold })
+    : h.T(text, { bold: o.bold, dim: o.dim, wrap: 'truncate-end' })
+  return h.row([
+    h.row([...(o.lead || []).map((x) => x.el), title], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1, key: 'l' }),
+    v.length ? h.row(v.map((x) => x.el), { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 0, key: 'r' }) : null,
+  ], { key: o.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', ...(o.indent ? { marginLeft: o.indent } : {}) })
+}
+
+const item = (h, text, o = {}, key) => ({ el: h.T(String(text), { ...o, ...(key ? { key } : {}) }), w: len(text) })
+const markItem = (u, mk) => item(u.h, mk.glyph, { tone: mk.tone === 'dim' ? undefined : mk.tone, dim: mk.tone === 'dim' })
+const arrowItem = (u, open, onPress, key) => ({ el: u.h.tbtn(open ? '⌄' : '›', onPress, key, { plain: true }), w: 3 })
+const cellsOf = (c, width) => (width >= (Number(c.style.wide_cols) || 60) ? Number(c.style.macro_cells) || 10 : Number(c.style.macro_cells_narrow) || 6)
+
+/** The context of a row: « ctx ▰▰▰▱ 77 % ⚠ », amber and bold at style.ctx_warn_pct, red with ⚠ past the hand-off. */
+function ctxItems(u, x, key, cells) {
+  const { h, c } = u
+  if (!x || !Number.isFinite(x.pct)) return { full: [], bare: [] }
+  const tone = x.over ? 'bad' : x.pct >= (Number(c.style.ctx_warn_pct) || 62.5) ? 'warn' : undefined
+  const pct = item(h, `${Math.round(x.pct)} %`, { bold: Boolean(tone), tone, dim: !tone })
+  const warn = x.over ? [item(h, c.labels.handoff_mark || '⚠', { tone: 'bad', bold: true })] : []
+  const word = item(h, 'ctx', { dim: true })
+  const bar = { el: u.bar(Math.min(100, x.pct), key, { cells, tone, mark: x.markPct }), w: cells }
+  return { full: [word, bar, pct, ...warn], noBar: [word, pct, ...warn], bare: [pct, ...warn] }
+}
+
+/**
+ * A conversation's macro line. o: { key, mark (panel.marks entry), title, titleKey, onToggle, open, model, effort,
+ * ctx: { pct, over, markPct } | null, value (cost or tokens), indent }.
+ */
+function convMacro(u, P, L, o) {
+  const { h, c } = u
+  const cells = cellsOf(c, P.columns || 75)
+  const cx = ctxItems(u, o.ctx, o.key + '-bar', cells)
+  const model = modelShort(o.model, o.effort, P.cfg)
+  const m = model ? [item(h, model, { dim: true })] : []
+  const val = o.value ? [item(h, o.value, { dim: true })] : []
+  const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
+  const vs = cx.full.length
+    ? [[...m, ...cx.full, ...val, arrow], [...cx.full, ...val, arrow], [...cx.noBar, ...val, arrow], [...cx.bare, ...val, arrow]]
+    : [[...m, ...val, arrow], [...val, arrow]]
+  return macroRow(u, { key: o.key, lead: [markItem(u, o.mark)], title: o.title, titleKey: o.titleKey, onPress: o.onToggle, variants: vs, indent: o.indent, minTitle: 14 })
+}
+
+/** One dot per agent on a Workflow line: grey ■ done, ● running, grey □ pending, red ✕ failed; past macro_dots, +N. */
+function macroDots(u, list, key) {
+  const { h, c } = u
+  const st = c.style
+  const cap = Math.max(1, Number(st.macro_dots) || 12)
+  const shown = list.slice(0, cap)
+  const glyph = { done: st.dot_done || '■', running: st.dot_live || '●', failed: '✕' }
+  const runs = []
+  for (const s of shown) {
+    const g = glyph[s] || st.dot_pending || '□'
+    const last = runs[runs.length - 1]
+    if (last && last.s === s) last.n++
+    else runs.push({ s, g, n: 1 })
+  }
+  const kids = runs.map((r, i) => h.T(r.g.repeat(r.n), { dim: r.s !== 'running' && r.s !== 'failed', tone: r.s === 'failed' ? 'bad' : undefined, key: `${key}-${i}` }))
+  const more = list.length > shown.length ? ` +${list.length - shown.length}` : ''
+  if (more) kids.push(h.T(more, { dim: true, key: `${key}-more` }))
+  return { el: h.row(kids, { gap: 0, flexWrap: 'nowrap', key }), w: shown.length + len(more) }
+}
+
+/**
+ * A Workflow (or the background agents) as one line under its conversation: tree glyph, state mark, name, done/count
+ * and one dot per agent, the running phase(s), how many agents run on which model, the time (or « à l'arrêt 1 h 09 »
+ * amber), the ETA. Its › unfolds the card's detail (tokens, cost, phases, « Modèle | Temps » tables).
+ */
+function wfMacro(u, P, L, k, last, indent) {
+  const { h } = u
+  const agents = k.phases.flatMap((p) => p.agents)
+  const done = agents.filter((a) => a.status === 'done').length
+  const mark = k.failed ? { glyph: '✕', tone: 'bad' } : k.stalled ? { glyph: '⚠', tone: 'warn' } : k.live ? { glyph: '●', tone: 'ok' } : { glyph: '✓', tone: 'dim' }
+  const phase = k.kind === 'workflow' ? k.phases.filter((p) => p.running > 0 && p.title !== L.phase_default && p.title !== k.title).map((p) => p.title).join('+') : ''
+  const fam = {}
+  for (const a of agents) if (a.status === 'running') { const f = String(a.model || '?').split(' ')[0].toLowerCase(); fam[f] = (fam[f] || 0) + 1 }
+  const models = Object.entries(fam).map(([f, n]) => fill(L.wf_running, { n, model: f })).join('+')
+  const time = k.stalled ? item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true }) : item(h, minText(k.elapsed), { dim: true })
+  const eta = k.eta ? [item(h, '· ' + fill(L.wf_eta, { time: k.eta }), { dim: true })] : []
+  const count = item(h, `${done}/${agents.length || k.count}`, { dim: true })
+  const dots = macroDots(u, k.dots || [], `pkd-${k.key}`)
+  const detail = (xs) => (xs.filter(Boolean).length ? [item(h, xs.filter(Boolean).join(' · '), { dim: true })] : [])
+  const arrow = arrowItem(u, k.open, () => P.act.nodeToggle(k.key, k.open), `pk-${k.key}-x`)
+  const head = [count, dots]
+  const vs = [
+    [...head, ...detail([phase, models]), time, ...eta, arrow],
+    [...head, ...detail([phase, models]), time, arrow],
+    [...head, ...detail([phase]), time, arrow],
+    [...head, time, arrow],
+    [count, time, arrow],
+  ]
+  return macroRow(u, { key: `pkm-${k.key}`, lead: [item(h, last ? '└' : '├', { dim: true }), markItem(u, mark)], title: k.title, titleKey: `pk-${k.key}-t`,
+    onPress: () => P.act.nodeToggle(k.key, k.open), variants: vs, indent, minTitle: 10, width: u.W - (indent || 0) })
+}
+
+/** A conversation's running Workflows as ├ / └ lines, each unfolding its detail one step further in. */
+function wfLines(u, P, L, cards, indent, key) {
+  const out = []
+  cards.forEach((k, i) => {
+    out.push(wfMacro(u, P, L, k, i === cards.length - 1, indent))
+    if (k.open) {
+      const inner = u.sub(indent + 4)
+      out.push(u.h.col(inner.rule(taskBody(inner, P, L, k, true), `${key}-${k.key}-r`), { key: `${key}-${k.key}-micro`, marginLeft: indent + 2 }))
+    }
+  })
+  return out
+}
+
+/** A conversation's micro view under its row: « ouvrir ↗ » (another conversation), its card, Terminés, the log. */
+function convMicro(u, P, L, m, o) {
+  const { h } = u
+  const step = (o.indent || 0) + 2
+  const inner = u.sub(step + 2)
+  const lines = []
+  if (o.link) lines.push(h.row([h.btn(o.openLabel || L.open_conv, () => P.act.openConv(o.link), false, 'pco-' + o.cli)], { key: 'pco-row-' + o.cli }))
+  if (m && m.available) lines.push(...factoryLines(inner, P, L, m, o.log, { noTitle: true, noLive: o.noLive }))
+  else lines.push(h.T(L.conv_no_factory, { dim: true, wrap: 'truncate-end', key: 'nf' }))
+  return h.col([...inner.rule(lines, o.key + '-l'), u.blank(o.key + '-gap')], { key: o.key, marginLeft: step })
+}
 
 // ---- the primitives of Claude's panes, from the kit ----------------------------------------------------------------
 
@@ -143,13 +314,13 @@ function section(u, P, id, title, summary, body, width) {
   const open = Boolean(P.open[id])
   const label = `${open ? '▾' : '▸'} ${title}`
   const room = width - len(label) - 6
-  // the title in bold, heading size where the surface has sizes (Julian, 18 Oct: « titres plus visibles »)
-  const head = h.tbtn ? h.tbtn(label, () => P.act.ptoggle(id), 'p-sec-' + id, { bold: true, size: 'heading' }) : h.btn(label, () => P.act.ptoggle(id), false, 'p-sec-' + id)
+  // the title in bold, a plain button (Julian, 19 Oct: small one-line headers, no big chips)
+  const head = h.tbtn ? h.tbtn(label, () => P.act.ptoggle(id), 'p-sec-' + id, { bold: true, plain: true }) : h.btn(label, () => P.act.ptoggle(id), false, 'p-sec-' + id)
   return h.col([
     h.row([head, summary && !open && room > 8 ? h.T(clip(summary, room), { dim: true, wrap: 'truncate-end' }) : null],
       { alignItems: 'center', flexWrap: 'nowrap' }),
     open ? h.col(body(), { marginLeft: 1 }) : null,
-  ], { key: 'p-' + id, marginBottom: 1 })
+  ], { key: 'p-' + id })
 }
 
 // ---- 1. Fichiers --------------------------------------------------------------------------------------------------------
@@ -182,38 +353,67 @@ function drawFiles(u, P, L, width) {
 
 const tpsText = (n) => (n === null || n === undefined ? '' : n >= 100 ? String(Math.round(n)) : n.toFixed(1))
 
-function drawConv(u, P, L, width) {
+/** A small bold header line with a grey summary on the same line, and an optional button at the right. */
+function headLine(u, text, summary, key, right) {
   const { h } = u
+  const room = u.W - len(text) - 1 - (right ? right.w + 1 : 0)
+  return h.row([
+    h.row([h.T(text, { bold: true, key }), summary && room > 4 ? h.T(clip(summary, room), { dim: true, wrap: 'truncate-end' }) : null], { flexWrap: 'nowrap', gap: 1, flexShrink: 1, key: 'l' }),
+    right ? h.row([right.el], { flexShrink: 0, key: 'r' }) : null,
+  ], { key: key + '-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' })
+}
+
+const ctxOfRow = (u, P, tokens) => {
+  if (!(Number(tokens) > 0)) return null
+  const win = Number(P.ctxWindow) || Number(u.c.contexte.window) || 400000
+  const thr = Number(u.c.contexte.handoff_tokens) || 250000
+  return { pct: (100 * tokens) / win, over: tokens >= thr, markPct: Math.min(100, (100 * thr) / win) }
+}
+
+/** This conversation: its macro line, its running Workflows under it; › unfolds its card, Terminés and its log. */
+function drawConv(u, P, L) {
+  const { h, c } = u
   const m = P.factory
-  const summary = P.convSummary || convFactorySummary(m)
-  return section(u, P, 'conv', L.conv, summary, () => {
-    if (!m || !m.available) return [h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })]
-    return factoryLines(u, P, L, m, true)
-  }, width)
+  const out = [headLine(u, L.conv_head, '', 'p-sec-conv')]
+  if (!m || !m.available) return h.col([...out, h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })], { key: 'p-conv' })
+  const open = P.closed && P.closed.pself === false
+  const toggle = () => P.act.nodeToggle('pself', open)
+  const x = m.ctx && m.ctx.known ? m.ctx : null
+  const s = m.stats
+  out.push(convMacro(u, P, L, {
+    key: 'pself-row', mark: c.marks[markOf(m.lead.stateId)] || c.marks.idle, title: m.lead.title, titleKey: 'pself', onToggle: toggle, open,
+    model: m.lead.model, effort: m.lead.effort, ctx: x ? { pct: x.pct, over: x.over, markPct: x.markPct } : null,
+    value: s.cost === null || s.cost === undefined ? (s.tokens ? fmtTokens(s.tokens) : '') : fmtUsd(s.cost),
+  }))
+  // its running Workflows right under its line, then (unfolded) its card
+  out.push(...wfLines(u, P, L, m.cards, 2, 'pself-wf'))
+  if (open) out.push(convMicro(u, P, L, m, { key: 'pself-micro', log: true, noLive: true }))
+  return h.col(out, { key: 'p-conv' })
 }
 
 /**
  * A conversation's factory as one-line elements, top to bottom: the lead's card, then its Workflow / background cards
- * one step in behind a grey rule (their agents one step further), « Terminés N › », and (log) the session log. The
- * same for « Cette conversation » and for a conversation unfolded under its row.
+ * one step in behind a grey rule (their agents one step further), « Terminés N › », and (log) the session log. o:
+ * { noTitle: its row already gives the title, noLive: its running cards are drawn as macro lines already }.
  */
-export function factoryLines(u, P, L, m, log) {
+export function factoryLines(u, P, L, m, log, o = {}) {
   const { h } = u
+  const noTitle = o.noTitle === undefined ? !log : o.noTitle
   // no Workflow nor agent and a small usage: two lines until « détails » (Julian, 18 Oct: 12 lines of empty stats)
-  if (m.compactable && m.compact) return compactCard(u, P, L, m, !log)
-  // under its row the conversation's title is the row itself: the card starts at model · effort · state
-  const out = [...leadCard(u, P, L, m, !log), u.blank('pl-end')]
+  if (m.compactable && m.compact) return compactCard(u, P, L, m, noTitle)
+  const out = [...leadCard(u, P, L, m, noTitle)]
   const inner = u.sub(2)
   const cards = []
+  const live = o.noLive ? [] : m.cards
   if (!m.cards.length && !m.finished) out.push(h.T(L.no_layer, { dim: true, wrap: 'truncate-end', key: 'pf-nolayer' }))
-  m.cards.forEach((k, i) => { if (i) cards.push(u.blank(`pk-${k.key}-gap`)); cards.push(...taskCard(inner, P, L, k)) })
+  live.forEach((k, i) => { if (i) cards.push(u.blank(`pk-${k.key}-gap`)); cards.push(...taskCard(inner, P, L, k)) })
   if (m.finished) {
     const f = m.finished
     if (cards.length) cards.push(u.blank(f.key + '-gap'))
     cards.push(h.row([h.btn(`${fill(L.finished, { n: f.count })} ${f.open ? '⌄' : '›'}`, () => P.act.nodeToggle(f.key, f.open), false, f.key)], { key: f.key + '-row' }))
     if (f.open) for (const k of f.cards) cards.push(u.blank(`pk-${k.key}-gap`), ...taskCard(inner, P, L, k))
   }
-  out.push(...u.rule(cards, 'pk-rule'))
+  if (cards.length) out.push(u.blank('pl-end'), ...u.rule(cards, 'pk-rule'))
   if (!log) return out
   // the session log
   out.push(u.blank('pfj-gap'), h.T(L.log, { bold: true, key: 'pfj' }))
@@ -223,8 +423,8 @@ export function factoryLines(u, P, L, m, log) {
 }
 
 /**
- * Another conversation's factory, under its row (« Toutes les conversations », graph): one step in behind a grey rule,
- * then an empty line and a thin rule before the next conversation. indent: the row's own indent (graph children).
+ * Another conversation's factory under its row in the graph: one step in behind a grey rule, then an empty line and a
+ * thin rule before the next conversation. indent: the row's own indent (graph children).
  */
 export function convUnder(u, P, L, cli, key, indent = 0) {
   const { h } = u
@@ -314,9 +514,9 @@ function leadCard(u, P, L, m, noTitle) {
 }
 
 /**
- * Claude's Background-tasks pane, for one Workflow or the background agents. Folded = its mini card: « name › », a grey
- * « Workflow  N agents  6h 56m », one dot per agent. Unfolded: tokens and cost, then the Phases, each unfolding to the
- * « Modèle | Temps » table of its agents.
+ * Claude's Background-tasks pane, for one Workflow or the background agents (a finished card in « Terminés », or a
+ * conversation unfolded in the graph). Folded = its mini card: « name › », a grey « Workflow  N agents  6h 56m », one
+ * dot per agent. Unfolded: taskBody.
  */
 function taskCard(u, P, L, k) {
   const { h } = u
@@ -328,12 +528,26 @@ function taskCard(u, P, L, k) {
     h.row([h.btn(`${clip(k.title, Math.max(6, u.W - 4))} ${open ? '⌄' : '›'}`, () => P.act.nodeToggle(k.key, open), false, `pk-${k.key}-t`)],
       { key: `pk-${k.key}-tr`, alignItems: 'center', flexWrap: 'nowrap' }),
     u.line(left, k.eta ? fill(L.layer_eta, { time: k.eta }) : '', durText(k.elapsed, true), { whole: true, short: count, dimLeft: true, toneLeft: k.failed ? 'bad' : undefined, boldValue: false, dimValue: true, key: `pk-${k.key}-d` }),
-    // a running card whose agents wrote nothing for conv.stall_min minutes: « à l'arrêt ? », amber
     k.stalled ? h.T(clip(k.stalledText, u.W), { tone: 'warn', wrap: 'truncate-end', key: `pk-${k.key}-stall` }) : null,
     u.dots(k.dots || k.phases.flatMap((p) => p.dots), `pk-${k.key}-dots`, u.W - 4),
   ].filter(Boolean)
   if (!open) return kids
-  kids.push(h.T([fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : ''].filter(Boolean).join('  '), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
+  return [...kids, ...taskBody(u, P, L, k)]
+}
+
+/**
+ * The detail of a card: tokens and cost (under a macro line also « à l'arrêt ? », the agents, the exact time and the
+ * ETA), then the Phases, each unfolding to its « Modèle | Temps » table.
+ */
+function taskBody(u, P, L, k, macro = false) {
+  const { h } = u
+  const kids = []
+  // a running card whose agents wrote nothing for conv.stall_min minutes: « à l'arrêt ? », amber
+  if (macro && k.stalled) kids.push(h.T(clip(k.stalledText, u.W), { tone: 'warn', wrap: 'truncate-end', key: `pk-${k.key}-stall` }))
+  const head = macro
+    ? [fill(L.layer_count, { n: k.count }), fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : '', durText(k.elapsed, true), k.eta ? fill(L.layer_eta, { time: k.eta }) : '']
+    : [fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : '']
+  kids.push(h.T(clip(head.filter(Boolean).join('  '), u.W), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
   if (k.kind === 'workflow') kids.push(h.T(L.phases, { bold: true, key: `pk-${k.key}-ph` }))
   for (const p of k.phases) {
     const right = `${p.done}/${p.count}`
@@ -392,202 +606,246 @@ function agentLines(u, L, a, key, indent) {
   ]
 }
 
-// ---- 3. Toutes les conversations ---------------------------------------------------------------------------------------
+// ---- 3. Conversations ----------------------------------------------------------------------------------------------------
 
-function drawConvs(u, P, L, width) {
+/** The filter row: each button cycles its filter (the period through panel.convs.periods), on one line. */
+function filterRow(u, P, L) {
   const { h } = u
   const s = P.syn
   const f = P.filter
-  const c = u.c
-  const summary = s && s.hasData ? `${s.period.label} · ${fmtTokens(s.total.tokens)} tok${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}${s.rows[0] ? ' · ' + clip(s.rows[0].label, 24) : ''}` : ''
-  return section(u, P, 'convs', L.convs, summary, () => {
-    const out = []
-    // one compact row: each button cycles its filter (the period through panel.convs.periods)
-    const periods = s ? s.periods : []
-    const pi = periods.findIndex((p) => s && p.id === s.period.id)
-    const nextPeriod = periods.length ? periods[(pi + 1) % periods.length].id : ''
-    // the four labels on one line: past the pane's width, the short ones (« auj. », « Proj. »), then the project cut
-    const who = f.who === 'codex' ? L.who_codex : L.who_claude
-    const st = f.state ? L.states[f.state] : L.state
-    const fits = (xs) => xs.reduce((a, x) => a + len(x) + 4, 0) + xs.length - 1 <= u.W
-    let per = s && s.period ? s.period.label : ''
-    let proj = clip(f.project || L.project, 16)
-    if (!fits([per, proj, st, who].filter(Boolean))) per = s && s.period ? s.period.short || per : ''
-    if (!fits([per, proj, st, who].filter(Boolean))) proj = f.project ? clip(f.project, 8) : L.project_short || proj
-    out.push(h.row([
-      per ? h.btn(`${per} ▾`, () => P.act.pfilter('period', nextPeriod), false, 'pf-period') : null,
-      h.btn(`${proj} ▾`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
-      h.btn(`${st} ▾`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
-      h.btn(`${who} ▾`, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
-    ], { key: 'pf-row', alignItems: 'center', marginBottom: 1 }))
-    if (!s || !s.hasData) out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' }))
-    else if (!s.rows.length) out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' }))
-    else {
-      const wide = width >= (Number(c.style.wide_cols) || 60)
-      const cells = wide ? Number(c.style.bar_cells_wide) || 10 : Number(c.style.bar_cells) || 6
-      const tot = s.total.tokens || 1
-      // one line per conversation: mark, title (a button: unfolds its factory under the row, › / ⌄), tokens, the thin
-      // bar of Barres (Svg on the desktop), %, « ouvrir ↗ » (opens it in the app). Codex rows: no factory, no button.
-      const foldable = f.who !== 'codex'
-      const openLabel = width >= (Number(c.style.wide_cols) || 60) ? L.open_conv : L.open_conv_short
-      s.rows.forEach((r, i) => {
-        const pct = Math.round((100 * r.tokens) / tot)
-        const mk = c.marks[r.mark] || c.marks.idle
-        const tok = fmtTokens(r.tokens)
-        const pctText = `${String(pct).padStart(2)} %`
-        // « ouvrir ↗ »: not on this conversation's own row, and left out when the title would have no room
-        let link = foldable && r.sid && P.link && r.id !== P.self ? fill(P.link, { id: r.sid }) : ''
-        const open = foldable && P.unfold ? P.unfold.has(r.id) : false
-        // past the hand-off threshold: a red ⚠ after the title while the row is folded (unfolded, its card says it)
-        const warn = r.over && !open ? L.handoff_mark : ''
-        const base = u.W - len(tok) - cells - len(pctText) - 6 - (foldable ? 4 : 0) - (warn ? len(warn) + 1 : 0)
-        if (link && base - len(openLabel) - 3 < 8) link = ''
-        const room = Math.max(4, base - (link ? len(openLabel) + 3 : 0))
-        const title = foldable
-          ? h.btn(`${clip(r.label, room)} ${open ? '⌄' : '›'}`, () => P.act.nodeToggle(convKey(r.id), open), false, 'pcv-' + r.id)
-          : h.T(clip(r.label, room), { bold: r.state !== 'done', dim: r.state === 'done', wrap: 'truncate-end' })
-        // the title takes what the numbers leave: its part shrinks, the numbers' part never does
-        out.push(h.row([
-          h.row([h.T(mk.glyph, { tone: mk.tone === 'dim' ? undefined : mk.tone, dim: mk.tone === 'dim' }), title, warn ? h.T(warn, { tone: 'bad', bold: true, key: 'pcw-' + r.id }) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1 }),
-          h.row([h.T(tok, { dim: true }), u.bar(pct, 'pcb-' + i, { cells }), h.T(pctText, { bold: true }), link ? h.btn(openLabel, () => P.act.openConv(link), false, 'pco-' + r.id) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 0 }),
-        ], { key: 'pc-' + i, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
-        if (open) out.push(...convUnder(u, P, L, r.id, 'pcu-' + r.id))
-      })
-      if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
-      out.push(u.line(L.total, s.period.label, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', bold: true }))
-    }
-    out.push(...workflowsBody(u, P, L))
-    return out
-  }, width)
+  const periods = s ? s.periods : []
+  const pi = periods.findIndex((p) => s && p.id === s.period.id)
+  const nextPeriod = periods.length ? periods[(pi + 1) % periods.length].id : ''
+  // the four labels on one line: past the pane's width, the short ones (« auj. », « Proj. »), then the project cut
+  const who = f.who === 'codex' ? L.who_codex : L.who_claude
+  const st = f.state ? L.states[f.state] : L.state
+  const fits = (xs) => xs.reduce((a, x) => a + len(x) + 4, 0) + xs.length - 1 <= u.W
+  let per = s && s.period ? s.period.label : ''
+  let proj = clip(f.project || L.project, 16)
+  if (!fits([per, proj, st, who].filter(Boolean))) per = s && s.period ? s.period.short || per : ''
+  if (!fits([per, proj, st, who].filter(Boolean))) proj = f.project ? clip(f.project, 8) : L.project_short || proj
+  return h.row([
+    per ? h.btn(`${per} ▾`, () => P.act.pfilter('period', nextPeriod), false, 'pf-period') : null,
+    h.btn(`${proj} ▾`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
+    h.btn(`${st} ▾`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
+    h.btn(`${who} ▾`, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
+  ], { key: 'pf-row', alignItems: 'center' })
 }
 
-// Workflows actifs of every conversation: the name as plain text, the agent dots right-aligned, the fold arrow alone a
-// button; unfolded, its agents
-function workflowsBody(u, P, L) {
-  const { h } = u
-  const wfs = P.workflows || []
-  const out = [h.col([h.T(L.workflows, { bold: true })], { key: 'pw-title', marginTop: 1 })]
-  if (!wfs.length) out.push(h.T(L.no_workflows, { dim: true, key: 'pw-none' }))
-  for (const w of wfs) {
-    const open = Boolean(P.open[w.key])
-    const nums = `${kTok(w.tokens)} ${w.running}/${w.count}`
-    const nd = Math.min(w.agents.length, 10)
-    // what the name does not take: the › button (3), three gaps, the numbers and the dots
-    out.push(h.row([
-      h.row([h.btn(open ? '⌄' : '›', () => P.act.ptoggle(w.key), false, 'pw-' + w.key), h.T(clip(w.name, Math.max(6, u.W - len(nums) - nd - 6)), { wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1 }),
-      h.row([h.T(nums, { dim: true }), u.dots(w.agents.map((a) => (a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'done' ? 'done' : 'waiting')), 'pwd-' + w.key, 10)], { flexWrap: 'nowrap', gap: 1, flexShrink: 0 }),
-    ], { key: 'pwr-' + w.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
+/**
+ * One line per conversation (biggest consumer first): state mark, title, model · effort, context bar and %, tokens, ›.
+ * Its running Workflows follow as ├ / └ lines; › unfolds its card under it with « ouvrir ↗ ». The filters and the total
+ * are behind « filtres › » (always shown while a filter is set).
+ */
+function drawConvs(u, P, L, width) {
+  const { h, c } = u
+  const s = P.syn
+  const f = P.filter
+  const active = s && s.rows ? s.rows.filter((r) => r.state === 'running' || r.state === 'waiting').length : 0
+  const fopen = Boolean(P.open.convs_filters) || Boolean(f.project || f.state || f.who === 'codex')
+  const fbtn = { el: h.tbtn(`${L.convs_filters} ${fopen ? '⌄' : '›'}`, () => P.act.ptoggle('convs_filters'), 'pconvs-f', { plain: true }), w: len(L.convs_filters) + 4 }
+  const out = [headLine(u, L.convs_head, s && s.hasData ? '· ' + fill(L.convs_active, { n: active }) : '', 'p-sec-convs', fbtn)]
+  if (fopen) {
+    out.push(h.col([filterRow(u, P, L),
+      s && s.hasData ? u.line(L.total, s.period.label, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', dimLeft: true, boldValue: false }) : null,
+    ], { key: 'pf-block', marginLeft: 2 }))
+  }
+  if (!s || !s.hasData) { out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' })); return h.col(out, { key: 'p-convs' }) }
+  if (!s.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return h.col(out, { key: 'p-convs' }) }
+  const codex = f.who === 'codex'
+  const wide = width >= (Number(c.style.wide_cols) || 60)
+  s.rows.forEach((r) => {
+    if (codex) { out.push(u.line(r.label, '', fmtTokens(r.tokens), { key: 'pc-' + r.id, boldValue: false })); return }
+    const self = r.id === P.self
+    const fm = (P.convFactories || {})[r.id]
+    const open = self ? P.closed && P.closed.pself === false : Boolean(P.unfold && P.unfold.has(r.id))
+    const key = self ? 'pself' : convKey(r.id)
+    out.push(convMacro(u, P, L, {
+      key: 'pc-' + r.id, mark: c.marks[r.mark] || c.marks.idle, title: r.label, titleKey: 'pcv-' + r.id, open,
+      onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
+    }))
+    if (self) return // its card and Workflows are under « Cette conversation »
+    const live = fm && fm.available && P.tree && P.tree.has(r.id) ? fm.cards : []
+    out.push(...wfLines(u, P, L, live, 2, 'pc-wf-' + r.id))
     if (open) {
-      if (w.agents.length) out.push(tableHead(u, L, 'pwa-' + w.key, 2))
-      w.agents.forEach((a) => out.push(...agentLines(u, L, { ...a, model: modelName(a.model), stateLabel: (L.agent_states || {})[a.status] || a.status, ms: 0, tps: null }, `pwa-${w.key}-${a.id}`, 2)))
-      if (w.hidden) out.push(h.T(`+ ${w.hidden}`, { dim: true, key: `pwh-${w.key}` }))
+      const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
+      out.push(convMicro(u, P, L, fm, { key: 'pcu-' + r.id, cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short, noLive: live.length > 0 }))
     }
+  })
+  if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
+  return h.col(out, { key: 'p-convs' })
+}
+
+// ---- 4. Quotas: one line, › Claude's Usage rows ------------------------------------------------------------------------
+
+const oneLineRoom = (u, title) => u.W - (len(title) + 3) - 4
+
+/** A one-line section: its bold title (a plain button that unfolds it), the fitted items, ›; unfolded, its detail. */
+function oneLine(u, P, id, title, variants, body) {
+  const { h } = u
+  const open = Boolean(P.open[id])
+  const toggle = () => P.act.ptoggle(id)
+  const arrow = arrowItem(u, open, toggle, 'p-sec-' + id + '-x')
+  const sum = (xs) => xs.reduce((a, x) => a + x.w + 1, 0)
+  // what the items may take: the pane less the title's button ([title] and a gap) and the arrow
+  const room = oneLineRoom(u, title)
+  const v = variants.find((x) => sum(x) <= room) || variants[variants.length - 1] || []
+  return h.col([
+    h.row([
+      h.row([h.tbtn(title, toggle, 'p-sec-' + id, { plain: true, bold: true }), ...v.map((x) => x.el)], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1, key: 'l' }),
+      h.row([arrow.el], { flexShrink: 0, key: 'r' }),
+    ], { key: 'p-sec-' + id + '-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }),
+    open ? h.col(body(), { marginLeft: 2, key: 'p-' + id + '-micro' }) : null,
+  ], { key: 'p-' + id })
+}
+
+function drawBarres(u, P, L, width) {
+  const { h, c } = u
+  const bars = P.bars || []
+  const cells = cellsOf(c, width)
+  const toneOf = (p) => (p !== null && p !== undefined && p >= 90 ? 'bad' : p !== null && p !== undefined && p >= 80 ? 'warn' : undefined)
+  const narrow = Number(c.style.macro_cells_narrow) || 6
+  const one = (b, label) => {
+    if (!b) return { full: [], short: [], bare: [] }
+    const tone = toneOf(b.pct)
+    const lab = item(h, label, { dim: true })
+    const pct = item(h, b.text, { bold: Boolean(tone), tone, dim: !tone })
+    const known = b.pct !== null && b.pct !== undefined
+    const bar = (n) => (known ? [{ el: u.bar(b.pct, 'pqb-' + b.id, { cells: n, tone }), w: n }] : [])
+    return { full: [lab, ...bar(cells), pct], short: [lab, ...bar(Math.min(cells, narrow)), pct], bare: [lab, pct] }
+  }
+  const five = bars.find((b) => b.id === 'five')
+  const week = bars.find((b) => b.id === 'week')
+  const tps = bars.find((b) => b.id === 'tps')
+  const f = one(five, L.quotas_five)
+  const w = one(week, L.quotas_week)
+  const reset = five && five.detail ? [item(h, '· ' + String(five.detail).replace(/^reset dans /, 'reset '), { dim: true })] : []
+  const t = tps && tps.pct === null && tps.text !== L.unknown ? [item(h, tps.text.replace(/^(\d+)(\d{3}) /, (_, a, b) => `${a}.${b[0]}k `), { dim: true })] : []
+  // the reset goes first, then the bars get short, then they go; the numbers stay
+  const variants = [
+    [...f.full, ...reset, ...w.full, ...t], [...f.full, ...w.full, ...t], [...f.short, ...w.short, ...t], [...f.bare, ...w.bare, ...t], [...f.bare, ...w.bare],
+  ]
+  return oneLine(u, P, 'barres', L.quotas_head, variants, () => {
+    const out = []
+    for (const b of bars) {
+      const tone = toneOf(b.pct)
+      if (b.pct === null || b.pct === undefined) { out.push(u.sub(2).line(b.label, b.id === 'tps' ? '' : b.detail, b.text, { key: 'pb-' + b.id })); continue }
+      out.push(h.col([
+        u.sub(2).line(b.label, b.detail, b.text, { tone, key: 'pb-' + b.id }),
+        u.sub(2).bar(b.pct, 'pbb-' + b.id, { tone }),
+        b.under ? h.T(b.under, { dim: true, wrap: 'truncate-end', key: 'pbu-' + b.id }) : null,
+      ], { key: 'pbc-' + b.id }))
+    }
+    return out
+  })
+}
+
+// ---- 4b. Débit: one line, › tokens per second per model ------------------------------------------------------------
+
+/**
+ * Folded: the weighted TPS of each model in use over the shortest window that has replies (« opus 59 · sonnet 88 TPS
+ * (30 min) »). Unfolded: one card per model in use (« Modèle : opus 5.5 », a grey header row, a row per window, the
+ * numbers right-aligned in fixed columns; under the pane's width Plage then Temps go, then the headers get short; the
+ * numbers are never cut), the models with no reply in 7 days behind « anciens › », the last streams, and the footnote
+ * behind « comment c'est mesuré › ».
+ */
+const NBSP = String.fromCharCode(160)
+
+function drawDebit(u, P, L) {
+  const { h } = u
+  const m = P.debit
+  const mac = (m && m.macro) || { list: [], window: '' }
+  const text = (n) => fill(L.debit_macro, { list: mac.list.slice(0, n).map((x) => `${x.label} ${Number.isFinite(x.tps) ? Math.round(x.tps) : '?'}`).join(' · '), window: mac.window })
+  const variants = !m || !m.ready ? [[item(h, L.debit_no_file.split(' : ')[0], { dim: true })]]
+    : !mac.list.length ? [[item(h, L.debit_none, { dim: true })]]
+      : [...mac.list.map((_, i) => [item(h, text(mac.list.length - i), { dim: true })])]
+  return oneLine(u, P, 'debit', L.debit_head, variants, () => debitBody(u.sub(2), P, L, m))
+}
+
+function debitBody(u, P, L, m) {
+  const { h } = u
+  if (!m || !m.ready) return [h.T(L.debit_no_file, { dim: true, wrap: 'truncate-end', key: 'pd-nofile' })]
+  const out = []
+  const C = L.debit_cols || {}
+  const ids = ['n', 'tokens', 'time', 'tps', 'median', 'range']
+  const cell = (r, id) => {
+    if (!r.n) return id === 'n' ? '0' : '—'
+    if (id === 'n') return String(r.n)
+    if (id === 'tokens') return tokText(r.out)
+    if (id === 'time') return durText(r.ms, true)
+    if (id === 'tps') return debitTps(r.weighted)
+    if (id === 'median') return debitTps(r.median)
+    return `${debitTps(r.lo)}–${debitTps(r.hi)}`
+  }
+  const old = m.old || []
+  if (!m.cards.length) out.push(h.T(L.debit_none, { dim: true, wrap: 'truncate-end', key: 'pd-none' }))
+  // one set of column widths for every card, so the cards line up
+  const all = [...m.cards, ...old]
+  const values = (id) => all.flatMap((k) => k.rows.map((r) => cell(r, id)))
+  const labelW = Math.max(len(C.window || ''), ...m.windows.map((w) => len(w.label || w.id)))
+  const colsOf = (head) => ids.map((id) => ({ id, head: head[id] || '', w: Math.max(len(head[id] || ''), ...values(id).map(len)) }))
+  let cols = fitColumns(colsOf(C), u.W, labelW)
+  let head = C
+  if (labelW + cols.reduce((a, x) => a + x.w + 1, 0) > u.W) {
+    head = { ...C, ...(L.debit_cols_short || {}) }
+    cols = fitColumns(colsOf(head), u.W, labelW)
+  }
+  const line = (left, cells, key, o = {}) => h.row([
+    h.col([h.T(left, { dim: o.dim, wrap: 'truncate-end' })], { flexGrow: 1, key: 'l' }),
+    ...cols.map((x, i) => h.col([h.T(String(cells[i] ?? '').padStart(x.w, NBSP), { dim: o.dim || (x.id !== 'tps' && !o.bold), bold: x.id === 'tps' && !o.dim })], { width: x.w, flexShrink: 0, alignItems: 'flex-end', key: x.id })),
+  ], { key, flexWrap: 'nowrap', gap: 1 })
+  const card = (k, ci, pre) => {
+    if (ci) out.push(u.blank(`${pre}-${ci}-gap`))
+    out.push(h.T(fill(L.debit_model, { model: k.label }), { bold: true, key: `${pre}-${ci}-t` }))
+    out.push(line(head.window || '', cols.map((x) => x.head), `${pre}-${ci}-h`, { dim: true }))
+    k.rows.forEach((r, ri) => out.push(line(r.label, cols.map((x) => cell(r, x.id)), `${pre}-${ci}-${ri}`)))
+  }
+  m.cards.forEach((k, ci) => card(k, ci, 'pd'))
+  if (m.hidden > 0) out.push(h.T(fill(L.debit_hidden, { n: m.hidden }), { dim: true, key: 'pd-hidden' }))
+  if (old.length) {
+    const oo = Boolean(P.open['pd-old'])
+    out.push(u.blank('pd-old-gap'), h.row([h.tbtn(`${fill(L.debit_old, { n: old.length })} ${oo ? '⌄' : '›'}`, () => P.act.ptoggle('pd-old'), 'pd-old', { plain: true })], { key: 'pd-old-row' }))
+    if (oo) old.forEach((k, ci) => card(k, ci, 'pdo'))
+  }
+  if (m.codex === 'unread') out.push(h.T(L.debit_codex_unread, { dim: true, key: 'pd-cx' }))
+  // the last streams: « HH:MM:SS  opus 5.5 medium : 59.1 TPS (171 tok en 2.89 s) », TPS green at or above the
+  // model's median, grey under it; when the line is too long the tail goes first, then the model is shortened
+  if (m.streams.length) {
+    out.push(u.blank('pd-s-gap'), h.T(fill(L.debit_recent, { n: m.streams.length }), { bold: true, key: 'pd-s' }))
+    m.streams.forEach((s, i) => {
+      const tps = `${debitTps(s.tps)} TPS`
+      let tail = fill(L.debit_stream_tail, { tokens: s.out < 10000 ? String(s.out) : tokText(s.out), secs: secText(s.ms) })
+      const pre = (model) => fill(L.debit_stream, { time: clockText(s.ts), model, effort: s.effort ? ' ' + s.effort : '' })
+      if (len(pre(s.label)) + len(tps) + len(tail) + 2 > u.W) tail = ''
+      const over = len(pre(s.label)) + len(tps) + (tail ? len(tail) + 1 : 0) + 1 - u.W
+      const left = over > 0 ? pre(clip(s.label, Math.max(3, len(s.label) - over))) : pre(s.label)
+      out.push(h.row([
+        h.T(left, { dim: true, wrap: 'truncate-end' }),
+        h.T(tps, { tone: s.fast ? 'ok' : undefined, dim: !s.fast, bold: s.fast }),
+        tail ? h.T(tail, { dim: true }) : null,
+      ], { key: 'pd-s-' + i, flexWrap: 'nowrap', gap: 1 }))
+    })
+  }
+  const no = Boolean(P.open['pd-note'])
+  out.push(u.blank('pd-n-gap'), h.row([h.tbtn(`${L.debit_how} ${no ? '⌄' : '›'}`, () => P.act.ptoggle('pd-note'), 'pd-how', { plain: true })], { key: 'pd-how-row' }))
+  if (no) {
+    out.push(h.T(L.debit_note, { dim: true, key: 'pd-note' }))
+    if (m.codex === 'read') out.push(h.T(L.debit_codex_note, { dim: true, key: 'pd-cx-note' }))
   }
   return out
 }
 
-// ---- 4. Barres: Claude's Usage rows ----------------------------------------------------------------------------------
-
-function drawBarres(u, P, L, width) {
-  const { h } = u
-  const bars = P.bars || []
-  const summary = bars.filter((b) => b.pct !== null && b.pct !== undefined).map((b) => `${b.label} ${b.text}`).join(' · ')
-  return section(u, P, 'barres', L.barres, summary, () => {
-    const out = []
-    for (const b of bars) {
-      const tone = b.pct !== null && b.pct >= 90 ? 'bad' : b.pct !== null && b.pct >= 80 ? 'warn' : undefined
-      if (b.pct === null || b.pct === undefined) { out.push(u.line(b.label, b.id === 'tps' ? '' : b.detail, b.text, { key: 'pb-' + b.id })); continue }
-      out.push(h.col([
-        u.line(b.label, b.detail, b.text, { tone, key: 'pb-' + b.id }),
-        u.bar(b.pct, 'pbb-' + b.id, { tone }),
-        b.under ? h.T(b.under, { dim: true, wrap: 'truncate-end', key: 'pbu-' + b.id }) : null,
-      ], { key: 'pbc-' + b.id, marginBottom: 1 }))
-    }
-    return out
-  }, width)
-}
-
-// ---- 4b. Débit: tokens per second per model -------------------------------------------------------------------------
-
-/**
- * One card per model: a bold « Modèle : opus 5.5 », a grey header row, a row per window with the numbers right-aligned
- * in fixed columns (no box borders, as the Usage-like cards). Under the pane's width Plage then Temps are left out,
- * then the headers get short; the numbers are never cut. Then « 10 derniers flux » and the grey footnote.
- */
-const NBSP = String.fromCharCode(160)
-
-function drawDebit(u, P, L, width) {
-  const { h } = u
-  const m = P.debit
-  return section(u, P, 'debit', L.debit, m && m.ready ? m.summary : '', () => {
-    if (!m || !m.ready) return [h.T(L.debit_no_file, { dim: true, wrap: 'truncate-end', key: 'pd-nofile' })]
-    const out = []
-    const C = L.debit_cols || {}
-    const ids = ['n', 'tokens', 'time', 'tps', 'median', 'range']
-    const cell = (r, id) => {
-      if (!r.n) return id === 'n' ? '0' : '—'
-      if (id === 'n') return String(r.n)
-      if (id === 'tokens') return tokText(r.out)
-      if (id === 'time') return durText(r.ms, true)
-      if (id === 'tps') return debitTps(r.weighted)
-      if (id === 'median') return debitTps(r.median)
-      return `${debitTps(r.lo)}–${debitTps(r.hi)}`
-    }
-    if (!m.cards.length) out.push(h.T(L.debit_none, { dim: true, wrap: 'truncate-end', key: 'pd-none' }))
-    // one set of column widths for every card, so the cards line up
-    const values = (id) => m.cards.flatMap((k) => k.rows.map((r) => cell(r, id)))
-    const labelW = Math.max(len(C.window || ''), ...m.windows.map((w) => len(w.label || w.id)))
-    const colsOf = (head) => ids.map((id) => ({ id, head: head[id] || '', w: Math.max(len(head[id] || ''), ...values(id).map(len)) }))
-    let cols = fitColumns(colsOf(C), u.W, labelW)
-    let head = C
-    if (labelW + cols.reduce((a, x) => a + x.w + 1, 0) > u.W) {
-      head = { ...C, ...(L.debit_cols_short || {}) }
-      cols = fitColumns(colsOf(head), u.W, labelW)
-    }
-    const line = (left, cells, key, o = {}) => h.row([
-      h.col([h.T(left, { dim: o.dim, wrap: 'truncate-end' })], { flexGrow: 1, key: 'l' }),
-      ...cols.map((x, i) => h.col([h.T(String(cells[i] ?? '').padStart(x.w, NBSP), { dim: o.dim || (x.id !== 'tps' && !o.bold), bold: x.id === 'tps' && !o.dim })], { width: x.w, flexShrink: 0, alignItems: 'flex-end', key: x.id })),
-    ], { key, flexWrap: 'nowrap', gap: 1 })
-    m.cards.forEach((k, ci) => {
-      if (ci) out.push(u.blank(`pd-${ci}-gap`))
-      out.push(u.title(fill(L.debit_model, { model: k.label }), `pd-${ci}-t`))
-      out.push(line(head.window || '', cols.map((x) => x.head), `pd-${ci}-h`, { dim: true }))
-      k.rows.forEach((r, ri) => out.push(line(r.label, cols.map((x) => cell(r, x.id)), `pd-${ci}-${ri}`)))
-    })
-    if (m.hidden > 0) out.push(h.T(fill(L.debit_hidden, { n: m.hidden }), { dim: true, key: 'pd-hidden' }))
-    if (m.codex === 'unread') out.push(h.T(L.debit_codex_unread, { dim: true, key: 'pd-cx' }))
-    // the last streams: « HH:MM:SS  opus 5.5 medium : 59.1 TPS (171 tok en 2.89 s) », TPS green at or above the
-    // model's median, grey under it; when the line is too long the tail goes first, then the model is shortened
-    if (m.streams.length) {
-      out.push(u.blank('pd-s-gap'), h.T(fill(L.debit_recent, { n: m.streams.length }), { bold: true, key: 'pd-s' }))
-      m.streams.forEach((s, i) => {
-        const tps = `${debitTps(s.tps)} TPS`
-        let tail = fill(L.debit_stream_tail, { tokens: s.out < 10000 ? String(s.out) : tokText(s.out), secs: secText(s.ms) })
-        const pre = (model) => fill(L.debit_stream, { time: clockText(s.ts), model, effort: s.effort ? ' ' + s.effort : '' })
-        if (len(pre(s.label)) + len(tps) + len(tail) + 2 > u.W) tail = ''
-        const over = len(pre(s.label)) + len(tps) + (tail ? len(tail) + 1 : 0) + 1 - u.W
-        const left = over > 0 ? pre(clip(s.label, Math.max(3, len(s.label) - over))) : pre(s.label)
-        out.push(h.row([
-          h.T(left, { dim: true, wrap: 'truncate-end' }),
-          h.T(tps, { tone: s.fast ? 'ok' : undefined, dim: !s.fast, bold: s.fast }),
-          tail ? h.T(tail, { dim: true }) : null,
-        ], { key: 'pd-s-' + i, flexWrap: 'nowrap', gap: 1 }))
-      })
-    }
-    out.push(u.blank('pd-n-gap'), h.T(L.debit_note, { dim: true, key: 'pd-note' }))
-    if (m.codex === 'read') out.push(h.T(L.debit_codex_note, { dim: true, key: 'pd-cx-note' }))
-    return out
-  }, width)
-}
-
-// ---- 5. Graphe des conversations ------------------------------------------------------------------------------------
+// ---- 5. Graphe: one line, › who waits, works, coordinates, by project ----------------------------------------------
 
 function drawGrapheSection(u, P, L, width) {
+  const { h } = u
   const m = P.graphe
   // the same effective window as every context bar (lib/panel.mjs effectiveWindow)
   const handoffPct = Math.round((100 * (Number(u.c.contexte.handoff_tokens) || 250000)) / (Number(P.ctxWindow) || Number(u.c.contexte.window) || 400000))
   const wide = width >= (Number(u.c.style.wide_cols) || 60)
-  return section(u, P, 'graphe', L.graphe, m && m.ready ? m.summary : '', () => drawGraphe(u.h, m, L, width - 1, P.act,
-    { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct, unfold: P.unfold, openLabel: wide ? L.open_conv : L.open_conv_short,
-      under: (cli, pad) => convUnder(u, P, L, cli, 'pgu-' + cli, pad) }), width)
+  const sum = m && m.ready ? m.macro || m.summary : L.graphe_slot
+  const variants = [[item(h, clip(sum, Math.max(6, oneLineRoom(u, L.graphe_head) - 1)), { dim: true })]]
+  return oneLine(u, P, 'graphe', L.graphe_head, variants, () => drawGraphe(h, m, L, width - 3, P.act,
+    { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct, unfold: P.unfold, openLabel: wide ? L.open_conv : L.open_conv_short, noClick: true,
+      under: (cli, pad) => convUnder(u.sub(2), P, L, cli, 'pgu-' + cli, pad) }))
 }

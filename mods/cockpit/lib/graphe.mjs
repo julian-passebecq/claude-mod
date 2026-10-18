@@ -17,6 +17,7 @@ import { panelConfig, fill, kTok } from './panel.mjs'
 import { rank } from './usage/lib/classement.mjs'
 import { tokensOf } from './usage/lib/transcripts.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
+import { repoOf } from './factory/hooks/logic.mjs'
 
 const MIN = 60000
 const HOUR = 3600000
@@ -60,14 +61,25 @@ function coordRx(g) {
  * self: this conversation's CLI id. Returns { ready, waiting, legend, groups, projects, filter, hidden, summary, empty }.
  */
 export function grapheModel(input, self, cfg, nowMs) {
-  const rows = (input && Array.isArray(input.rows)) ? input.rows : null
-  if (!rows) return { ready: false }
+  const files = (input && Array.isArray(input.rows)) ? input.rows : null
+  if (!files) return { ready: false }
   const c = panelConfig(cfg)
   const g = c.graphe
   const L = c.labels
   const f = grapheFilter(input.filter, cfg)
   const fcfg = input.fcfg || {}
   const scanBy = new Map(((input.scan && input.scan.sessions) || []).filter((s) => s.cli).map((s) => [s.cli, s]))
+  // Julian, 19 Oct: « aucune conversation avec ces filtres » while 3 conversations worked. A conversation of factory's scan
+  // (its transcript read) with no session file the scanner could read is drawn from the scan, not left out
+  const inFiles = new Set(files.map((r) => r.cli))
+  const rows = [...files]
+  for (const s of scanBy.values()) {
+    if (inFiles.has(s.cli) || s.archived) continue
+    rows.push({ sid: String(s.sid || ''), cli: s.cli, title: String(s.app_title || s.title || s.cli), cwd: String(s.cwd || ''), origin: String(s.cwd || ''),
+      repo: repoOf(s) || '?', archived: false, starred: false, last_activity: Math.max(tsMs(s.last_activity), tsMs(s.mtime)), created: 0,
+      model: String(s.app_model || s.model || ''), effort: String(s.app_effort || s.effort || ''), parent: String(s.parent || ''), peers: [],
+      awaiting: Boolean(s.awaiting), prs: [], branch: '' })
+  }
   const bySid = new Map(rows.filter((r) => r.sid).map((r) => [r.sid, r]))
   const byCli = new Map(rows.map((r) => [r.cli, r]))
   const find = (id) => bySid.get(id) || byCli.get(id)
@@ -109,7 +121,7 @@ export function grapheModel(input, self, cfg, nowMs) {
     const word = state === 'idle' ? fill(L.graphe_states.idle, { age: ageText(idle) }) : L.graphe_states[state]
     const tok = tokToday.has(r.cli) ? tokToday.get(r.cli) : null
     const ctx = s && Number(s.ctx) > 0 ? Math.round((100 * Number(s.ctx)) / window) : null
-    info.set(r, { state, word, role, reason, since, tok, ctx, link: r.sid ? fill(linkTpl, { id: r.sid }) : '' })
+    info.set(r, { state, word, role, reason, since, tok, ctx, last, link: r.sid ? fill(linkTpl, { id: r.sid }) : '' })
   }
 
   // À toi de cliquer: whatever the filters (the archived and the too old aside), oldest first
@@ -119,12 +131,18 @@ export function grapheModel(input, self, cfg, nowMs) {
 
   const periodMs = f.period === '24h' ? 24 * HOUR : f.period === '7j' ? 168 * HOUR : Infinity
   const projects = [...new Set(rows.filter((r) => !r.archived || f.archived).map((r) => r.repo))].sort((a, b) => a.localeCompare(b))
+  // a project filter kept in $.store from a project that has no conversation any more hides everything: ignored
+  if (f.project && !projects.includes(f.project)) f.project = ''
+  // the period is tested on the latest sign of life (the app's lastActivityAt, the scan's activity, the transcript's
+  // mtime), as the state is: the app's timestamp alone hid conversations working for hours (Julian, 19 Oct); a
+  // conversation that works, waits or is blocked is always shown
   const shown = rows.filter((r) => {
     const i = info.get(r)
     if (r.archived && !f.archived) return false
     if (f.project && r.repo !== f.project) return false
-    if (f.active && !['working', 'waiting', 'blocked'].includes(i.state)) return false
-    return i.state === 'waiting' || nowMs - (r.last_activity || 0) <= periodMs
+    const live = ['working', 'waiting', 'blocked'].includes(i.state)
+    if (f.active && !live) return false
+    return live || nowMs - (i.last || 0) <= periodMs
   })
   const keep = new Set(shown)
 
@@ -180,8 +198,11 @@ export function grapheModel(input, self, cfg, nowMs) {
     fill(L.graphe_sum_working, { n: count('working') }),
     count('blocked') ? fill(L.graphe_sum_blocked, { n: count('blocked') }) : '',
   ].filter(Boolean).join(' · ')
+  const coords = shown.filter((r) => info.get(r).role === 'coord').length
+  const macro = [fill(L.graphe_sum_conv, { n: shown.length }), coords ? fill(L.graphe_sum_coord, { n: coords }) : '',
+    waiting.length ? fill(L.graphe_sum_waiting, { n: waiting.length }) : L.graphe_click_none].filter(Boolean).join(' · ')
   const legend = ['working', 'waiting', 'blocked', 'done', 'idle'].map((k) => ({ glyph: (c.marks[k] || {}).glyph || '·', tone: (c.marks[k] || {}).tone, label: (L.graphe_legend || {})[k] || k }))
-  return { ready: true, waiting, legend, groups, projects, filter: f, hidden, summary, empty: !groups.length }
+  return { ready: true, waiting, legend, groups, projects, filter: f, hidden, summary, macro, empty: !groups.length }
 }
 
 export { kTok }

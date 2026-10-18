@@ -161,7 +161,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const stalled = Boolean(live && lastAt && nowMs - lastAt > lim)
     cards.push({
       key, kind: 'workflow', title: fill(L.workflow, { name: (run && run.name) || names.get(id) || id }), live, elapsed,
-      stalled, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
+      stalled, stalledMs: stalled ? nowMs - lastAt : 0, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
       count: agents.length, running, tokens: agents.reduce((a, x) => a + x.tokens, 0),
       cost: run && Number.isFinite(run.cost) ? run.cost : agents.reduce((a, x) => a + x.cost, 0),
       eta: est ? hhmm(est.eta.mid).slice(0, 5) : '', failed: run ? run.status === 'failed' : agents.some((a) => a.status === 'failed'),
@@ -176,7 +176,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const stalled = Boolean(running && lastAt && nowMs - lastAt > lim)
     cards.push({
       key: pre + 'pfw-bg', kind: 'background', title: L.background, live: running > 0,
-      stalled, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
+      stalled, stalledMs: stalled ? nowMs - lastAt : 0, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
       elapsed: starts.length ? (running ? nowMs : Math.max(...plain.map((a) => a.ts + a.ms))) - Math.min(...starts) : 0,
       count: plain.length, running, tokens: plain.reduce((a, x) => a + x.tokens, 0), cost: plain.reduce((a, x) => a + x.cost, 0), eta: '',
       failed: plain.some((a) => a.status === 'failed'), phases: phasesOf(pre + 'pfw-bg', null, plain, L, closed, max),
@@ -231,8 +231,8 @@ export { kTok }
  * runs (factory's Workflow screen runs), syn (synthesis()), graphe (grapheModel()), self, selfFactory (the model of
  * « Cette conversation », reused for this conversation's row), closed (the viewer's folds), tpsById, cardOf(session)
  * -> nav.usageCard of that session (no engine figures: they are this conversation's) }.
- * -> { unfold: Set of cli, factories: { [cli]: convFactory(...) } }. Only the unfolded ones are built; an active
- * conversation's Workflow cards start unfolded.
+ * -> { unfold: Set of cli, factories: { [cli]: convFactory(...) }, tree: Set of cli }. Built: the unfolded ones and
+ * the active ones (tree, whose running Workflows are macro lines); every Workflow card starts folded (macro view).
  */
 export function convFactories(input, fcfg, cfg, nowMs) {
   const { scan, runs, syn, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf, autoWindow } = input || {}
@@ -245,17 +245,22 @@ export function convFactories(input, fcfg, cfg, nowMs) {
   if (syn && syn.rows && syn.rows.every((r) => r.id !== 'codex')) order.push(...syn.rows.map((r) => r.id))
   if (graphe && graphe.ready) for (const g of graphe.groups || []) for (const l of g.lines || []) order.push(l.key)
   const unfold = unfoldPlan(order, active, closed, self, cfg)
+  // the macro view draws each active conversation's running Workflows as ├ / └ lines under its row: their factory is
+  // built too (the first convs.tree_max of them, in the rows' order), drawn only as those lines until unfolded
+  const tmax = Math.max(0, Number(c.convs.tree_max ?? 8) || 0)
+  const listed = syn && syn.rows && syn.rows.every((r) => r.id !== 'codex') ? syn.rows.map((r) => r.id) : []
+  const tree = new Set([...new Set(listed)].filter((cli) => cli !== self && active.has(cli)).slice(0, tmax))
   const fwin = (fcfg || {}).context_window
   const factories = {}
-  for (const cli of unfold) {
+  for (const cli of new Set([...unfold, ...tree])) {
     if (cli === self && selfFactory) { factories[cli] = selfFactory; continue }
     const s = ((scan && scan.sessions) || []).find((x) => x.cli === cli)
     if (!s) { factories[cli] = null; continue }
     const row = ((syn && syn.rows) || []).find((r) => r.id === cli)
     factories[cli] = convFactory(scan, cli, fcfg, cfg, nowMs, closed, {
-      runs: runs || [], prefix: convKey(cli) + ':', cardsOpen: active.has(cli), card: cardOf ? cardOf(s) : null, rowCost: row ? row.cost : null,
+      runs: runs || [], prefix: convKey(cli) + ':', card: cardOf ? cardOf(s) : null, rowCost: row ? row.cost : null,
       contexte: contexteOf({ usage: null, ctxTokens: Number(s.ctx) || NaN, fwin: c.contexte.window || fwin, auto: autoWindow }, cfg), tps: tpsById[cli],
     })
   }
-  return { unfold, factories }
+  return { unfold, factories, tree }
 }

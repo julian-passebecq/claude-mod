@@ -1,16 +1,15 @@
 // cockpit « Panneau » - the default view: ONE scrolling column, no tabs (Julian, 17 Oct: « trop d'écrans », then no tab
 // bar at all); the old views are reached by their /cockpit commands only, listed in one grey line at the bottom.
-// Drawn in the style of Claude's own Usage and Background-tasks panes (Julian, 17 Oct 18:10): cards with a bold title,
-// rows « label … grey detail  bold % » over a thin bar, small stats grids, phases with ■□ dots; no box-drawing borders.
+// Since 19 Oct it opens on a MACRO view (Julian: « a macro view where I see everything quickly, a micro view when I
+// click »), drawn by hooks/panel_view.mjs; each line unfolds its detail (micro), kept in $.store:
+//   À toi de cliquer                  one amber line at the top while a conversation waits for Julian
 //   1. Fichiers                       data-goblin's file tree, embedded, FOLDED by default (hooks/files.mjs)
-//   2. Cette conversation             a Usage-like card for the lead (model · effort, context bar with the 250 k mark,
-//                                     cost, tokens, cache hit, % sub-agents, models, what contributes), then one
-//                                     Background-tasks-like card per Workflow / background agents, finished ones
-//                                     folded into « Terminés N › », the session log (lib/panel_conv.mjs)
-//   3. Toutes les conversations       compact rows (dot, title, tokens, bar, %) + filters, Workflows actifs
-//   4. Barres                         Session 5 h, Semaine, Codex, crédits as Usage rows over bars; tok/s
-//   4b. Débit                         tokens per second, one card per model (30 min, 1 j, 7 j, 30 j), last streams (lib/debit.mjs)
-//   5. Graphe des conversations       who waits, works, coordinates, by project like the sidebar (lib/graphe.mjs, hooks/graphe_view.mjs)
+//   2. CETTE CONVERSATION             one line (state, title, model·effort, context bar, cost), its running Workflows as
+//                                     ├ / └ lines; micro: the Usage-like card, Terminés N ›, the log (lib/panel_conv.mjs)
+//   3. CONVERSATIONS · N actives      one line per conversation, its running Workflows under it; filters behind « filtres › »
+//   4. QUOTAS                         one line (5 h, semaine, tok/s); micro: Session 5 h, Semaine, Codex, crédits as Usage rows
+//   4b. DÉBIT                         one line (weighted TPS per model in use); micro: one card per model, last streams (lib/debit.mjs)
+//   5. GRAPHE                         one line (conv, coord, who waits); micro: by project like the sidebar (lib/graphe.mjs)
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Every label and limit comes from `panel` in
 // cockpit.config.json (deep-merged over PANEL_DEFAULTS).
 import { rank, codexTokens, windowOf } from './usage/lib/classement.mjs'
@@ -23,8 +22,11 @@ export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres', 'debit', '
 export const PANEL_DEFAULTS = {
   enabled: true,
   order: PANEL_SECTIONS,
-  // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct)
-  open: ['conv', 'convs', 'barres', 'debit', 'graphe'],
+  // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct).
+  // Since 19 Oct the Panneau opens on its MACRO view (Julian: « everything quickly, details when I click »): Cette
+  // conversation and Conversations are one line per conversation / Workflow; Quotas, Débit and Graphe are one line each,
+  // « open » unfolds their detail (micro) under that line
+  open: ['conv', 'convs'],
   // the state marks of « Toutes les conversations », the graph and its legend, one set (Julian, 18 Oct: « travaille » and
   // « t'attend » both looked orange): glyph + tone, a tone being a theme colour of the engine (cockpit term_colors:
   // ok = success green, warn = warning amber, bad = error red, dim = inactive grey)
@@ -43,6 +45,10 @@ export const PANEL_DEFAULTS = {
     bar_px: 7, bar_cells: 6, bar_cells_wide: 10, wide_cols: 60, ctx_cells: 4, finished_open: false, workflow_open: false,
     dot_done: '■', dot_running: '■', dot_pending: '□', dot_tones: { done: 'dim', running: 'warn', failed: 'bad' }, dots_max: 60,
     bar_full: '▰', bar_empty: '▱', bar_mark: '|',
+    // the macro rows (one line per conversation / Workflow, Quotas): bar cells at wide_cols columns and more / under it;
+    // ctx_warn_pct = the context % drawn amber and bold (red and ⚠ past the hand-off threshold); dot_live = a running
+    // agent's dot on a Workflow line (grey ■ done, □ pending); macro_dots = dots on one Workflow line (then +N)
+    macro_cells: 10, macro_cells_narrow: 6, ctx_warn_pct: 62.5, dot_live: '●', macro_dots: 12,
   },
   fichiers: {
     // a file clicked in the tree is named to Claude as context of the next prompt, exactly as data-goblin's filetree
@@ -67,7 +73,10 @@ export const PANEL_DEFAULTS = {
     // (lead card, Workflow cards, background agents, Terminés N ›), drawn as « Cette conversation » (Julian, 18 Oct).
     // The active ones (travaille, attend, a running Workflow or agent) start unfolded, at most unfold_max of them (the
     // engine unmounts a tree past 100,000 serialized characters or 20,000 nodes); the viewer's own folds always win.
-    unfold_max: 6,
+    // Since 19 Oct (macro view) nothing unfolds by default (unfold_max 0): a click on its row unfolds it, kept in $.store.
+    // tree_max = conversations whose running Workflows are drawn as ├ / └ lines under their row
+    unfold_max: 0,
+    tree_max: 8,
   },
   // « Cette conversation »: agents_max per card, log_max = events of the session log, contributors = rows of « Ce qui
   // contribue »; stall_min = a running Workflow / agent with no journal or transcript write for that long is « à l'arrêt ? »
@@ -92,6 +101,26 @@ export const PANEL_DEFAULTS = {
   },
   labels: {
     panneau: 'Panneau',
+    // the macro view's one-line headers (small, bold) and rows
+    conv_head: 'CETTE CONVERSATION',
+    convs_head: 'CONVERSATIONS',
+    convs_active: '{n} actives',
+    convs_filters: 'filtres',
+    quotas_head: 'QUOTAS',
+    quotas_five: '5 h',
+    quotas_week: 'sem',
+    debit_head: 'DÉBIT',
+    debit_macro: '{list} TPS ({window})',
+    debit_table: 'tableau',
+    debit_old: 'anciens ({n})',
+    debit_how: 'comment c’est mesuré',
+    graphe_head: 'GRAPHE',
+    graphe_sum_conv: '{n} conv',
+    graphe_sum_coord: '{n} coord',
+    click_line: 'À toi de cliquer',
+    wf_stalled: 'à l’arrêt {age}',
+    wf_eta: 'fin ~{time}',
+    wf_running: '{n} {model}',
     fichiers: 'Fichiers',
     conv: 'Cette conversation',
     contexte: 'Contexte de cette conversation',
@@ -166,6 +195,7 @@ export const PANEL_DEFAULTS = {
     contributing: 'Ce qui contribue',
     agent_states: { running: 'en cours', done: 'terminé', failed: 'échec', stopped: 'arrêté' },
     no_layer: 'aucun Workflow ni agent dans cette conversation',
+    effort_short: { medium: 'med', high: 'high', low: 'low', xhigh: 'xhigh', max: 'max' },
     lead_working: 'travaille',
     lead_stalled: 'bloquée ?',
     card_stalled: 'à l’arrêt ? rien d’écrit depuis {age}',
@@ -292,6 +322,21 @@ export function durText(ms, short = false) {
   // short: the mini card's « 6h 56m » (seconds only under an hour)
   if (short && h) return `${h}h ${p2(m)}m`
   return h ? `${h}h ${p2(m)}m ${p2(s)}s` : m ? `${m}m ${p2(s)}s` : `${s}s`
+}
+
+/** A duration on a macro row: « 47 min », « 1 h 09 », « 26 h 05 ». */
+export function minText(ms) {
+  const m = Math.max(0, Math.round((Number(ms) || 0) / 60000))
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+}
+
+/** « opus·med » of a model id or name and an effort (panel.labels.effort_short), « » when nothing is known. */
+export function modelShort(model, effort, cfg) {
+  const L = panelConfig(cfg).labels
+  const m = String(model || '').toLowerCase().replace(/^claude-/, '').match(/opus|sonnet|haiku|fable|gpt[\w.-]*|[a-z]+/)
+  const e = String(effort || '').toLowerCase()
+  const es = e && e !== '?' ? (L.effort_short || {})[e] || e : ''
+  return [m ? m[0] : '', es].filter(Boolean).join('·')
 }
 
 /** A date as Claude's Usage pane writes an expiry: « 5 nov 08:59 ». */
@@ -487,6 +532,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
       stateLabel: st === 'stalled' ? L.stalled : L.states[g] || g, mark: s ? markOf(st) : 'idle',
       over: Boolean(s && Number(s.ctx) >= (Number(c.contexte.handoff_tokens) || 250000)),
       tokens: tokensOf(x.v), cost: x.v[7], tps: tpsOf.get(x.id) || 0, last: clipText(s ? lastLine(s) : '', q.last_max),
+      ctx: s ? Number(s.ctx) || 0 : 0, model: s ? s.app_model || s.model || '' : '', effort: s ? s.app_effort || s.effort || '' : '',
     }
   })
   const projects = [...new Set(all.map((x) => x.project))].sort((a, b) => a.localeCompare(b))
