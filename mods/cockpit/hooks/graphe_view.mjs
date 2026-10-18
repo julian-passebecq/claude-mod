@@ -66,6 +66,8 @@ export function drawGraphe(h, model, L, width, act = {}, o = {}) {
       const right = [r.tokens !== null ? kTok(r.tokens) : '', r.ctx !== null ? fill(L.graphe_ctx, { pct: r.ctx }) : ''].filter(Boolean).join(' · ')
       const bar = r.ctx !== null && o.bar ? o.bar(Math.min(100, r.ctx), 'pglb-' + r.key, { cells: ctxCells, tone: o.handoffPct && r.ctx >= o.handoffPct ? 'warn' : undefined }) : null
       const unfolded = Boolean(o.unfold && o.unfold.has(r.key))
+      // past the hand-off threshold: a red ⚠ after the title while the row is folded (as in Toutes les conversations)
+      const warn = !unfolded && r.ctx !== null && o.handoffPct && r.ctx >= o.handoffPct ? L.handoff_mark || '⚠' : ''
       // « ouvrir ↗ »: not on this conversation's own row, and left out when the title would have no room
       let openLabel = r.link && o.openLabel && !r.self ? o.openLabel : ''
       const rightLen = len(right) + (bar ? ctxCells + 1 : 0) + (openLabel ? len(openLabel) + 3 : 0)
@@ -73,14 +75,15 @@ export function drawGraphe(h, model, L, width, act = {}, o = {}) {
       const grey = [single ? g.name : '', (L.graphe_role_marks || {})[r.roleId] || ''].filter(Boolean).join(' · ')
       // the title gives way first, then the grey part; the numbers never
       // what is not the title: the indent and its gap, the mark and its gap, the button's brackets, the gap before the right
-      let room = width - (pad ? pad + 1 : 0) - 2 - 2 - len(tail) - 1 - rightLen - 2
+      let room = width - (pad ? pad + 1 : 0) - 2 - 2 - len(tail) - 1 - rightLen - 2 - (warn ? len(warn) + 1 : 0)
       if (openLabel && room < 8) { room += len(openLabel) + 3; openLabel = '' }
       const greyShown = grey && room - len(grey) - 1 >= 8 ? grey : ''
       room = Math.max(6, room - (greyShown ? len(greyShown) + 1 : 0))
       out.push(h.row([
         h.row([pad ? h.T(nb(pad)) : null, h.T(r.dot, { tone: r.tone === 'dim' ? undefined : r.tone, dim: r.tone === 'dim' || !r.tone }), h.btn(`${clip(r.title, room)}${tail} ${unfolded ? '⌄' : '›'}`, () => (act.nodeToggle || NOOP)(convKey(r.key), unfolded), false, 'pgl-' + r.key),
-          greyShown ? h.T(greyShown, { dim: true, wrap: 'truncate-end' }) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
-        right || bar || openLabel ? h.row([right ? h.T(right, { dim: true }) : null, bar, openLabel ? h.btn(openLabel, () => open(r.link), false, 'pgo-' + r.key) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }) : null,
+          warn ? h.T(warn, { tone: 'bad', bold: true }) : null,
+          greyShown ? h.T(greyShown, { dim: true, wrap: 'truncate-end' }) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1 }),
+        right || bar || openLabel ? h.row([right ? h.T(right, { dim: true }) : null, bar, openLabel ? h.btn(openLabel, () => open(r.link), false, 'pgo-' + r.key) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 0 }) : null,
       ], { key: 'pglr-' + r.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
       const notes = [r.from ? fill(L.graphe_from, { title: r.from }) : '', ...r.peers.map((t) => fill(L.graphe_peer, { title: t }))].filter(Boolean)
       if (notes.length) out.push(h.T(nb(pad + 2) + clip(notes.join(' · '), Math.max(8, width - pad - 2)), { dim: true, wrap: 'truncate-end', key: 'pglm-' + r.key }))
