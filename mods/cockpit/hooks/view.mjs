@@ -44,11 +44,14 @@ export function kit(el, cfg) {
     children: [title ? T(title, { bold: true }) : null, ...parts].filter(Boolean),
   })
   const btn = (label, onPress, primary, key) => el.Button({ children: [label], variant: primary ? 'primary' : 'secondary', onPress, ...(key ? { key } : {}) })
+  // a Button whose label is a styled Text (a section title: bold, heading size where the surface has sizes)
+  const tbtn = (label, onPress, key, o = {}) => el.Button({ label, onPress, ...(o.plain ? { plain: true } : {}), ...(key ? { key } : {}),
+    children: [T(label, { bold: o.bold, size: o.size, wrap: 'truncate-end' })] })
   const svg = (source, alt, key) => (el.Svg ? el.Svg({ source, alt, ...(key ? { key } : {}) }) : null)
   // a label on the left, a number on the right (padded so digits line up)
   const lr = (left, right, o = {}) => row([T(left, { bold: o.bold, dim: o.dimLeft, wrap: 'truncate-end' }), T(right, { dim: o.dimRight, tone: o.tone })],
     { justifyContent: 'space-between', flexWrap: 'nowrap', ...(o.key ? { key: o.key } : {}) })
-  return { T, row, col, box, btn, svg, lr, c }
+  return { T, row, col, box, btn, tbtn, svg, lr, c }
 }
 
 // V = { cfg, fcfg, scan, nav, self, busy, error, at, columns, filter, usage, veille, open, act, tab, cards, wf…, machine,

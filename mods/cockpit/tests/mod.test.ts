@@ -30,7 +30,9 @@ const DEPUIS = { since: NOW - 8 * 3600000, source: 'last', last: { ts: NOW - 8 *
 const GR = (o: any) => ({ sid: 'local_' + o.cli, title: '', cwd: 'C:/code/eta', origin: 'C:/code/eta', repo: 'eta', archived: false, starred: false,
   last_activity: NOW - 600000, created: NOW - 7200000, model: 'claude-opus-5-5', effort: 'medium', parent: '', peers: [], awaiting: false, prs: [], branch: '', ...o })
 const GRAPHE = { rows: [GR({ cli: 'g-lead', title: 'COORD eta' }), GR({ cli: 'g-wait', title: 'Lane waiting', parent: 'local_g-lead', awaiting: true }),
-  GR({ cli: 'g-old', title: 'Old lane', last_activity: NOW - 3 * 86400000 })] }
+  GR({ cli: 'g-old', title: 'Old lane', last_activity: NOW - 3 * 86400000 }),
+  // the scan's child conversation, running a Workflow: it unfolds under its row by default
+  GR({ cli: 'child-cli', sid: 'local_child', title: 'Mosaic Studio V2 private release', last_activity: NOW - 60000 })] }
 
 const TREE = { 'C:/code/eta': [['src', 'dir'], ['README.md', 'file']], 'C:/code/eta/src': [['main.ts', 'file']] }
 
@@ -424,18 +426,18 @@ test('Panneau: Graphe des conversations shows who waits, the tree, keeps its fil
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
   expect(await has(ui, /^À toi de cliquer \(1\)$/)).toBe(true)
-  expect(await has(ui, /^eta · 2$/)).toBe(true)
+  expect(await has(ui, /^eta · 3$/)).toBe(true)
   expect(await has(ui, /^◆$/)).toBe(true)
   // one line per conversation: the mark, the title, « coord » in grey; no state word line
   expect(await has(ui, /^○$/)).toBe(true)
   expect(await has(ui, /^coord$/)).toBe(true)
   expect(await has(ui, /· coordinateur/)).toBe(false)
   expect(await has(ui, /^travaille$/)).toBe(true) // the legend, one line of marks
-  expect(await has(ui, /^[│├└]/)).toBe(false) // no box-drawing connectors
-  expect(await has(ui, /^Old lane$/)).toBe(false)
+  expect(await has(ui, /^[├└]/)).toBe(false) // no box-drawing connectors (a « │ » rule runs only down an unfolded factory)
+  expect(await has(ui, /^Old lane ›$/)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 24 h -> 7 j
   await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 7 j -> tout
-  expect(await has(ui, /^Old lane$/)).toBe(true)
+  expect(await has(ui, /^Old lane ›$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"period":"tout"')
   await ui.press({ plugin: 'cockpit', key: 'pgw-g-wait' })
   // the link goes to the OS handler asynchronously (openUrl)
@@ -443,3 +445,25 @@ test('Panneau: Graphe des conversations shows who waits, the tree, keeps its fil
   expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_g-wait'))).toBe(true)
 })
 
+test('Panneau: an active conversation of the graph unfolds under its row with its Workflow card; its title folds it (kept), « ouvrir ↗ » opens it', async ($, on) => {
+  const w = world(on)
+  const kept: Record<string, unknown> = {}
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
+  // the child runs a Workflow: unfolded, its lead card (model · effort · state) and its Workflow card open
+  expect(await has(ui, /^Mosaic Studio V2 private release ⌄$/)).toBe(true)
+  expect(await has(ui, /^Opus 5\.5 · medium · /)).toBe(true)
+  expect(await has(ui, /^wf_1 ⌄$/)).toBe(true)
+  expect(await has(ui, /^│$/)).toBe(true) // the thin rule down its left
+  // a finished / inactive one stays folded
+  expect(await has(ui, /^COORD eta ›$/)).toBe(true)
+  await ui.press({ plugin: 'cockpit', key: 'pgl-child-cli' })
+  expect(await has(ui, /^Mosaic Studio V2 private release ›$/)).toBe(true)
+  expect(await has(ui, /^wf_1 ⌄$/)).toBe(false)
+  expect(JSON.stringify(kept.panel)).toContain('"cv:child-cli":true')
+  await ui.press({ plugin: 'cockpit', key: 'pgo-child-cli' })
+  for (let i = 0; i < 20 && !w.argvs.some((a) => a.join(' ').includes('local_child')); i++) await new Promise((r) => setTimeout(r, 25))
+  expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_child'))).toBe(true)
+})

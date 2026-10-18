@@ -9,7 +9,7 @@
 //   then the session log: the last log_max events (agent started / finished, PR opened / merged), timestamped.
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Input: factory's scan (lib/factory/scanner),
 // optionally factory's Workflow screen runs (phases, ETA, cost), nav's usageCard and the context (lib/panel.mjs).
-import { panelConfig, fill, kTok } from './panel.mjs'
+import { panelConfig, fill, kTok, contexteOf, activeClis, unfoldPlan, convKey } from './panel.mjs'
 import { titleOf, short, tokensOf, hhmm, billByModel, sumCost, family } from './factory/hooks/logic.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 
@@ -83,13 +83,15 @@ function phasesOf(key, run, agents, L, closed, max) {
 /** One dot per agent, as Claude's Background-tasks mini card draws them: done, failed, running, then pending. */
 const dotsOf = (agents) => agents.map((a) => a.status).sort((a, b) => rank(a) - rank(b))
 /** A Workflow card starts folded (Claude's mini card) unless style.workflow_open; the viewer's choice wins. */
-const cardOpen = (key, closed, c) => (closed[key] === undefined ? Boolean(c.style.workflow_open) : !closed[key])
+const cardOpen = (key, closed, c, def) => (closed[key] === undefined ? Boolean(def === undefined ? c.style.workflow_open : def) : !closed[key])
 const rank = (s) => (s === 'done' ? 0 : s === 'failed' ? 1 : s === 'running' ? 2 : 3)
 
 /**
  * The model of « Cette conversation ». scan: factory's scan (detail = this conversation when possible); self: its
  * cli; fcfg: factory's config; closed: { key: bool } folded/unfolded by the viewer; extra: { runs: factory's
- * workflowScreen(...).runs, card: nav.usageCard(...), contexte: contexteOf(...), tps: this conversation's tok/s }.
+ * workflowScreen(...).runs, card: nav.usageCard(...), contexte: contexteOf(...), tps: this conversation's tok/s,
+ * prefix: put before every fold key (another conversation's factory drawn under its row: 'cv:<cli>:', so its folds are
+ * its own), cardsOpen: the Workflow / background cards' default (an active conversation's start unfolded) }.
  * -> { available, lead, ctx, stats, share, contributors, cards, finished, log }.
  */
 export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {}) {
@@ -129,6 +131,8 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
 
   // cards: one per Workflow (its run from factory's Workflow screen when known), one for the background agents
   const max = Math.max(1, Number(c.conv.agents_max) || 12)
+  const pre = String(extra.prefix || '')
+  const def = extra.cardsOpen === undefined ? undefined : Boolean(extra.cardsOpen)
   const names = new Map(((d.calls || []).filter((x) => x.tool === 'Workflow' && x.runId)).map((x) => [x.runId, x.desc || x.runId]))
   const runs = new Map(((extra.runs || [])).map((r) => [r.id, r]))
   const cards = []
@@ -138,7 +142,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const run = runs.get(id) || null
     const src = run && run.agents && run.agents.length ? run.agents : subs.filter((x) => x.workflow === id)
     const agents = src.map((x) => agentRow(x, nowMs, L, fcfg))
-    const key = 'pfw-' + id
+    const key = pre + 'pfw-' + id
     const starts = agents.map((a) => a.ts).filter(Boolean)
     const running = agents.filter((a) => a.status === 'running').length
     const live = run ? Boolean(run.live) : running > 0
@@ -150,7 +154,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
       count: agents.length, running, tokens: agents.reduce((a, x) => a + x.tokens, 0),
       cost: run && Number.isFinite(run.cost) ? run.cost : agents.reduce((a, x) => a + x.cost, 0),
       eta: est ? hhmm(est.eta.mid).slice(0, 5) : '', failed: run ? run.status === 'failed' : agents.some((a) => a.status === 'failed'),
-      phases: phasesOf(key, run, agents, L, closed, max), dots: dotsOf(agents), open: cardOpen(key, closed, c),
+      phases: phasesOf(key, run, agents, L, closed, max), dots: dotsOf(agents), open: cardOpen(key, closed, c, def),
     })
   }
   const plain = subs.filter((x) => !x.workflow).map((x) => agentRow(x, nowMs, L, fcfg))
@@ -158,16 +162,16 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const running = plain.filter((a) => a.status === 'running').length
     const starts = plain.map((a) => a.ts).filter(Boolean)
     cards.push({
-      key: 'pfw-bg', kind: 'background', title: L.background, live: running > 0,
+      key: pre + 'pfw-bg', kind: 'background', title: L.background, live: running > 0,
       elapsed: starts.length ? (running ? nowMs : Math.max(...plain.map((a) => a.ts + a.ms))) - Math.min(...starts) : 0,
       count: plain.length, running, tokens: plain.reduce((a, x) => a + x.tokens, 0), cost: plain.reduce((a, x) => a + x.cost, 0), eta: '',
-      failed: plain.some((a) => a.status === 'failed'), phases: phasesOf('pfw-bg', null, plain, L, closed, max),
-      dots: dotsOf(plain), open: cardOpen('pfw-bg', closed, c),
+      failed: plain.some((a) => a.status === 'failed'), phases: phasesOf(pre + 'pfw-bg', null, plain, L, closed, max),
+      dots: dotsOf(plain), open: cardOpen(pre + 'pfw-bg', closed, c, def),
     })
   }
   const liveCards = cards.filter((x) => x.live)
   const doneCards = cards.filter((x) => !x.live)
-  const fk = 'pfw-finished'
+  const fk = pre + 'pfw-finished'
   const finished = doneCards.length ? { key: fk, count: doneCards.length, open: closed[fk] === undefined ? Boolean(c.style.finished_open) : !closed[fk], cards: doneCards } : null
 
   // the session log: agents started / finished (their own times), PR opened (the scan's « pr » event), PR merged
@@ -203,3 +207,36 @@ export function convFactorySummary(m) {
 }
 
 export { kTok }
+
+/**
+ * The factories drawn under their rows in « Toutes les conversations » and the graph (Julian, 18 Oct). in: { scan,
+ * runs (factory's Workflow screen runs), syn (synthesis()), graphe (grapheModel()), self, selfFactory (the model of
+ * « Cette conversation », reused for this conversation's row), closed (the viewer's folds), tpsById, cardOf(session)
+ * -> nav.usageCard of that session (no engine figures: they are this conversation's) }.
+ * -> { unfold: Set of cli, factories: { [cli]: convFactory(...) } }. Only the unfolded ones are built; an active
+ * conversation's Workflow cards start unfolded.
+ */
+export function convFactories(input, fcfg, cfg, nowMs) {
+  const { scan, runs, syn, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf } = input || {}
+  const c = panelConfig(cfg)
+  const active = activeClis({ scan, runs, graphe }, fcfg, nowMs)
+  // only a conversation the scan has (its transcript read) unfolds by default: the others would show « non lue »
+  const known = new Set(((scan && scan.sessions) || []).map((x) => x.cli))
+  for (const cli of [...active]) if (!known.has(cli)) active.delete(cli)
+  const order = []
+  if (syn && syn.rows && syn.rows.every((r) => r.id !== 'codex')) order.push(...syn.rows.map((r) => r.id))
+  if (graphe && graphe.ready) for (const g of graphe.groups || []) for (const l of g.lines || []) order.push(l.key)
+  const unfold = unfoldPlan(order, active, closed, self, cfg)
+  const fwin = (fcfg || {}).context_window
+  const factories = {}
+  for (const cli of unfold) {
+    if (cli === self && selfFactory) { factories[cli] = selfFactory; continue }
+    const s = ((scan && scan.sessions) || []).find((x) => x.cli === cli)
+    if (!s) { factories[cli] = null; continue }
+    factories[cli] = convFactory(scan, cli, fcfg, cfg, nowMs, closed, {
+      runs: runs || [], prefix: convKey(cli) + ':', cardsOpen: active.has(cli), card: cardOf ? cardOf(s) : null,
+      contexte: contexteOf({ usage: null, ctxTokens: Number(s.ctx) || NaN, fwin: c.contexte.window || fwin }, cfg), tps: tpsById[cli],
+    })
+  }
+  return { unfold, factories }
+}

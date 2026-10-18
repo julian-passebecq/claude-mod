@@ -50,7 +50,8 @@ export const PANEL_DEFAULTS = {
     git: true,
   },
   convs: {
-    periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
+    // short: the label when the filter row would not fit on one line (a 45-column pane)
+    periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', short: 'auj.', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
     period: 'today',
     top: 15,
     basis: 'tokens',
@@ -58,6 +59,11 @@ export const PANEL_DEFAULTS = {
     // the scan's states grouped in three: en cours, t'attend (waiting on Julian or blocked), terminée (the rest)
     states: { working: 'running', julian: 'waiting', blocked: 'waiting', done: 'done', idle: 'done', archived: 'done' },
     last_max: 90,
+    // each conversation row of « Toutes les conversations » and of the graph unfolds UNDER itself to its own factory
+    // (lead card, Workflow cards, background agents, Terminés N ›), drawn as « Cette conversation » (Julian, 18 Oct).
+    // The active ones (travaille, attend, a running Workflow or agent) start unfolded, at most unfold_max of them (the
+    // engine unmounts a tree past 100,000 serialized characters or 20,000 nodes); the viewer's own folds always win.
+    unfold_max: 6,
   },
   // « Cette conversation »: agents_max per card, log_max = events of the session log, contributors = rows of « Ce qui
   // contribue »
@@ -189,6 +195,11 @@ export const PANEL_DEFAULTS = {
     no_workflows: 'aucun Workflow en cours',
     agents: '{n} agent(s)',
     no_tree: 'aucun agent dans cette conversation',
+    // a conversation row: its title (or arrow) unfolds its factory; this button opens it in the app (short: narrow pane)
+    open_conv: 'ouvrir ↗',
+    open_conv_short: '↗',
+    conv_no_factory: 'fabrique non lue (hors de la fenêtre du scan)',
+    project_short: 'Proj.',
   },
 }
 
@@ -369,7 +380,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
     const st = s ? sessionState(s, f.fcfg || {}).state : 'done'
     const g = stateGroup(st, cfg)
     return {
-      id: x.id, label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g, stateLabel: L.states[g] || g, mark: s ? markOf(st) : 'idle',
+      id: x.id, sid: (s && s.sid) || '', label: x.label, project: (s && repoOf(s)) || x.project || '?', state: g, stateLabel: L.states[g] || g, mark: s ? markOf(st) : 'idle',
       tokens: tokensOf(x.v), cost: x.v[7], tps: tpsOf.get(x.id) || 0, last: clipText(s ? lastLine(s) : '', q.last_max),
     }
   })
@@ -382,6 +393,50 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const others = rest.length ? { count: rest.length, label: fill(L.others, { n: rest.length }), ...sum(rest), tps: rest.reduce((a, x) => a + x.tps, 0) } : null
   const tps = [...tpsOf.values()].reduce((a, b) => a + b, 0)
   return { ...base, rows, others, total: sum(kept), projects, tps, tpsById: Object.fromEntries(tpsOf) }
+}
+
+// ---- a conversation's factory under its row (« Toutes les conversations », graph) ---------------------------------------
+
+/** The fold key of a conversation row, shared by both lists: folding it in one folds it in the other. */
+export const convKey = (cli) => 'cv:' + cli
+
+/**
+ * The conversations that count as active: the graph's travaille / attend lines (its À toi de cliquer included), and
+ * from the scan a live transcript, a running sub-agent, a wait on Julian, a live Workflow run. -> Set of cli.
+ */
+export function activeClis({ scan, runs, graphe }, fcfg, nowMs) {
+  const out = new Set()
+  if (graphe && graphe.ready) {
+    for (const g of graphe.groups || []) for (const l of g.lines || []) if (l.state === 'working' || l.state === 'waiting') out.add(l.key)
+    for (const w of graphe.waiting || []) out.add(w.key)
+  }
+  for (const s of (scan && scan.sessions) || []) {
+    if (!s.cli || s.archived) continue
+    const st = sessionState(s, fcfg || {}).state
+    if (s.live || st === 'working' || st === 'julian' || (s.subs || []).some((a) => a && a.status === 'running')) out.add(s.cli)
+  }
+  for (const r of runs || []) if (r && r.live && r.cli) out.add(r.cli)
+  return out
+}
+
+/**
+ * Which conversation rows draw their factory unfolded. order: the clis in the order they are drawn (Toutes les
+ * conversations, then the graph); active: activeClis(); closed: the viewer's folds ({ 'cv:<cli>': true } folded,
+ * false unfolded); self: this conversation (already drawn in « Cette conversation », folded unless asked).
+ * The viewer's choice always wins; by default the active ones unfold, the first unfold_max of them. -> Set of cli.
+ */
+export function unfoldPlan(order, active, closed, self, cfg) {
+  const max = Math.max(0, Number(panelConfig(cfg).convs.unfold_max) || 0)
+  const out = new Set()
+  let n = 0
+  for (const cli of [...new Set(order || [])]) {
+    const k = convKey(cli)
+    if (closed && closed[k] !== undefined) { if (!closed[k]) out.add(cli); continue }
+    if (cli === self || !(active && active.has(cli)) || n >= max) continue
+    out.add(cli)
+    n++
+  }
+  return out
 }
 
 /** The next value of a cycling filter button: '' (all) → each value → ''. */
