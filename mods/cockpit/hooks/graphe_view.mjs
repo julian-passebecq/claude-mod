@@ -7,7 +7,8 @@
 // L: panel labels; width: the columns of the body (every line stays <= width); act: { openConv(link), gfilter(k, v),
 // gcycle('project'), ptoggle(id), nodeToggle(key, open) }; o: { bar(pct, key, { cells, tone }) -> element (Svg or text),
 // open: { id: bool }, ctxCells, handoffPct, unfold: Set of the clis whose factory is drawn under their row,
-// under(cli, pad) -> elements (that factory, panel_view convUnder), openLabel: « ouvrir ↗ » }.
+// under(cli, pad) -> elements (that factory, panel_view convUnder), openLabel: « ouvrir ↗ », noClick: leave out
+// « À toi de cliquer » (the Panneau shows it at its top) }.
 // A conversation's title (with its › / ⌄) unfolds its factory under the row; « ouvrir ↗ » at the right opens it in
 // the app (Julian, 18 Oct). À toi de cliquer keeps opening the conversation on a click.
 import { fill, kTok, convKey } from '../lib/panel.mjs'
@@ -28,10 +29,11 @@ export function drawGraphe(h, model, L, width, act = {}, o = {}) {
   const gf = act.gfilter || NOOP
   const out = []
   const f = model.filter
-  // À toi de cliquer: the full detail lives here only; the list below marks the same conversation ◆ on one line
-  out.push(h.T(`${L.graphe_click}${model.waiting.length ? ` (${model.waiting.length})` : ''}`, { bold: true, tone: model.waiting.length ? 'warn' : undefined, key: 'pg-click' }))
-  if (!model.waiting.length) out.push(h.T(L.graphe_click_none, { dim: true, key: 'pg-click-none' }))
-  for (const w of model.waiting) {
+  // À toi de cliquer: the full detail lives here only (o.noClick: the Panneau draws it at its very top instead); the
+  // list below marks the same conversation ◆ on one line
+  if (!o.noClick) out.push(h.T(`${L.graphe_click}${model.waiting.length ? ` (${model.waiting.length})` : ''}`, { bold: true, tone: model.waiting.length ? 'warn' : undefined, key: 'pg-click' }))
+  if (!o.noClick && !model.waiting.length) out.push(h.T(L.graphe_click_none, { dim: true, key: 'pg-click-none' }))
+  for (const w of o.noClick ? [] : model.waiting) {
     out.push(h.row([h.T('◆', { tone: 'warn' }), h.btn(clip(w.title + (w.self ? ' ' + L.graphe_here : ''), width - 6), () => open(w.link), true, 'pgw-' + w.key)],
       { key: 'pgwr-' + w.key, alignItems: 'center', flexWrap: 'nowrap' }))
     out.push(h.T(nb(2) + clip(fill(L.graphe_wait_line, { reason: w.reason, age: w.age }), width - 2), { tone: 'warn', wrap: 'truncate-end', key: 'pgwl-' + w.key }))

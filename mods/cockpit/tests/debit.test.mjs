@@ -143,21 +143,46 @@ test('the usage scan keeps every stream of the last hour and hourly TPS rows (me
   assert.equal(m.streams.length, 10)
 })
 
-test('preview: Débit after Barres, numbers whole at 45, 60 and 75 columns, Plage then Temps dropped', () => {
-  const t75 = panneauText(75)
-  assert.ok(t75.indexOf('▾ Débit') > t75.indexOf('▾ Barres'))
-  assert.ok(t75.indexOf('▾ Débit') < t75.indexOf('▾ Graphe des conversations'))
+test('preview: Débit is one line after Quotas, its tables one click away, numbers whole at 45, 60 and 75 columns', () => {
+  const OPEN = { conv: true, convs: true, debit: true }
+  const macro = panneauText(75)
+  assert.ok(macro.indexOf('[DÉBIT]') > macro.indexOf('[QUOTAS]'))
+  assert.ok(macro.indexOf('[DÉBIT]') < macro.indexOf('[GRAPHE]'))
+  // folded: the 30 min weighted TPS of each model in use, on one line; no table, no footnote
+  assert.match(macro, /\[DÉBIT\] opus 56 · sonnet 88 · haiku 164 TPS \(30 min\) \[›\]/)
+  assert.doesNotMatch(macro, /Modèle : |Fenêtre|message\.id/)
+  const t75 = panneauText(75, { open: OPEN })
   assert.match(t75, /Modèle : opus 5\.5/)
   assert.match(t75, /Fenêtre\s+Réponses\s+Tokens\s+Temps TPS pondéré\s+Médiane\s+Plage/)
   assert.match(t75, /\d\d:\d\d:\d\d {2}opus 5\.5 medium : 59\.2 TPS \(171 tok en 2\.89 s\)/)
   assert.match(t75, /10 derniers flux|\d derniers flux/)
-  assert.match(t75, /message\.id \+ requestId/) // the footnote says how time is measured
+  // a model with no reply in 7 days (fable: 30 j only) is behind « anciens › »; the footnote behind « comment c'est mesuré › »
+  assert.doesNotMatch(t75, /Modèle : fable/)
+  assert.match(t75, /\[anciens \(1\) ›\]/)
+  assert.match(panneauText(75, { open: { ...OPEN, 'pd-old': true } }), /\[anciens \(1\) ⌄\][\s\S]*Modèle : fable 5\.1/)
+  assert.doesNotMatch(t75, /message\.id \+ requestId/)
+  assert.match(t75, /\[comment c’est mesuré ›\]/)
+  assert.match(panneauText(75, { open: { ...OPEN, 'pd-note': true } }), /message\.id \+ requestId/)
   assert.doesNotMatch(t75, /Codex gpt/) // Codex models only with the toggle
-  const t60 = panneauText(60)
+  const t60 = panneauText(60, { open: OPEN })
   assert.match(t60, /Fenêtre\s+Réponses\s+Tokens\s+Temps TPS pondéré\s+Médiane\n/)
-  const t45 = panneauText(45)
-  assert.match(t45, /Fenêtre\s+Réponses\s+Tokens TPS pondéré\s+Médiane\n/)
+  const t45 = panneauText(45, { open: OPEN })
+  assert.match(t45, /Rép\.\s+Tok\.\s+Temps\s+TPS\s+Méd\.\n/) // two steps in: the short headers, no number cut
   for (const k of ['1113', '2.4M', '58.9', '61.7']) assert.ok(t45.includes(k), k)
-  assert.match(panneauText(75, { who: 'codex' }), /Modèle : Codex gpt-5-codex/)
-  assert.match(panneauText(75, { debit: null }), /debit\.json/)
+  assert.match(panneauText(75, { who: 'codex', open: OPEN }), /Modèle : Codex gpt-5-codex/)
+  assert.match(panneauText(75, { debit: null, open: OPEN }), /debit\.json/)
+})
+
+test('model: the models in use (a reply in 7 days) and the old ones apart; the macro line over the shortest window with replies', () => {
+  const H0 = Math.floor(NOW / 3600000) * 3600000
+  const debit = { generated: NOW, tzMin: 0, recent: [], streams: [], hourly: {
+    [`${H0 - 2 * 3600000}|claude-opus-5-5|medium`]: row([600, 10000]),
+    [`${H0 - 400 * 3600000}|claude-sonnet-5|low`]: row([300, 10000]),
+  } }
+  const m = debitModel({ debit, now: NOW })
+  assert.deepEqual(m.cards.map((k) => k.label), ['opus 5.5'])
+  assert.deepEqual(m.old.map((k) => k.label), ['sonnet 5'])
+  // no reply in 30 min: the macro line takes 1 j
+  assert.equal(m.macro.window, '1 j')
+  assert.deepEqual(m.macro.list.map((x) => [x.label, Math.round(x.tps)]), [['opus', 60]])
 })

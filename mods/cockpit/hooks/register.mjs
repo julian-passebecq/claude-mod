@@ -28,7 +28,7 @@ import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sect
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
-import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf, effectiveWindow } from '../lib/panel.mjs'
+import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow } from '../lib/panel.mjs'
 import { convFactory, convFactories } from '../lib/panel_conv.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
@@ -273,7 +273,8 @@ async function loadConso($, now) {
   const dir = norm(expand(q.data_dir || ucfg.data_dir || '~/.claude/usage-mod', await homeDir($)))
   D.consoData = await readJson($, dir + '/classement.json')
   D.codexData = await readJson($, dir + '/codex.json')
-  if ((D.popen || {}).debit) await loadDebit($, dir)
+  // the Débit line of the macro view is always drawn (Julian, 19 Oct): debit.json is read whatever the folds
+  await loadDebit($, dir)
   D.conso = consoCard(D.consoData, CFG, now, D.consoPreset || q.default)
   const old = !D.consoData || now - (D.consoData.generated || 0) > q.rescan_min * 60000
   const wanted = (D.strips || {}).conso || (D.tab === 'panneau' && ((D.popen || {}).convs || (D.popen || {}).debit))
@@ -283,7 +284,8 @@ async function loadConso($, now) {
       try { await $.process.run([ucfg.node || 'node', sibling($, 'usage') + '/scanner/usage_scan.mjs', 'scan'], { timeoutMs: 600000 }) } catch { /* the card says so */ }
       D.consoScan = false
       D.consoData = await readJson($, dir + '/classement.json')
-      if ((D.popen || {}).debit) await loadDebit($, dir)
+      // the Débit line of the macro view is always drawn (Julian, 19 Oct), so debit.json is read whatever the folds
+      await loadDebit($, dir)
       D.conso = consoCard(D.consoData, CFG, await $.clock.now(), D.consoPreset || q.default)
       $.ui.invalidate('ui.render')
     })
@@ -370,6 +372,9 @@ async function loadPanelState($) {
   // sections the viewer toggled are kept.
   const prev = saved && saved.open && typeof saved.open === 'object' ? { ...saved.open } : {}
   if (!saved || !(saved.v >= 2)) delete prev.fichiers
+  // saves before v3 (the macro view, 19 Oct) kept Barres, Débit and Graphe unfolded: the Panneau opens on its one-line
+  // rows again, and nothing that 18 Oct unfolded by default stays unfolded
+  if (!saved || !(saved.v >= 3)) { delete prev.barres; delete prev.debit; delete prev.graphe }
   D.ptouched = Object.fromEntries(Object.keys(prev).map((k) => [k, true]))
   D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...prev }
   D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
@@ -379,7 +384,7 @@ async function loadPanelState($) {
 
 function savePanelState($) {
   const open = Object.fromEntries(Object.entries(D.popen || {}).filter(([k]) => (D.ptouched || {})[k]))
-  try { void Promise.resolve($.store.set('panel', { v: 2, open, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
+  try { void Promise.resolve($.store.set('panel', { v: 3, open, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
 }
 
 const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
@@ -464,7 +469,8 @@ async function refreshPanel($) {
   await loadConso($, now).catch(() => undefined)
   // the quotas file and every Workflow of the PC (phases, ETA, cost of this conversation's Workflows too)
   if ((D.popen || {}).convs || (D.popen || {}).conv || (D.popen || {}).barres) await loadCards($).catch(() => undefined)
-  if ((D.popen || {}).graphe && now - D.grapheAt >= Math.max(10, panelConfig(CFG || {}).graphe.refresh_s) * 1000) {
+  // the graph's one line and « À toi de cliquer » at the top are always drawn: the session files are read whatever the folds
+  if (now - D.grapheAt >= Math.max(10, panelConfig(CFG || {}).graphe.refresh_s) * 1000) {
     D.grapheAt = now
     await loadPart($, 'graphe').catch(() => undefined)
   }
@@ -499,21 +505,20 @@ function panelView(now) {
     graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: runs, conso: D.consoData, fcfg: fcfgW, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
   } catch { graphe = null }
   // each conversation row unfolds under itself to its own factory; the active ones start unfolded (Julian, 18 Oct)
-  let under = { unfold: new Set(), factories: {} }
+  let under = { unfold: new Set(), factories: {}, tree: new Set() }
   try {
     under = convFactories({ scan: D.scan, runs, syn, graphe, self: D.self, selfFactory: factory, closed: D.pclosed, autoWindow: ctxWindow,
       tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now) }, FCFG || {}, CFG || {}, D.at || now)
   } catch { /* rows stay folded */ }
   return {
-    unfold: under.unfold, convFactories: under.factories, link: depuisConfig(CFG || {}).session_link, ctxWindow,
+    unfold: under.unfold, tree: under.tree || new Set(), convFactories: under.factories, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
     syn, filter: f,
     bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, codex: f.who === 'codex', card }, CFG || {}),
-    workflows: activeWorkflows(wfScreen, CFG || {}),
     graphe,
-    debit: (D.popen || {}).debit ? debitView(now, f.who) : null,
+    debit: debitView(now, f.who),
   }
 }
 

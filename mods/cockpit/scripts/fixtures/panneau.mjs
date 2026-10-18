@@ -2,7 +2,7 @@
 // at a given pane width. Used by scripts/preview.mjs --panneau [--cols 60] and tests/panel.test.mjs.
 import { el, renderText } from '../../lib/factory/scanner/textrender.mjs'
 import { drawCockpit } from '../../hooks/view.mjs'
-import { synthesis, barsOf, activeWorkflows, contexteOf } from '../../lib/panel.mjs'
+import { synthesis, barsOf, contexteOf } from '../../lib/panel.mjs'
 import { usageCard } from '../../hooks/nav.mjs'
 import { convFactory, convFactories } from '../../lib/panel_conv.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
@@ -101,9 +101,9 @@ const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: n
  * Temps » table show; { 'pfw-wf_1': true } draws it folded as it opens in the app).
  */
 export function panneauView(columns, o = {}) {
-  o = { ...o, closed: { 'pfw-wf_1': false, ...(o.closed || {}) } }
-  // as the Panneau opens: every section unfolded but Fichiers (folded by default, Julian 17 Oct)
-  const open = o.open || { conv: true, convs: true, barres: true, debit: true, graphe: true, 'wf:r1': true }
+  // as the Panneau opens (macro view, Julian 19 Oct): Cette conversation and Conversations as one line per conversation
+  // and Workflow, Quotas / Débit / Graphe one line each; o.open / o.closed unfold the details (micro)
+  const open = o.open || { conv: true, convs: true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
   const syn = synthesis(CLASSEMENT, SCAN, null, filter, {}, NOW)
   const usage = { rateLimits: [{ kind: 'five_hour', percentUsed: 21, resetsAt: new Date(NOW + 130 * 60000).toISOString() }, { kind: 'seven_day', percentUsed: 85, resetsAt: new Date(NOW + 50 * 3600000).toISOString() }, { kind: 'spend_limit', percentUsed: 12 }] }
@@ -114,7 +114,6 @@ export function panneauView(columns, o = {}) {
     factory: convFactory(SCAN, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, SCAN, null, { period: 'today' }, {}, NOW).tpsById.lead }),
     syn, filter,
     bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
-    workflows: activeWorkflows({ runs: [{ id: 'r1', name: 'package-wave', live: true, agents: [{ id: '1', label: 'coder', model: 'claude-opus-5-5', status: 'running', tokens: 300000 }, { id: '2', label: 'verify', model: 'claude-sonnet-5-5', status: 'done', tokens: 80000 }] }] }, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
@@ -123,6 +122,7 @@ export function panneauView(columns, o = {}) {
   const under = convFactories({ scan: SCAN, runs: RUNS, syn, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
     tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
   panel.unfold = under.unfold
+  panel.tree = under.tree
   panel.convFactories = under.factories
   return { cfg: {}, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }

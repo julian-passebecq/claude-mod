@@ -81,8 +81,9 @@ test('model: groups like the sidebar, starred first, children under their parent
   const m = model()
   assert.deepEqual(m.groups.map((g) => g.name), ['proj-one', 'proj-two']) // proj-three is older than 24 h
   const one = m.groups[0].lines
-  assert.deepEqual(one.map((l) => l.key), ['lead', 'k2', 'k3', 'k1'])
-  assert.deepEqual(one.map((l) => l.prefix), ['', '├ ', '│ └ ', '└ '])
+  // Lane delta has no session file but factory's scan reads its transcript: drawn from the scan (Julian, 19 Oct)
+  assert.deepEqual(one.map((l) => l.key), ['lead', 'k2', 'k3', 'k1', 'd'])
+  assert.deepEqual(one.map((l) => l.prefix), ['', '├ ', '│ └ ', '└ ', ''])
   assert.deepEqual(line(m, 'k2').peers, ['PM BETA'])
   assert.equal(line(m, 'b').prefix, '└ ') // under PM BETA, its worktree folded into proj-two
 })
@@ -92,7 +93,7 @@ test('filters: archived hidden, 24 h / 7 j / tout, actives seulement, projet', (
   assert.ok(line(model({ archived: true }), 'old'))
   assert.equal(line(model(), 'c'), undefined)
   assert.ok(line(model({ period: '7j' }), 'c'))
-  assert.deepEqual(model({ active: true }).groups.flatMap((g) => g.lines).map((l) => l.key).sort(), ['b', 'k2', 'lead'])
+  assert.deepEqual(model({ active: true }).groups.flatMap((g) => g.lines).map((l) => l.key).sort(), ['b', 'd', 'k2', 'lead'])
   assert.deepEqual(model({ project: 'proj-two' }).groups.map((g) => g.name), ['proj-two'])
   assert.deepEqual(grapheFilter({ period: 'bad' }, {}), { project: '', active: false, period: '24h', archived: false })
   assert.equal(ageText(30 * 60000), '30 min')
@@ -101,14 +102,18 @@ test('filters: archived hidden, 24 h / 7 j / tout, actives seulement, projet', (
 
 for (const columns of [60, 75]) {
   test(`graph drawn at ${columns} columns: every part, nothing wider than the pane`, () => {
-    const text = panneauText(columns)
-    const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
-    for (const k of ['À toi de cliquer (1)', '◆ [Lane beta]', 'Choisir la version · depuis 2 h', '● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
-      '★ proj-one · 4', '(ici) ›] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two ›] coord', '○ [Package two · verify ›]', '⇢ PM BETA',
+    const OPEN = { conv: true, convs: true, graphe: true }
+    const text = panneauText(columns, { open: OPEN, closed: { 'cv:b': false } })
+    const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
+    // À toi de cliquer: at the very top of the Panneau, once, not in the graph
+    assert.match(text, /^◆ À toi de cliquer : \[Lane beta\] Choisir la version/)
+    assert.doesNotMatch(g, /À toi de cliquer/)
+    for (const k of ['● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
+      '★ proj-one · 5', '(ici) ›] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two ›] coord', '○ [Package two · verify ›]', '⇢ PM BETA',
       'proj-two · 2', '◆ [Lane beta ⌄] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
     // one line per conversation: no state word line, the waiting one not repeated in full under À toi de cliquer
     assert.doesNotMatch(g, /travaille · coordinateur|t’attend · lane|finie · lane/)
-    assert.equal(g.split('\n').filter((l) => l.includes('Choisir la version')).length, 1)
+    assert.equal(text.split('\n').filter((l) => l.includes('Choisir la version')).length, 1)
     // the legend on one line at 60 columns and more, no wrapped « message envoyé »
     assert.equal(g.split('\n').filter((l) => /travaille|inactive$/.test(l)).length, 1, g)
     assert.doesNotMatch(g, /message envoyé/)
@@ -118,10 +123,10 @@ for (const columns of [60, 75]) {
     assert.ok(ind('[Package two ›]') > ind('[Lane alpha') && ind('[Package two · verify ›]') > ind('[Package two ›]'), g)
     assert.doesNotMatch(g, /Archived lane|Lane gamma/)
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
-    assert.ok(panneauText(columns, { graphe: { period: 'tout', archived: true } }).includes('Archived lane'))
+    assert.ok(panneauText(columns, { open: OPEN, graphe: { period: 'tout', archived: true } }).includes('Archived lane'))
     // a group of one conversation: no header, one line with the project name in grey
-    const all = panneauText(columns, { graphe: { period: 'tout' } })
-    const gamma = all.slice(all.indexOf('▾ Graphe des conversations')).split('\n').filter((l) => l.includes('[Lane gamma ›]'))
+    const all = panneauText(columns, { open: OPEN, graphe: { period: 'tout' } })
+    const gamma = all.slice(all.indexOf('[GRAPHE]')).split('\n').filter((l) => l.includes('[Lane gamma ›]'))
     assert.equal(gamma.length, 1, all)
     assert.match(gamma[0], /\[Lane gamma ›\] proj-three/)
     assert.doesNotMatch(all, /proj-three · 1/)
@@ -129,8 +134,8 @@ for (const columns of [60, 75]) {
 }
 
 test('graph at 45 columns: the legend folds behind « Légende › », nothing wraps', () => {
-  const text = panneauText(45)
-  const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
+  const text = panneauText(45, { open: { conv: true, convs: true, graphe: true } })
+  const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
   assert.match(g, /\[Légende ›\]/)
   assert.match(panneauText(45, { open: { graphe: true, 'pg-legend': true } }), /○ inactive/)
   assert.ok(widest(text.split('\n').slice(1).join('\n')) <= 45, text)
@@ -154,4 +159,34 @@ test('state: a coordinator running a Workflow is « travaille », « finie » on
   assert.deepEqual(m.legend.map((x) => [x.glyph, x.tone]), [['●', 'ok'], ['◆', 'warn'], ['✕', 'bad'], ['✓', 'dim'], ['○', 'dim']])
   assert.equal(line(m, 'lead').tone, 'ok')
   assert.equal(line(m, 'b').tone, 'warn')
+})
+
+// Julian's screenshot of 19 Oct (after PR #60): « aucune conversation avec ces filtres » while 3 conversations worked
+// today. Invented fixture with the three ways it happened: the app's lastActivityAt older than the 24 h filter while
+// the transcript moves (a long autonomous turn), a project filter kept in $.store from a project with no conversation
+// left, and a working conversation whose session file was not read (only factory's scan has it).
+test('graph bug (19 Oct): conversations active today are listed whatever the app timestamps, a stale project filter or a missing session file', () => {
+  const rows = [
+    { ...GRAPH_ROWS[0], cli: 'w1', sid: 'local_w1', title: 'Consolidated release', repo: 'proj-one', starred: false, last_activity: NOW - 30 * 3600000 },
+    { ...GRAPH_ROWS[0], cli: 'w2', sid: 'local_w2', title: 'Cockpit codex', repo: 'proj-one', starred: false, last_activity: NOW - 26 * 3600000 },
+    { ...GRAPH_ROWS[0], cli: 'old', sid: 'local_old', title: 'Quiet one', repo: 'proj-one', starred: false, last_activity: NOW - 40 * 3600000 },
+  ]
+  const scan = { sessions: [
+    { cli: 'w1', live: false, mtime: (NOW - 60000) / 1000, subs: [{ id: 'a', status: 'running' }] },
+    { cli: 'w2', live: true, mtime: (NOW - 20000) / 1000 },
+    { cli: 'w3', sid: 'local_w3', app_title: 'Restart impact', cwd: 'C:/code/proj-two', live: true, mtime: (NOW - 10000) / 1000 },
+  ] }
+  for (const filter of [{}, { project: 'gone-project' }, { active: true }]) {
+    const m = grapheModel({ rows, scan, workflows: [], fcfg: {}, filter }, 'w2', {}, NOW)
+    assert.equal(m.empty, false, JSON.stringify(filter))
+    const keys = m.groups.flatMap((g) => g.lines).map((l) => l.key).sort()
+    assert.deepEqual(keys, ['w1', 'w2', 'w3'], JSON.stringify(filter))
+    assert.ok(m.groups.flatMap((g) => g.lines).every((l) => l.state === 'working'))
+    assert.match(m.macro, /^3 conv · rien ne t’attend$/)
+  }
+  // the quiet one (40 h, nothing moving) stays out of 24 h, in « tout »
+  assert.ok(line(grapheModel({ rows, scan, fcfg: {}, filter: { period: 'tout' } }, '', {}, NOW), 'old'))
+  // drawn: the graph's line says it, its tree lists them
+  const text = panneauText(75, { open: { conv: true, convs: true, graphe: true } })
+  assert.doesNotMatch(text, /aucune conversation avec ces filtres/)
 })
