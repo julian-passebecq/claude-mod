@@ -12,7 +12,8 @@ export const el = {
 const len = (s) => [...s].length
 
 function textOf(n) {
-  return (n.props.children || []).map((c) => (typeof c === 'string' ? c : '')).join('')
+  // a Button may hold Text children (a bold title): their text is its text
+  return (n.props.children || []).map((c) => (typeof c === 'string' ? c : c && c.type === 'Text' ? textOf(c) : '')).join('')
 }
 
 export function wrapText(s, w) {

@@ -14,7 +14,7 @@
 // State marks and colours (panel.marks, Julian 18 Oct): ● travaille green, ◆ t'attend amber, ✕ bloquée red, ✓ finie
 // and ○ inactive grey, the same in « Toutes les conversations », the graph and its legend.
 // Pure except for the kit `h` and the callbacks in P.act.
-import { panelConfig, fill, textBar, durText, kTok } from '../lib/panel.mjs'
+import { panelConfig, fill, textBar, durText, kTok, convKey } from '../lib/panel.mjs'
 import { convFactorySummary, modelName } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
@@ -29,7 +29,9 @@ const clip = (t, n) => {
 /**
  * P = { cfg, columns, open: {id: bool}, closed: {nodeKey: bool}, act, files: { head, rows, more, selected, attach, busy, error },
  *       factory (lib/panel_conv.mjs convFactory), syn (synthesis()), filter: {period, project, state, who}, bars: [...],
- *       workflows: [...], graphe, colors }
+ *       workflows: [...], graphe, colors, unfold: Set of the clis whose factory is drawn under their row,
+ *       convFactories: { [cli]: convFactory(...) of that conversation | null } }
+ * Between two sections: an empty line and a thin grey rule (Julian, 18 Oct: « breathing room »).
  */
 export function drawPanel(h, P) {
   const c = panelConfig(P.cfg)
@@ -37,9 +39,20 @@ export function drawPanel(h, P) {
   const width = Math.max(30, P.columns || 75)
   const u = ui(h, P, c, width)
   const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, graphe: drawGrapheSection }
-  const out = c.order.map((id) => parts[id](u, P, L, width)).filter(Boolean)
+  const out = []
+  for (const id of c.order) {
+    const part = parts[id](u, P, L, width)
+    if (!part) continue
+    if (out.length) out.push(sep(h, width, 'p-sep-' + id))
+    out.push(part)
+  }
   if (P.otherViews) out.push(h.T(clip(P.otherViews, width), { dim: true, wrap: 'truncate-end', key: 'p-other-views' }))
   return out
+}
+
+/** A thin grey rule across the pane, under an empty line (the section above keeps its marginBottom). */
+function sep(h, width, key, indent = 0) {
+  return h.col([h.T('─'.repeat(Math.max(4, width - 1 - indent)), { dim: true, wrap: 'truncate-end' })], { key, marginBottom: 1, ...(indent ? { marginLeft: indent } : {}) })
 }
 
 /** The render hook of section 5 (« Graphe des conversations »). */
@@ -70,17 +83,25 @@ function ui(h, P, c, width) {
     const s = h.svg(meterSvg(pct, { width: Math.max(40, Math.round(cells * (Number(st.bar_px) || 7))), color, track: colors.track, mark: o.mark, markColor: colors.warn }), `${Math.round(pct)} %`, key)
     return s || h.T(textBar(pct, cells, P.cfg, o.mark), { tone: o.tone || 'running', key })
   }
-  // a stats grid: cells [{ label, value }], `per` per row, each a grey label over a bold value
+  // a stats grid: cells [{ label, value }], `per` per row: a row of grey labels over a row of bold values, one line
+  // each (so a left rule can run along every line)
+  const blank = (key) => h.T(' ', { key })
   const grid = (cells, key, per = 3) => {
-    const rows = []
+    const rows = [blank(key + '-top')]
     for (let i = 0; i < cells.length; i += per) {
       const part = cells.slice(i, i + per)
       while (part.length < per) part.push(null)
-      rows.push(h.row(part.map((x, j) => h.col(x ? [h.T(x.label, { dim: true, wrap: 'truncate-end' }), h.T(x.value, { bold: true, tone: x.tone, wrap: 'truncate-end' })] : [h.T(' ')],
-        { flexGrow: 1, key: `${key}-${i}-${j}` })), { flexWrap: 'nowrap', key: `${key}-${i}` }))
+      const one = (f, k) => h.row(part.map((x, j) => h.col([x ? f(x) : h.T(' ')], { flexGrow: 1, key: `${key}-${i}-${k}-${j}` })), { flexWrap: 'nowrap', key: `${key}-${i}-${k}` })
+      rows.push(one((x) => h.T(x.label, { dim: true, wrap: 'truncate-end' }), 'l'), one((x) => h.T(x.value, { bold: true, tone: x.tone, wrap: 'truncate-end' }), 'v'))
     }
-    return h.col(rows, { key, marginTop: 1 })
+    return rows
   }
+  // a thin grey rule down the left of `lines` (one-line elements): « │ » then the line, one step in (Julian, 18 Oct:
+  // indentation instead of boxes; the engine draws a Box border on all four sides only, so the rule is text)
+  const rule = (lines, key) => lines.filter(Boolean).map((l, i) => h.row([
+    h.col([h.T('│', { dim: true })], { width: 1, flexShrink: 0, key: 'r' }),
+    h.col([l], { flexGrow: 1, flexShrink: 1, key: 'b' }),
+  ], { key: `${key}-${i}`, flexWrap: 'nowrap', gap: 1 }))
   // one dot per agent as Claude's pane draws them: grey ■ done, amber ■ running, □ pending, ✕ failed (style.dot_tones);
   // a run of Texts so each keeps its colour; past `max` dots, « +N »
   const dots = (list, key, max) => {
@@ -102,8 +123,9 @@ function ui(h, P, c, width) {
     return h.row(kids, { gap: 0, flexWrap: 'nowrap', key })
   }
   const title = (text, key, o = {}) => h.T(text, { bold: true, size: 'heading', wrap: 'truncate-end', key, tone: o.tone })
-  const card = (key, kids) => h.col(kids, { key, marginBottom: 1 })
-  return { h, c, W, line, bar, grid, dots, title, card }
+  // the same primitives `cols` columns narrower (what sits right of a left rule)
+  const sub = (cols) => ui(h, P, c, width - cols)
+  return { h, c, W, line, bar, grid, dots, title, blank, rule, sub }
 }
 
 function section(u, P, id, title, summary, body, width) {
@@ -111,8 +133,10 @@ function section(u, P, id, title, summary, body, width) {
   const open = Boolean(P.open[id])
   const label = `${open ? '▾' : '▸'} ${title}`
   const room = width - len(label) - 6
+  // the title in bold, heading size where the surface has sizes (Julian, 18 Oct: « titres plus visibles »)
+  const head = h.tbtn ? h.tbtn(label, () => P.act.ptoggle(id), 'p-sec-' + id, { bold: true, size: 'heading' }) : h.btn(label, () => P.act.ptoggle(id), false, 'p-sec-' + id)
   return h.col([
-    h.row([h.btn(label, () => P.act.ptoggle(id), false, 'p-sec-' + id), summary && !open && room > 8 ? h.T(clip(summary, room), { dim: true, wrap: 'truncate-end' }) : null],
+    h.row([head, summary && !open && room > 8 ? h.T(clip(summary, room), { dim: true, wrap: 'truncate-end' }) : null],
       { alignItems: 'center', flexWrap: 'nowrap' }),
     open ? h.col(body(), { marginLeft: 1 }) : null,
   ], { key: 'p-' + id, marginBottom: 1 })
@@ -154,42 +178,74 @@ function drawConv(u, P, L, width) {
   const summary = P.convSummary || convFactorySummary(m)
   return section(u, P, 'conv', L.conv, summary, () => {
     if (!m || !m.available) return [h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })]
-    const out = [leadCard(u, P, L, m)]
-    if (!m.cards.length && !m.finished) out.push(h.T(L.no_layer, { dim: true, key: 'pf-nolayer' }))
-    for (const k of m.cards) out.push(taskCard(u, P, L, k))
-    if (m.finished) {
-      const f = m.finished
-      out.push(h.row([h.btn(`${fill(L.finished, { n: f.count })} ${f.open ? '⌄' : '›'}`, () => P.act.nodeToggle(f.key, f.open), false, f.key)], { key: f.key + '-row', marginBottom: f.open ? 0 : 1 }))
-      if (f.open) for (const k of f.cards) out.push(taskCard(u, P, L, k))
-    }
-    // the session log
-    out.push(h.T(L.log, { bold: true, key: 'pfj' }))
-    if (!m.log.length) out.push(h.T(L.log_none, { dim: true, key: 'pfj-none' }))
-    m.log.forEach((e, i) => out.push(h.T(clip(`${String(new Date(e.at).getHours()).padStart(2, '0')}:${String(new Date(e.at).getMinutes()).padStart(2, '0')}  ${e.text}`, u.W), { key: 'pfj-' + i, tone: e.tone || undefined, dim: !e.tone, wrap: 'truncate-end' })))
-    return out
+    return factoryLines(u, P, L, m, true)
   }, width)
 }
 
+/**
+ * A conversation's factory as one-line elements, top to bottom: the lead's card, then its Workflow / background cards
+ * one step in behind a grey rule (their agents one step further), « Terminés N › », and (log) the session log. The
+ * same for « Cette conversation » and for a conversation unfolded under its row.
+ */
+export function factoryLines(u, P, L, m, log) {
+  const { h } = u
+  // under its row the conversation's title is the row itself: the card starts at model · effort · state
+  const out = [...leadCard(u, P, L, m, !log), u.blank('pl-end')]
+  const inner = u.sub(2)
+  const cards = []
+  if (!m.cards.length && !m.finished) out.push(h.T(L.no_layer, { dim: true, wrap: 'truncate-end', key: 'pf-nolayer' }))
+  m.cards.forEach((k, i) => { if (i) cards.push(u.blank(`pk-${k.key}-gap`)); cards.push(...taskCard(inner, P, L, k)) })
+  if (m.finished) {
+    const f = m.finished
+    if (cards.length) cards.push(u.blank(f.key + '-gap'))
+    cards.push(h.row([h.btn(`${fill(L.finished, { n: f.count })} ${f.open ? '⌄' : '›'}`, () => P.act.nodeToggle(f.key, f.open), false, f.key)], { key: f.key + '-row' }))
+    if (f.open) for (const k of f.cards) cards.push(u.blank(`pk-${k.key}-gap`), ...taskCard(inner, P, L, k))
+  }
+  out.push(...u.rule(cards, 'pk-rule'))
+  if (!log) return out
+  // the session log
+  out.push(u.blank('pfj-gap'), h.T(L.log, { bold: true, key: 'pfj' }))
+  if (!m.log.length) out.push(h.T(L.log_none, { dim: true, key: 'pfj-none' }))
+  m.log.forEach((e, i) => out.push(h.T(clip(`${String(new Date(e.at).getHours()).padStart(2, '0')}:${String(new Date(e.at).getMinutes()).padStart(2, '0')}  ${e.text}`, u.W), { key: 'pfj-' + i, tone: e.tone || undefined, dim: !e.tone, wrap: 'truncate-end' })))
+  return out
+}
+
+/**
+ * Another conversation's factory, under its row (« Toutes les conversations », graph): one step in behind a grey rule,
+ * then an empty line and a thin rule before the next conversation. indent: the row's own indent (graph children).
+ */
+export function convUnder(u, P, L, cli, key, indent = 0) {
+  const { h } = u
+  const m = (P.convFactories || {})[cli]
+  const step = indent + 2
+  const inner = u.sub(step + 2)
+  const lines = m && m.available ? factoryLines(inner, P, L, m, false) : [h.T(L.conv_no_factory, { dim: true, wrap: 'truncate-end', key: 'nf' })]
+  return [
+    h.col(inner.rule(lines, key + '-l'), { key, marginLeft: step }),
+    h.col([u.blank('b')], { key: key + '-gap' }),
+    sep(h, u.W + 1, key + '-sep', step),
+  ]
+}
+
 /** Claude's Usage pane, for the lead: title, model · effort · state, the context row and bar, the stats grid. */
-function leadCard(u, P, L, m) {
+function leadCard(u, P, L, m, noTitle) {
   const { h } = u
   const lead = m.lead
   const s = m.stats
   const x = m.ctx
   const kids = [
-    u.title(lead.title, 'pl-title'),
+    noTitle ? null : u.title(lead.title, 'pl-title'),
     h.T([lead.model, lead.effort, lead.state].filter(Boolean).join(' · '), { dim: !lead.live, tone: lead.live ? 'ok' : undefined, wrap: 'truncate-end', key: 'pl-meta' }),
   ]
   if (x && x.known) {
     const tone = x.over ? 'bad' : x.pct >= 50 ? 'warn' : undefined
-    kids.push(h.col([
+    kids.push(u.blank('pl-ctx-gap'),
       u.line(L.ctx_label, x.detail, `${Math.round(x.pct)} %`, { tone, key: 'pl-ctx' }),
       u.bar(x.pct, 'pl-ctx-bar', { mark: x.markPct, tone: x.over ? 'bad' : undefined }),
-      x.over ? h.T(x.note, { tone: 'bad', wrap: 'truncate-end', key: 'pl-ctx-note' }) : null,
-    ], { key: 'pl-ctx-box', marginTop: 1 }))
+      x.over ? h.T(x.note, { tone: 'bad', wrap: 'truncate-end', key: 'pl-ctx-note' }) : null)
   } else kids.push(h.T(L.ctx_none, { dim: true, key: 'pl-ctx-none' }))
   const pct = (v) => (v === null || v === undefined ? '—' : `${v} %`)
-  kids.push(u.grid([
+  kids.push(...u.grid([
     { label: L.stat_cost, value: s.cost === null ? '—' : fmtUsd(s.cost) },
     { label: L.stat_tokens, value: fmtTokens(s.tokens) },
     { label: L.stat_cache, value: pct(s.cacheHit) },
@@ -203,7 +259,7 @@ function leadCard(u, P, L, m) {
     const cells = Math.max(4, Math.min(12, Math.floor(u.W / 6)))
     m.contributors.forEach((x, i) => kids.push(u.line(x.type, '', `${textBar(x.pct, cells, P.cfg)} ${x.pct} %`, { key: 'pl-ct-' + i, boldValue: false })))
   }
-  return u.card('pl-card', kids)
+  return kids.filter(Boolean)
 }
 
 /**
@@ -221,7 +277,7 @@ function taskCard(u, P, L, k) {
     u.line(left, k.eta ? fill(L.layer_eta, { time: k.eta }) : '', durText(k.elapsed, true), { dimLeft: true, toneLeft: k.failed ? 'bad' : undefined, boldValue: false, dimValue: true, key: `pk-${k.key}-d` }),
     u.dots(k.dots || k.phases.flatMap((p) => p.dots), `pk-${k.key}-dots`, u.W - 4),
   ]
-  if (!open) return u.card('pk-' + k.key, kids)
+  if (!open) return kids
   kids.push(h.T([fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : ''].filter(Boolean).join('  '), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
   if (k.kind === 'workflow') kids.push(h.T(L.phases, { bold: true, key: `pk-${k.key}-ph` }))
   for (const p of k.phases) {
@@ -234,13 +290,15 @@ function taskCard(u, P, L, k) {
       ], { key: p.key + '-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
     }
     if ((k.kind !== 'workflow' || p.open) && p.agents.length) {
-      const indent = k.kind === 'workflow' ? 2 : 0
-      kids.push(tableHead(u, L, p.key, indent))
-      for (const a of p.agents) kids.push(...agentLines(u, L, a, `${p.key}-${a.id}`, indent))
-      if (p.hidden) kids.push(h.T(`+ ${p.hidden}`, { dim: true, key: p.key + '-more' }))
+      // the agents one step in behind a grey rule, under their phase (or their card for the background agents)
+      const a2 = u.sub(2)
+      const rows = [tableHead(a2, L, p.key, 0)]
+      for (const a of p.agents) rows.push(...agentLines(a2, L, a, `${p.key}-${a.id}`, 0))
+      if (p.hidden) rows.push(h.T(`+ ${p.hidden}`, { dim: true, key: p.key + '-more' }))
+      kids.push(...u.rule(rows, p.key + '-rule'))
     }
   }
-  return u.card('pk-' + k.key, kids)
+  return kids
 }
 
 /** The grey header of Claude's table: « Modèle ........ Temps ». */
@@ -292,11 +350,19 @@ function drawConvs(u, P, L, width) {
     const periods = s ? s.periods : []
     const pi = periods.findIndex((p) => s && p.id === s.period.id)
     const nextPeriod = periods.length ? periods[(pi + 1) % periods.length].id : ''
+    // the four labels on one line: past the pane's width, the short ones (« auj. », « Proj. »), then the project cut
+    const who = f.who === 'codex' ? L.who_codex : L.who_claude
+    const st = f.state ? L.states[f.state] : L.state
+    const fits = (xs) => xs.reduce((a, x) => a + len(x) + 4, 0) + xs.length - 1 <= u.W
+    let per = s && s.period ? s.period.label : ''
+    let proj = clip(f.project || L.project, 16)
+    if (!fits([per, proj, st, who].filter(Boolean))) per = s && s.period ? s.period.short || per : ''
+    if (!fits([per, proj, st, who].filter(Boolean))) proj = f.project ? clip(f.project, 8) : L.project_short || proj
     out.push(h.row([
-      s && s.period ? h.btn(`${s.period.label} ▾`, () => P.act.pfilter('period', nextPeriod), false, 'pf-period') : null,
-      h.btn(`${clip(f.project || L.project, 16)} ▾`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
-      h.btn(`${f.state ? L.states[f.state] : L.state} ▾`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
-      h.btn(`${f.who === 'codex' ? L.who_codex : L.who_claude} ▾`, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
+      per ? h.btn(`${per} ▾`, () => P.act.pfilter('period', nextPeriod), false, 'pf-period') : null,
+      h.btn(`${proj} ▾`, () => P.act.pcycle('project'), Boolean(f.project), 'pf-project'),
+      h.btn(`${st} ▾`, () => P.act.pcycle('state'), Boolean(f.state), 'pf-state'),
+      h.btn(`${who} ▾`, () => P.act.pfilter('who', f.who === 'codex' ? 'claude' : 'codex'), f.who === 'codex', 'pf-who'),
     ], { key: 'pf-row', alignItems: 'center', marginBottom: 1 }))
     if (!s || !s.hasData) out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' }))
     else if (!s.rows.length) out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' }))
@@ -304,17 +370,29 @@ function drawConvs(u, P, L, width) {
       const wide = width >= (Number(c.style.wide_cols) || 60)
       const cells = wide ? Number(c.style.bar_cells_wide) || 10 : Number(c.style.bar_cells) || 6
       const tot = s.total.tokens || 1
-      // one line per conversation: mark, title (cut), tokens, the thin bar of Barres (Svg on the desktop), %
+      // one line per conversation: mark, title (a button: unfolds its factory under the row, › / ⌄), tokens, the thin
+      // bar of Barres (Svg on the desktop), %, « ouvrir ↗ » (opens it in the app). Codex rows: no factory, no button.
+      const foldable = f.who !== 'codex'
+      const openLabel = width >= (Number(c.style.wide_cols) || 60) ? L.open_conv : L.open_conv_short
       s.rows.forEach((r, i) => {
         const pct = Math.round((100 * r.tokens) / tot)
         const mk = c.marks[r.mark] || c.marks.idle
         const tok = fmtTokens(r.tokens)
         const pctText = `${String(pct).padStart(2)} %`
-        const room = Math.max(4, u.W - len(tok) - cells - len(pctText) - 6)
+        // « ouvrir ↗ »: not on this conversation's own row, and left out when the title would have no room
+        let link = foldable && r.sid && P.link && r.id !== P.self ? fill(P.link, { id: r.sid }) : ''
+        const open = foldable && P.unfold ? P.unfold.has(r.id) : false
+        const base = u.W - len(tok) - cells - len(pctText) - 6 - (foldable ? 4 : 0)
+        if (link && base - len(openLabel) - 3 < 8) link = ''
+        const room = Math.max(4, base - (link ? len(openLabel) + 3 : 0))
+        const title = foldable
+          ? h.btn(`${clip(r.label, room)} ${open ? '⌄' : '›'}`, () => P.act.nodeToggle(convKey(r.id), open), false, 'pcv-' + r.id)
+          : h.T(clip(r.label, room), { bold: r.state !== 'done', dim: r.state === 'done', wrap: 'truncate-end' })
         out.push(h.row([
-          h.row([h.T(mk.glyph, { tone: mk.tone === 'dim' ? undefined : mk.tone, dim: mk.tone === 'dim' }), h.T(clip(r.label, room), { bold: r.state !== 'done', dim: r.state === 'done', wrap: 'truncate-end' })], { flexWrap: 'nowrap', gap: 1 }),
-          h.row([h.T(tok, { dim: true }), u.bar(pct, 'pcb-' + i, { cells }), h.T(pctText, { bold: true })], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
+          h.row([h.T(mk.glyph, { tone: mk.tone === 'dim' ? undefined : mk.tone, dim: mk.tone === 'dim' }), title], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
+          h.row([h.T(tok, { dim: true }), u.bar(pct, 'pcb-' + i, { cells }), h.T(pctText, { bold: true }), link ? h.btn(openLabel, () => P.act.openConv(link), false, 'pco-' + r.id) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
         ], { key: 'pc-' + i, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
+        if (open) out.push(...convUnder(u, P, L, r.id, 'pcu-' + r.id))
       })
       if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
       out.push(u.line(L.total, s.period.label, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', bold: true }))
@@ -374,6 +452,8 @@ function drawBarres(u, P, L, width) {
 function drawGrapheSection(u, P, L, width) {
   const m = P.graphe
   const handoffPct = Math.round((100 * (Number(u.c.contexte.handoff_tokens) || 250000)) / (Number(u.c.contexte.window) || 400000))
+  const wide = width >= (Number(u.c.style.wide_cols) || 60)
   return section(u, P, 'graphe', L.graphe, m && m.ready ? m.summary : '', () => drawGraphe(u.h, m, L, width - 1, P.act,
-    { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct }), width)
+    { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct, unfold: P.unfold, openLabel: wide ? L.open_conv : L.open_conv_short,
+      under: (cli, pad) => convUnder(u, P, L, cli, 'pgu-' + cli, pad) }), width)
 }

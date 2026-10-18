@@ -104,8 +104,8 @@ for (const columns of [60, 75]) {
     const text = panneauText(columns)
     const g = text.slice(text.indexOf('▾ Graphe des conversations'), text.indexOf('Autres vues'))
     for (const k of ['À toi de cliquer (1)', '◆ [Lane beta]', 'Choisir la version · depuis 2 h', '● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
-      '★ proj-one · 4', '(ici)] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two] coord', '○ [Package two · verify]', '⇢ PM BETA',
-      'proj-two · 2', '◆ [Lane beta] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
+      '★ proj-one · 4', '(ici) ›] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two ›] coord', '○ [Package two · verify ›]', '⇢ PM BETA',
+      'proj-two · 2', '◆ [Lane beta ⌄] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
     // one line per conversation: no state word line, the waiting one not repeated in full under À toi de cliquer
     assert.doesNotMatch(g, /travaille · coordinateur|t’attend · lane|finie · lane/)
     assert.equal(g.split('\n').filter((l) => l.includes('Choisir la version')).length, 1)
@@ -113,17 +113,17 @@ for (const columns of [60, 75]) {
     assert.equal(g.split('\n').filter((l) => /travaille|inactive$/.test(l)).length, 1, g)
     assert.doesNotMatch(g, /message envoyé/)
     // children are indented under their parent, without box-drawing connectors
-    assert.doesNotMatch(g, /[│├└┄]/)
+    assert.doesNotMatch(g, /[├└┄]/)
     const ind = (k) => { const l = g.split('\n').find((x) => x.includes(k)); return l.length - l.trimStart().length }
-    assert.ok(ind('[Package two]') > ind('[Lane alpha') && ind('[Package two · verify]') > ind('[Package two]'), g)
+    assert.ok(ind('[Package two ›]') > ind('[Lane alpha') && ind('[Package two · verify ›]') > ind('[Package two ›]'), g)
     assert.doesNotMatch(g, /Archived lane|Lane gamma/)
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
     assert.ok(panneauText(columns, { graphe: { period: 'tout', archived: true } }).includes('Archived lane'))
     // a group of one conversation: no header, one line with the project name in grey
     const all = panneauText(columns, { graphe: { period: 'tout' } })
-    const gamma = all.split('\n').filter((l) => l.includes('[Lane gamma]'))
+    const gamma = all.slice(all.indexOf('▾ Graphe des conversations')).split('\n').filter((l) => l.includes('[Lane gamma ›]'))
     assert.equal(gamma.length, 1, all)
-    assert.match(gamma[0], /\[Lane gamma\] proj-three/)
+    assert.match(gamma[0], /\[Lane gamma ›\] proj-three/)
     assert.doesNotMatch(all, /proj-three · 1/)
   })
 }

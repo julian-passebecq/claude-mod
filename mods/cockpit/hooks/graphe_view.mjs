@@ -5,9 +5,12 @@
 // and their rows indented. One compact filter row, one short legend line (folded behind « Légende › » when narrow).
 // drawGraphe(h, model, L, width, act, o) -> element list (the section's body). h: view.mjs's kit (T, row, col, btn, lr);
 // L: panel labels; width: the columns of the body (every line stays <= width); act: { openConv(link), gfilter(k, v),
-// gcycle('project'), ptoggle(id) }; o: { bar(pct, key, { cells, tone }) -> element (Svg or text), open: { id: bool },
-// ctxCells, handoffPct }.
-import { fill, kTok } from '../lib/panel.mjs'
+// gcycle('project'), ptoggle(id), nodeToggle(key, open) }; o: { bar(pct, key, { cells, tone }) -> element (Svg or text),
+// open: { id: bool }, ctxCells, handoffPct, unfold: Set of the clis whose factory is drawn under their row,
+// under(cli, pad) -> elements (that factory, panel_view convUnder), openLabel: « ouvrir ↗ » }.
+// A conversation's title (with its › / ⌄) unfolds its factory under the row; « ouvrir ↗ » at the right opens it in
+// the app (Julian, 18 Oct). À toi de cliquer keeps opening the conversation on a click.
+import { fill, kTok, convKey } from '../lib/panel.mjs'
 
 const len = (s) => [...String(s ?? '')].length
 const clip = (t, n) => {
@@ -62,21 +65,26 @@ export function drawGraphe(h, model, L, width, act = {}, o = {}) {
       const pad = base + 2 * Math.min(r.depth || 0, 4)
       const right = [r.tokens !== null ? kTok(r.tokens) : '', r.ctx !== null ? fill(L.graphe_ctx, { pct: r.ctx }) : ''].filter(Boolean).join(' · ')
       const bar = r.ctx !== null && o.bar ? o.bar(Math.min(100, r.ctx), 'pglb-' + r.key, { cells: ctxCells, tone: o.handoffPct && r.ctx >= o.handoffPct ? 'warn' : undefined }) : null
-      const rightLen = len(right) + (bar ? ctxCells + 1 : 0)
+      const unfolded = Boolean(o.unfold && o.unfold.has(r.key))
+      // « ouvrir ↗ »: not on this conversation's own row, and left out when the title would have no room
+      let openLabel = r.link && o.openLabel && !r.self ? o.openLabel : ''
+      const rightLen = len(right) + (bar ? ctxCells + 1 : 0) + (openLabel ? len(openLabel) + 3 : 0)
       const tail = `${r.starred ? ' ★' : ''}${r.self ? ' ' + L.graphe_here : ''}`
       const grey = [single ? g.name : '', (L.graphe_role_marks || {})[r.roleId] || ''].filter(Boolean).join(' · ')
       // the title gives way first, then the grey part; the numbers never
       // what is not the title: the indent and its gap, the mark and its gap, the button's brackets, the gap before the right
-      let room = width - (pad ? pad + 1 : 0) - 2 - 2 - len(tail) - 1 - rightLen
+      let room = width - (pad ? pad + 1 : 0) - 2 - 2 - len(tail) - 1 - rightLen - 2
+      if (openLabel && room < 8) { room += len(openLabel) + 3; openLabel = '' }
       const greyShown = grey && room - len(grey) - 1 >= 8 ? grey : ''
       room = Math.max(6, room - (greyShown ? len(greyShown) + 1 : 0))
       out.push(h.row([
-        h.row([pad ? h.T(nb(pad)) : null, h.T(r.dot, { tone: r.tone === 'dim' ? undefined : r.tone, dim: r.tone === 'dim' || !r.tone }), h.btn(clip(r.title, room) + tail, () => open(r.link), false, 'pgl-' + r.key),
+        h.row([pad ? h.T(nb(pad)) : null, h.T(r.dot, { tone: r.tone === 'dim' ? undefined : r.tone, dim: r.tone === 'dim' || !r.tone }), h.btn(`${clip(r.title, room)}${tail} ${unfolded ? '⌄' : '›'}`, () => (act.nodeToggle || NOOP)(convKey(r.key), unfolded), false, 'pgl-' + r.key),
           greyShown ? h.T(greyShown, { dim: true, wrap: 'truncate-end' }) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }),
-        right || bar ? h.row([right ? h.T(right, { dim: true }) : null, bar], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }) : null,
+        right || bar || openLabel ? h.row([right ? h.T(right, { dim: true }) : null, bar, openLabel ? h.btn(openLabel, () => open(r.link), false, 'pgo-' + r.key) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' }) : null,
       ], { key: 'pglr-' + r.key, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }))
       const notes = [r.from ? fill(L.graphe_from, { title: r.from }) : '', ...r.peers.map((t) => fill(L.graphe_peer, { title: t }))].filter(Boolean)
       if (notes.length) out.push(h.T(nb(pad + 2) + clip(notes.join(' · '), Math.max(8, width - pad - 2)), { dim: true, wrap: 'truncate-end', key: 'pglm-' + r.key }))
+      if (unfolded && o.under) out.push(...o.under(r.key, pad))
     }
   }
   if (model.hidden) out.push(h.T(fill(L.graphe_hidden, { n: model.hidden }), { dim: true, key: 'pg-hidden' }))

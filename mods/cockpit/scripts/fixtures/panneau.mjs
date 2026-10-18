@@ -4,7 +4,7 @@ import { el, renderText } from '../../lib/factory/scanner/textrender.mjs'
 import { drawCockpit } from '../../hooks/view.mjs'
 import { synthesis, barsOf, activeWorkflows, contexteOf } from '../../lib/panel.mjs'
 import { usageCard } from '../../hooks/nav.mjs'
-import { convFactory } from '../../lib/panel_conv.mjs'
+import { convFactory, convFactories } from '../../lib/panel_conv.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
 
 export const NOW = Date.parse('2026-10-16T16:30:00Z')
@@ -16,8 +16,8 @@ const V = (n) => ({ 'claude-opus-5-5': [n, Math.round(n / 10), n * 4, 0, 0, 3] }
 const R = (h, sid, tok, usd) => [H - h * 3600000, sid, 'main', 'claude-opus-5-5', '', '', '', tok, 0, 0, 0, 0, 1, 0, usd]
 export const CLASSEMENT = {
   v: 1, generated: NOW, tzMin: 0, days: 31,
-  sessions: { lead: { t: 'Lane alpha · tableau de bord', p: 'proj-one' }, b: { t: 'Lane beta', p: 'proj-two' }, c: { t: 'Lane gamma', p: 'proj-one' } },
-  rows: [R(0, 'lead', 3600000, 12), R(0, 'b', 1000000, 4), R(2, 'c', 500000, 0.5)],
+  sessions: { lead: { t: 'Lane alpha · tableau de bord', p: 'proj-one' }, b: { t: 'Lane beta', p: 'proj-two' }, c: { t: 'Lane gamma', p: 'proj-one' }, d: { t: 'Lane delta', p: 'proj-one' } },
+  rows: [R(0, 'lead', 3600000, 12), R(0, 'b', 1000000, 4), R(2, 'c', 500000, 0.5), R(2, 'd', 800000, 3)],
 }
 
 const SUBS = [
@@ -28,7 +28,11 @@ const SUBS = [
 export const SCAN = {
   sessions: [
     { cli: 'lead', sid: 'local_lead', app_title: 'Lane alpha · tableau de bord', cwd: 'C:/code/proj-one', live: true, model: 'claude-opus-5-5', app_effort: 'medium', ctx: 120000, subs: SUBS, recent: [], models: V(600000) },
-    { cli: 'b', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
+    { cli: 'b', sid: 'local_b', app_title: 'Lane beta', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
+    // another conversation working, with its own Workflow: it unfolds under its row by default
+    { cli: 'd', sid: 'local_d', app_title: 'Lane delta', cwd: 'C:/code/proj-one', live: true, model: 'claude-sonnet-5-5', app_effort: 'low', ctx: 60000, recent: [], models: V(200000),
+      subs: [{ id: 'd1', type: 'coder', desc: 'write the docs', model: 'claude-sonnet-5-5', effort: 'low', status: 'running', workflow: 'wf_2', ts: iso(12), last_ts: iso(0), models: V(90000) },
+        { id: 'd2', type: 'tester', desc: 'run the tests', model: 'claude-haiku-5-5', effort: 'low', status: 'done', workflow: 'wf_2', ts: iso(15), last_ts: iso(13), models: V(10000) }] },
   ],
   detail: {
     cli: 'lead', subs: SUBS, calls: [{ tool: 'Workflow', runId: 'wf_1', desc: 'package-wave' }],
@@ -91,7 +95,13 @@ export function panneauView(columns, o = {}) {
     bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
     workflows: activeWorkflows({ runs: [{ id: 'r1', name: 'package-wave', live: true, agents: [{ id: '1', label: 'coder', model: 'claude-opus-5-5', status: 'running', tokens: 300000 }, { id: '2', label: 'verify', model: 'claude-sonnet-5-5', status: 'done', tokens: 80000 }] }] }, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
+    link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
   }
+  // every conversation row unfolds under itself to its factory; the active ones (b waits, d works) by default
+  const under = convFactories({ scan: SCAN, runs: RUNS, syn, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
+    tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
+  panel.unfold = under.unfold
+  panel.convFactories = under.factories
   return { cfg: {}, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }

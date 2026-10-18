@@ -29,7 +29,7 @@ import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf } from '../lib/panel.mjs'
-import { convFactory } from '../lib/panel_conv.mjs'
+import { convFactory, convFactories } from '../lib/panel_conv.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
@@ -464,8 +464,15 @@ function panelView(now) {
   try {
     graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: (wfScreen && wfScreen.runs) || [], conso: D.consoData, fcfg: FCFG || {}, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
   } catch { graphe = null }
+  // each conversation row unfolds under itself to its own factory; the active ones start unfolded (Julian, 18 Oct)
+  let under = { unfold: new Set(), factories: {} }
+  try {
+    under = convFactories({ scan: D.scan, runs: (wfScreen && wfScreen.runs) || [], syn, graphe, self: D.self, selfFactory: factory, closed: D.pclosed,
+      tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now) }, FCFG || {}, CFG || {}, D.at || now)
+  } catch { /* rows stay folded */ }
   return {
-    open: D.popen || {}, closed: D.pclosed,
+    unfold: under.unfold, convFactories: under.factories, link: depuisConfig(CFG || {}).session_link,
+    open: D.popen || {}, closed: D.pclosed, self: D.self,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
     syn, filter: f,
