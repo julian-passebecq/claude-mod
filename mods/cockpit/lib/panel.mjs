@@ -9,6 +9,7 @@
 //                                     folded into « Terminés N › », the session log (lib/panel_conv.mjs)
 //   3. Toutes les conversations       compact rows (dot, title, tokens, bar, %) + filters, Workflows actifs
 //   4. Barres                         Session 5 h, Semaine, Codex, crédits as Usage rows over bars; tok/s
+//   4b. Débit                         tokens per second, one card per model (30 min, 1 j, 7 j, 30 j), last streams (lib/debit.mjs)
 //   5. Graphe des conversations       who waits, works, coordinates, by project like the sidebar (lib/graphe.mjs, hooks/graphe_view.mjs)
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Every label and limit comes from `panel` in
 // cockpit.config.json (deep-merged over PANEL_DEFAULTS).
@@ -17,13 +18,13 @@ import { tokensOf } from './usage/lib/transcripts.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 import { repoOf } from './factory/hooks/logic.mjs'
 
-export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres', 'graphe']
+export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe']
 
 export const PANEL_DEFAULTS = {
   enabled: true,
   order: PANEL_SECTIONS,
   // which sections start unfolded (the viewer's own choice is then kept in $.store); Fichiers starts folded (Julian, 17 Oct)
-  open: ['conv', 'convs', 'barres', 'graphe'],
+  open: ['conv', 'convs', 'barres', 'debit', 'graphe'],
   // the state marks of « Toutes les conversations », the graph and its legend, one set (Julian, 18 Oct: « travaille » and
   // « t'attend » both looked orange): glyph + tone, a tone being a theme colour of the engine (cockpit term_colors:
   // ok = success green, warn = warning amber, bad = error red, dim = inactive grey)
@@ -120,6 +121,21 @@ export const PANEL_DEFAULTS = {
     graphe_sum_working: '{n} travaille(nt)',
     graphe_sum_blocked: '{n} bloquée(s)',
     barres: 'Barres',
+    // Débit (lib/debit.mjs): one card per model, a row per window, then the last streams
+    debit: 'Débit',
+    debit_model: 'Modèle : {model}',
+    debit_cols: { window: 'Fenêtre', n: 'Réponses', tokens: 'Tokens', time: 'Temps', tps: 'TPS pondéré', median: 'Médiane', range: 'Plage' },
+    // the headers when even without Plage and Temps the table is wider than the pane
+    debit_cols_short: { window: '', n: 'Rép.', tokens: 'Tok.', time: 'Temps', tps: 'TPS', median: 'Méd.', range: 'Plage' },
+    debit_recent: '{n} derniers flux',
+    debit_stream: '{time}  {model}{effort} :',
+    debit_stream_tail: '({tokens} tok en {secs})',
+    debit_none: 'aucune réponse mesurée sur 30 jours',
+    debit_no_file: 'pas encore lu : le mod usage écrit debit.json à son prochain scan',
+    debit_codex_unread: 'Codex : non lu',
+    debit_hidden: '… {n} modèle(s) de plus',
+    debit_note: 'Temps d’une réponse = de la dernière ligne du transcript qui l’envoie (prompt ou résultat d’outil) à son dernier bloc : attente du 1er token comprise. Tokens = tokens de sortie, réflexion comprise ; une réponse comptée une fois (message.id + requestId) ; moins de 50 tokens ou plus de 30 min exclues. TPS pondéré = somme des tokens ÷ somme des temps. 30 min : réponses exactes ; 1 j, 7 j, 30 j : heures d’horloge entières, médiane et plage à ±7 %. Vert : au-dessus de la médiane 1 j du modèle.',
+    debit_codex_note: 'Codex : du task_started ou de la dernière sortie d’outil au token_usage_record de la réponse ; 1 j, 7 j, 30 j par jour local entier (jours gardés par le mod usage).',
     other_views: 'Autres vues : /cockpit {list}',
     lead: 'Lead',
     background: 'Agents en arrière-plan',
@@ -221,6 +237,11 @@ export function panelConfig(cfg) {
   if ((p.order || []).includes('contexte') && !order.includes('barres')) {
     const i = order.indexOf('convs')
     order = i < 0 ? [...order, 'barres'] : [...order.slice(0, i + 1), 'barres', ...order.slice(i + 1)]
+  }
+  // an order written before Débit gets it back right after « barres » (Julian, 18 Oct)
+  if (!order.includes('debit')) {
+    const i = order.indexOf('barres')
+    order = i < 0 ? order : [...order.slice(0, i + 1), 'debit', ...order.slice(i + 1)]
   }
   p.order = order
   return p

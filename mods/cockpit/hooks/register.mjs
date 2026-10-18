@@ -31,6 +31,7 @@ import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, activeWorkflows, contexteOf } from '../lib/panel.mjs'
 import { convFactory, convFactories } from '../lib/panel_conv.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
+import { debitModel } from '../lib/debit.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -49,6 +50,9 @@ const D = {
   depuisRaw: null, depuisBusy: false, depuisAt: 0, depuisPreset: '', depuisOpen: {}, depuisAsk: false, depuisMsg: '', depuisError: '',
   // the Panneau (default view): sections open, layers folded, filters (kept in $.store 'panel')
   popen: null, pclosed: {}, pf: { period: '', project: '', state: '', who: '' }, pLoaded: false, codexData: null,
+  // Débit: usage's debit.json, re-read only when its mtime changes; the model is kept until a file, the minute or the
+  // Codex toggle changes (computing 30 days must not slow the pane)
+  debitData: null, debitMtime: -1, debitMemo: null,
   F: newFiles(), fLimit: 0, fBusy: false,
   // Graphe des conversations: the session files' rows (scanner part « graphe »), read at most every panel.graphe.refresh_s
   grapheRaw: null, grapheBusy: false, grapheAt: 0, pg: null,
@@ -269,19 +273,43 @@ async function loadConso($, now) {
   const dir = norm(expand(q.data_dir || ucfg.data_dir || '~/.claude/usage-mod', await homeDir($)))
   D.consoData = await readJson($, dir + '/classement.json')
   D.codexData = await readJson($, dir + '/codex.json')
+  if ((D.popen || {}).debit) await loadDebit($, dir)
   D.conso = consoCard(D.consoData, CFG, now, D.consoPreset || q.default)
   const old = !D.consoData || now - (D.consoData.generated || 0) > q.rescan_min * 60000
-  const wanted = (D.strips || {}).conso || (D.tab === 'panneau' && (D.popen || {}).convs)
+  const wanted = (D.strips || {}).conso || (D.tab === 'panneau' && ((D.popen || {}).convs || (D.popen || {}).debit))
   if (old && wanted && !D.consoScan && ucfg.data_dir !== undefined) {
     D.consoScan = true
     $.clock.after(0, async () => {
       try { await $.process.run([ucfg.node || 'node', sibling($, 'usage') + '/scanner/usage_scan.mjs', 'scan'], { timeoutMs: 600000 }) } catch { /* the card says so */ }
       D.consoScan = false
       D.consoData = await readJson($, dir + '/classement.json')
+      if ((D.popen || {}).debit) await loadDebit($, dir)
       D.conso = consoCard(D.consoData, CFG, await $.clock.now(), D.consoPreset || q.default)
       $.ui.invalidate('ui.render')
     })
   }
+}
+
+// usage's debit.json (hourly TPS rows over 31 days and the last hour's streams): read again only when it changed
+async function loadDebit($, dir) {
+  const path = dir + '/debit.json'
+  let mtime = 0
+  try { mtime = (await $.fs.stat(path)).mtimeMs || 0 } catch { mtime = 0 }
+  if (mtime === D.debitMtime && D.debitData) return
+  D.debitMtime = mtime
+  D.debitData = mtime ? await readJson($, path) : null
+  D.debitMemo = null
+}
+
+/** The Débit model, computed again only when debit.json, codex.json, the minute or the Codex toggle changed. */
+function debitView(now, who) {
+  const showCodex = who === 'codex'
+  const key = [D.debitData ? D.debitData.generated : 0, D.codexData ? D.codexData.generated : 0, Math.floor(now / 60000), showCodex].join('|')
+  if (D.debitMemo && D.debitMemo.key === key) return D.debitMemo.m
+  let m = null
+  try { m = debitModel({ debit: D.debitData, codex: showCodex ? D.codexData : null, showCodex, now }, CFG || {}) } catch { m = null }
+  D.debitMemo = { key, m }
+  return m
 }
 
 async function loadVeille($) {
@@ -479,6 +507,7 @@ function panelView(now) {
     bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, codex: f.who === 'codex', card }, CFG || {}),
     workflows: activeWorkflows(wfScreen, CFG || {}),
     graphe,
+    debit: (D.popen || {}).debit ? debitView(now, f.who) : null,
   }
 }
 
@@ -543,7 +572,7 @@ function actions($) {
       D.ptouched = { ...(D.ptouched || {}), [id]: true }
       savePanelState($)
       redraw()
-      if (D.popen[id] && (id === 'fichiers' || id === 'conv' || id === 'convs' || id === 'barres' || id === 'graphe')) void refreshPanel($)
+      if (D.popen[id] && (id === 'fichiers' || id === 'conv' || id === 'convs' || id === 'barres' || id === 'debit' || id === 'graphe')) void refreshPanel($)
     },
     gfilter: (k, v) => { D.pg = grapheFilter({ ...(D.pg || {}), [k]: v }, CFG || {}); savePanelState($); redraw() },
     gcycle: async (k) => {

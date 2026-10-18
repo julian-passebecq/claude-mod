@@ -76,10 +76,12 @@ function scan({ cfg, prices, dataDir, projects, home }, now) {
   saveCache(cachePath, cache)
   const tzMin = -new Date(now).getTimezoneOffset()
   const aggr = aggregate(cache.files, { now, tzMin, days: cfg.view_days ?? 8, surfaces: cfg.surfaces || {}, subRule: cfg.subconversation_origin })
-  writeFileSync(join(dataDir, 'aggregate.json'), JSON.stringify(aggr))
+  // the hourly TPS rows and the last hour's streams go to debit.json only (cockpit's Débit), not to the usage pane's file
+  writeFileSync(join(dataDir, 'aggregate.json'), JSON.stringify({ ...aggr, tpsHourly: undefined, recentStreams: undefined }))
   const retention = cfg.retention_days ?? 14
   const h = cfg.history || {}
   const all = aggregate(cache.files, { now, tzMin, days: retention + 1, surfaces: cfg.surfaces || {}, subRule: cfg.subconversation_origin })
+  writeFileSync(join(dataDir, 'debit.json'), JSON.stringify(debitOf(all, retention + 1)))
   const histPath = join(dataDir, 'history.json')
   writeFileSync(histPath, JSON.stringify(mergeHistory(readJson(histPath), all.days, { now, tzMin, retentionDays: retention, trustDays: h.trust_days ?? 25, keepDays: h.keep_days ?? 0 })))
   const ccfg = cfg.classement || {}
@@ -92,6 +94,15 @@ function scan({ cfg, prices, dataDir, projects, home }, now) {
     codex = { ok: false, error: String((err && err.message) || err).slice(0, 200) }
   }
   return { aggr, info: { ok: true, files: Object.keys(cache.files).length, read: r.read, skipped: r.skipped, bytes: r.bytes, ms: Date.now() - t0, codex } }
+}
+
+/**
+ * debit.json, read by cockpit's « Débit » section: the TPS rows per `hour|model|effort` ([output tokens, ms, streams,
+ * {bucket: streams}], lib/core/transcripts.mjs) over the kept days, and every stream of the last hour (exact figures for
+ * the 30 min row), plus the newest streams of the whole window.
+ */
+export function debitOf(all, days) {
+  return { v: 1, generated: all.generated, tzMin: all.tzMin, days, hourly: all.tpsHourly || {}, recent: all.recentStreams || [], streams: all.streams || [] }
 }
 
 /** Codex part: reads the rollout files when codex.enabled allows it and writes <data_dir>/codex.json. */

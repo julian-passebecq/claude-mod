@@ -19,6 +19,12 @@ const CR = (h: number, sid: string, usd: number) => [Math.floor(NOW / 3600000) *
 const CLS = { v: 1, generated: NOW, tzMin: 0, days: 31, sessions: { s1: { t: 'Lane alpha', p: 'proj-one' }, s2: { t: 'Lane beta', p: 'proj-two' } },
   rows: [CR(0, 's1', 4), CR(0, 's2', 1), CR(50, 's2', 20)] }
 
+// usage's debit.json, invented: TPS rows per hour|model|effort [output, ms, streams, {bucket: streams}] and the last hour's streams
+const H0 = Math.floor(NOW / 3600000) * 3600000
+const DEBIT = { v: 1, generated: NOW, tzMin: 0, days: 32,
+  hourly: { [`${H0}|claude-opus-5-5|medium`]: [1200, 20000, 2, { 29: 2 }], [`${H0 - 50 * 3600000}|claude-sonnet-5-5|low`]: [4000, 50000, 3, { 31: 3 }] },
+  recent: [{ ts: NOW - 30000, model: 'claude-opus-5-5', effort: 'medium', out: 600, ms: 10000 }], streams: [] }
+
 // scanner/cards.mjs part « depuis », invented
 const DEPUIS = { since: NOW - 8 * 3600000, source: 'last', last: { ts: NOW - 8 * 3600000, title: 'Lane alpha', project: 'eta' },
   merged: [{ forge: 'github', repo: 'eta', project: 'eta', number: 7, title: 'feat: night work', url: 'https://example.invalid/7', at: new Date(NOW - 3600000).toISOString() }],
@@ -54,10 +60,11 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
     if (!kids) throw new Error('ENOENT')
     return { value: kids.map(([name, kind]: [string, string]) => ({ name, kind, size: 1, mtimeMs: NOW - 60000, isLink: false })) }
   })
-  on('fs.exists', ($: any, e: any) => ({ value: P(e).startsWith('C:/code/eta/') || /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/classement\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
+  on('fs.exists', ($: any, e: any) => ({ value: P(e).startsWith('C:/code/eta/') || /cockpit\.config\.json$|lib\/factory\/factory\.config\.json$|\/usage\/usage\.config\.json$|\/usage-mod\/(classement|debit)\.json$/.test(P(e)) && !P(e).includes('effort-board') }))
   on('fs.read', ($: any, e: any) => ({ value: P(e).endsWith('cockpit.config.json') ? JSON.stringify(o.cockpitCfg ?? {})
     : P(e).endsWith('/usage/usage.config.json') ? JSON.stringify({ data_dir: '~/.claude/usage-mod', node: 'node' })
     : P(e).endsWith('/usage-mod/classement.json') ? JSON.stringify(CLS)
+    : P(e).endsWith('/usage-mod/debit.json') ? JSON.stringify(DEBIT)
     : JSON.stringify({ context_window: 400000, rates: { opus: { in: 4, out: 20, cache_read: 0.4, cache_write_5m: 5, cache_write_1h: 8 } }, thresholds: { handoff_tokens: 250000 } }) }))
   on('process.run', ($: any, e: any) => {
     const argv = e.argv as string[]
@@ -69,6 +76,10 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
     const detail = i >= 0 ? argv[i + 1] : ''
     scans.push(detail)
     return { value: { exitCode: 0, stdout: scanFor(detail), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('fs.stat', ($: any, e: any) => {
+    if (!P(e).endsWith('/usage-mod/debit.json')) throw new Error('ENOENT')
+    return { value: { kind: 'file', mtimeMs: NOW - 60000, size: 1 } }
   })
   on('session.id', () => ({ value: o.self ?? 'lead-cli' }))
   on('session.version', () => ({ value: { version: o.engine ?? '2.1.302', base: o.engine ?? '2.1.302' } }))
@@ -405,6 +416,23 @@ test('Panneau: sections fold and stay folded (kept in $.store), filters cycle, C
   await ui.press({ plugin: 'cockpit', key: 'pf-who' })
   expect(await has(ui, /^Codex ▾$/)).toBe(true)
   expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
+})
+
+test('Panneau: Débit after Barres, one card per model with its windows and the last streams; its fold is kept', async ($, on) => {
+  world(on)
+  const kept: Record<string, unknown> = {}
+  on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+  on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+  await $.command.run({ command: 'cockpit', args: '' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
+  expect(await has(ui, /^▾ Débit$/)).toBe(true) // unfolded by default
+  expect(await has(ui, /^Modèle : opus 5\.5$/)).toBe(true)
+  expect(await has(ui, /^Modèle : sonnet 5\.5$/)).toBe(true)
+  expect(await has(ui, /^60\.0 TPS$/)).toBe(true) // the last stream: 600 tok in 10 s
+  expect(await has(ui, /message\.id \+ requestId/)).toBe(true) // how time is measured
+  await ui.press({ plugin: 'cockpit', key: 'p-sec-debit' })
+  expect(await has(ui, /^▸ Débit$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('"debit":false')
 })
 
 test('Panneau: a save from before v2 (every section kept open) opens with Fichiers folded', async ($, on) => {
