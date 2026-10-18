@@ -9,6 +9,8 @@
 //   ▾ Toutes les conversations one filter row (« aujourd'hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »), one line per
 //                              conversation (state mark, title, tokens, thin bar, %), Workflows actifs (name, dots, › only)
 //   ▾ Barres                   Session 5 h, Semaine, Codex, Crédits cloud (« 249 $ sur 250 $ », expire le …), tok/s
+//   ▾ Débit                    one card per model « Modèle : opus 5.5 », a row per window (30 min, 1 j, 7 j, 30 j):
+//                              Réponses · Tokens · Temps · TPS pondéré · Médiane · Plage, then the last streams
 //   ▾ Graphe des conversations À toi de cliquer, filters, projects → conversations (hooks/graphe_view.mjs)
 //   then one grey line, cut: the old views and their /cockpit commands
 // State marks and colours (panel.marks, Julian 18 Oct): ● travaille green, ◆ t'attend amber, ✕ bloquée red, ✓ finie
@@ -19,6 +21,7 @@ import { convFactorySummary, modelName } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
+import { tpsText as debitTps, secText, clockText, fitColumns, tokText } from '../lib/debit.mjs'
 
 const len = (s) => [...String(s ?? '')].length
 const clip = (t, n) => {
@@ -38,7 +41,7 @@ export function drawPanel(h, P) {
   const L = c.labels
   const width = Math.max(30, P.columns || 75)
   const u = ui(h, P, c, width)
-  const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, graphe: drawGrapheSection }
+  const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, debit: drawDebit, graphe: drawGrapheSection }
   const out = []
   for (const id of c.order) {
     const part = parts[id](u, P, L, width)
@@ -443,6 +446,79 @@ function drawBarres(u, P, L, width) {
         b.under ? h.T(b.under, { dim: true, wrap: 'truncate-end', key: 'pbu-' + b.id }) : null,
       ], { key: 'pbc-' + b.id, marginBottom: 1 }))
     }
+    return out
+  }, width)
+}
+
+// ---- 4b. Débit: tokens per second per model -------------------------------------------------------------------------
+
+/**
+ * One card per model: a bold « Modèle : opus 5.5 », a grey header row, a row per window with the numbers right-aligned
+ * in fixed columns (no box borders, as the Usage-like cards). Under the pane's width Plage then Temps are left out,
+ * then the headers get short; the numbers are never cut. Then « 10 derniers flux » and the grey footnote.
+ */
+const NBSP = String.fromCharCode(160)
+
+function drawDebit(u, P, L, width) {
+  const { h } = u
+  const m = P.debit
+  return section(u, P, 'debit', L.debit, m && m.ready ? m.summary : '', () => {
+    if (!m || !m.ready) return [h.T(L.debit_no_file, { dim: true, wrap: 'truncate-end', key: 'pd-nofile' })]
+    const out = []
+    const C = L.debit_cols || {}
+    const ids = ['n', 'tokens', 'time', 'tps', 'median', 'range']
+    const cell = (r, id) => {
+      if (!r.n) return id === 'n' ? '0' : '—'
+      if (id === 'n') return String(r.n)
+      if (id === 'tokens') return tokText(r.out)
+      if (id === 'time') return durText(r.ms, true)
+      if (id === 'tps') return debitTps(r.weighted)
+      if (id === 'median') return debitTps(r.median)
+      return `${debitTps(r.lo)}–${debitTps(r.hi)}`
+    }
+    if (!m.cards.length) out.push(h.T(L.debit_none, { dim: true, wrap: 'truncate-end', key: 'pd-none' }))
+    // one set of column widths for every card, so the cards line up
+    const values = (id) => m.cards.flatMap((k) => k.rows.map((r) => cell(r, id)))
+    const labelW = Math.max(len(C.window || ''), ...m.windows.map((w) => len(w.label || w.id)))
+    const colsOf = (head) => ids.map((id) => ({ id, head: head[id] || '', w: Math.max(len(head[id] || ''), ...values(id).map(len)) }))
+    let cols = fitColumns(colsOf(C), u.W, labelW)
+    let head = C
+    if (labelW + cols.reduce((a, x) => a + x.w + 1, 0) > u.W) {
+      head = { ...C, ...(L.debit_cols_short || {}) }
+      cols = fitColumns(colsOf(head), u.W, labelW)
+    }
+    const line = (left, cells, key, o = {}) => h.row([
+      h.col([h.T(left, { dim: o.dim, wrap: 'truncate-end' })], { flexGrow: 1, key: 'l' }),
+      ...cols.map((x, i) => h.col([h.T(String(cells[i] ?? '').padStart(x.w, NBSP), { dim: o.dim || (x.id !== 'tps' && !o.bold), bold: x.id === 'tps' && !o.dim })], { width: x.w, flexShrink: 0, alignItems: 'flex-end', key: x.id })),
+    ], { key, flexWrap: 'nowrap', gap: 1 })
+    m.cards.forEach((k, ci) => {
+      if (ci) out.push(u.blank(`pd-${ci}-gap`))
+      out.push(u.title(fill(L.debit_model, { model: k.label }), `pd-${ci}-t`))
+      out.push(line(head.window || '', cols.map((x) => x.head), `pd-${ci}-h`, { dim: true }))
+      k.rows.forEach((r, ri) => out.push(line(r.label, cols.map((x) => cell(r, x.id)), `pd-${ci}-${ri}`)))
+    })
+    if (m.hidden > 0) out.push(h.T(fill(L.debit_hidden, { n: m.hidden }), { dim: true, key: 'pd-hidden' }))
+    if (m.codex === 'unread') out.push(h.T(L.debit_codex_unread, { dim: true, key: 'pd-cx' }))
+    // the last streams: « HH:MM:SS  opus 5.5 medium : 59.1 TPS (171 tok en 2.89 s) », TPS green at or above the
+    // model's median, grey under it; when the line is too long the tail goes first, then the model is shortened
+    if (m.streams.length) {
+      out.push(u.blank('pd-s-gap'), h.T(fill(L.debit_recent, { n: m.streams.length }), { bold: true, key: 'pd-s' }))
+      m.streams.forEach((s, i) => {
+        const tps = `${debitTps(s.tps)} TPS`
+        let tail = fill(L.debit_stream_tail, { tokens: s.out < 10000 ? String(s.out) : tokText(s.out), secs: secText(s.ms) })
+        const pre = (model) => fill(L.debit_stream, { time: clockText(s.ts), model, effort: s.effort ? ' ' + s.effort : '' })
+        if (len(pre(s.label)) + len(tps) + len(tail) + 2 > u.W) tail = ''
+        const over = len(pre(s.label)) + len(tps) + (tail ? len(tail) + 1 : 0) + 1 - u.W
+        const left = over > 0 ? pre(clip(s.label, Math.max(3, len(s.label) - over))) : pre(s.label)
+        out.push(h.row([
+          h.T(left, { dim: true, wrap: 'truncate-end' }),
+          h.T(tps, { tone: s.fast ? 'ok' : undefined, dim: !s.fast, bold: s.fast }),
+          tail ? h.T(tail, { dim: true }) : null,
+        ], { key: 'pd-s-' + i, flexWrap: 'nowrap', gap: 1 }))
+      })
+    }
+    out.push(u.blank('pd-n-gap'), h.T(L.debit_note, { dim: true, key: 'pd-note' }))
+    if (m.codex === 'read') out.push(h.T(L.debit_codex_note, { dim: true, key: 'pd-cx-note' }))
     return out
   }, width)
 }

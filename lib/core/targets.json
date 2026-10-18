@@ -48,6 +48,7 @@
     ["mods/veille/hooks/view.mjs", "mods/cockpit/lib/veille/hooks/view.mjs"],
     ["mods/usage/lib/classement.mjs", "mods/cockpit/lib/usage/lib/classement.mjs"],
     ["lib/core/transcripts.mjs", "mods/cockpit/lib/usage/lib/transcripts.mjs"],
+    ["mods/usage/lib/tps.mjs", "mods/cockpit/lib/usage/lib/tps.mjs"],
 
     ["mods/export-eta/lib/mask.mjs", "mods/problemes/lib/eta/mask.mjs"],
     ["mods/export-eta/lib/etagit.mjs", "mods/problemes/lib/eta/etagit.mjs"],

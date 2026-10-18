@@ -47,6 +47,6 @@ Aucun fichier d'identifiants n'est lu ; seuls les `*.jsonl` sous `projects_dir`,
 - Vecteur de chiffres : `[input, output, cache_read, cache_write_5m, cache_write_1h, requêtes, secondes actives, coût $]` (`V` donne les index, `tokensOf` la somme des tokens).
 - Exemple : `import { usageOf, costOf } from '../usage/lib/transcripts.mjs'` puis `costOf(usageOf(JSON.parse(line)).v, model, prices)`.
 
-Scanner : `node mods/usage/scanner/usage_scan.mjs report` affiche les totaux, Codex et la prévision dans le terminal (`scan` met à jour `~/.claude/usage-mod/aggregate.json` et `codex.json` ; `codex` ne fait que la partie Codex, lecture incrémentale par fichier).
+Scanner : `node mods/usage/scanner/usage_scan.mjs report` affiche les totaux, Codex et la prévision dans le terminal (`scan` met à jour `~/.claude/usage-mod/aggregate.json`, `codex.json` et `debit.json` (lignes TPS par heure, modèle et effort, et tous les flux de la dernière heure, lus par la section Débit du Panneau de cockpit) ; `codex` ne fait que la partie Codex, lecture incrémentale par fichier).
 
 Le parseur incrémental et la table de prix reprennent des idées de [claude-goblin](https://github.com/data-goblin/claude-goblin) (MIT) : clé `message.id` + `requestId`, état par fichier, prix publics.

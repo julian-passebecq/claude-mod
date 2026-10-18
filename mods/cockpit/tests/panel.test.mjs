@@ -19,10 +19,10 @@ const SCAN = { sessions: [
   { cli: 'b', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
 ] }
 
-test('defaults: five sections, Fichiers folded, Claude only, top 15, hand-off at 250 k', () => {
+test('defaults: six sections, Fichiers folded, Claude only, top 15, hand-off at 250 k', () => {
   const c = panelConfig({})
-  assert.deepEqual(c.order, ['fichiers', 'conv', 'convs', 'barres', 'graphe'])
-  assert.deepEqual(c.open, ['conv', 'convs', 'barres', 'graphe']) // the file tree starts folded (Julian, 17 Oct)
+  assert.deepEqual(c.order, ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe'])
+  assert.deepEqual(c.open, ['conv', 'convs', 'barres', 'debit', 'graphe']) // the file tree starts folded (Julian, 17 Oct)
   assert.equal(c.contexte.handoff_tokens, 250000)
   // an order written with « contexte » (now in the lead's card) gets « barres » back after « convs »
   assert.deepEqual(panelConfig({ panel: { order: ['fichiers', 'conv', 'contexte', 'convs', 'graphe'] } }).order, c.order)
@@ -30,6 +30,8 @@ test('defaults: five sections, Fichiers folded, Claude only, top 15, hand-off at
   assert.equal(c.convs.top, 15)
   assert.equal(c.fichiers.attach_selection, true)
   assert.deepEqual(panelConfig({ panel: { order: ['graphe', 'nope', 'conv'] } }).order, ['graphe', 'conv'])
+  // an order written before Débit gets it right after « barres » (Julian, 18 Oct)
+  assert.deepEqual(panelConfig({ panel: { order: ['fichiers', 'conv', 'convs', 'barres', 'graphe'] } }).order, c.order)
   assert.equal(panelConfig({ panel: { labels: { panneau: 'Vue' } } }).labels.panneau, 'Vue') // labels configurable
 })
 
@@ -236,13 +238,13 @@ import { panneauText, panneauView, SCAN as PSCAN, FCFG as PFCFG } from '../scrip
 import { drawCockpit } from '../hooks/view.mjs'
 
 const PREVIEW = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'preview.mjs')
-const HEADERS = ['▸ Fichiers', '▾ Cette conversation', '▾ Toutes les conversations', '▾ Barres', '▾ Graphe des conversations']
+const HEADERS = ['▸ Fichiers', '▾ Cette conversation', '▾ Toutes les conversations', '▾ Barres', '▾ Débit', '▾ Graphe des conversations']
 // box-drawing borders and connectors (Julian, 17 Oct: they look weird and eat the width)
 // (since 18 Oct a thin « │ » rule runs down an unfolded factory and a « ─ » rule separates the sections: both allowed)
 const BOX = /[╭╮╰╯├└┬┴┼┃┄█░]/
 
 for (const columns of [45, 60, 75]) {
-  test(`preview --panneau at ${columns} columns: the 5 section headers in order, no tab bar, no box drawing, nothing wider than the pane`, () => {
+  test(`preview --panneau at ${columns} columns: the 6 section headers in order, no tab bar, no box drawing, nothing wider than the pane`, () => {
     const text = execFileSync(process.execPath, [PREVIEW, '--panneau', '--cols', String(columns)], { encoding: 'utf8' })
     const at = HEADERS.map((k) => text.indexOf(k))
     assert.ok(at.every((i) => i >= 0), text)

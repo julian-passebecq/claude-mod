@@ -6,6 +6,7 @@ import { synthesis, barsOf, activeWorkflows, contexteOf } from '../../lib/panel.
 import { usageCard } from '../../hooks/nav.mjs'
 import { convFactory, convFactories } from '../../lib/panel_conv.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
+import { debitModel } from '../../lib/debit.mjs'
 
 export const NOW = Date.parse('2026-10-16T16:30:00Z')
 const H = Math.floor(NOW / 3600000) * 3600000
@@ -71,6 +72,26 @@ export const RUNS = [{
   phases: [{ title: 'Wave A', status: 'done', agents: [{ id: 'a2' }, { id: 'a3' }] }, { title: 'Wave B', status: 'running', agents: [{ id: 'a1' }] }, { title: 'Merge', status: 'waiting', agents: [{ id: 'a4' }] }],
 }]
 
+// usage's debit.json (invented): TPS rows per hour|model|effort [output, ms, streams, {bucket: streams}] and the last
+// hour's streams. Buckets are x1.15 from 1 tok/s: bucket 29 ≈ 60 tok/s, 31 ≈ 79, 33 ≈ 105, 26 ≈ 39.
+const HR = (hAgo, model, effort, out, ms, hist) => [`${H - hAgo * 3600000}|${model}|${effort}`, [out, ms, Object.values(hist).reduce((a, b) => a + b, 0), hist]]
+const ST = (sAgo, model, effort, out, ms) => ({ ts: NOW - sAgo * 1000, model, effort, out, ms, kind: 'main', project: 'proj-one', session: 'lead' })
+const RECENT = [ST(12, 'claude-opus-5-5', 'medium', 171, 2890), ST(40, 'claude-sonnet-5-5', 'low', 820, 9100), ST(95, 'claude-opus-5-5', 'medium', 1210, 24000),
+  ST(160, 'claude-haiku-5-5', 'low', 640, 3900), ST(300, 'claude-opus-5-5', 'high', 2400, 41000), ST(700, 'claude-sonnet-5-5', 'low', 300, 3700)]
+export const DEBIT = {
+  v: 1, generated: NOW, tzMin: 0, days: 32,
+  hourly: Object.fromEntries([
+    HR(0, 'claude-opus-5-5', 'medium', 1381, 26890, { 29: 1, 28: 1 }), HR(0, 'claude-opus-5-5', 'high', 2400, 41000, { 29: 1 }),
+    HR(0, 'claude-sonnet-5-5', 'low', 1120, 12800, { 32: 1, 31: 1 }), HR(0, 'claude-haiku-5-5', 'low', 640, 3900, { 36: 1 }),
+    HR(5, 'claude-opus-5-5', 'medium', 52000, 900000, { 29: 20, 26: 6, 31: 4 }), HR(30, 'claude-opus-5-5', 'medium', 410000, 7200000, { 29: 150, 26: 40, 33: 10 }),
+    HR(200, 'claude-opus-5-5', 'medium', 1900000, 32000000, { 29: 600, 26: 200, 33: 80 }), HR(50, 'claude-sonnet-5-5', 'low', 120000, 1500000, { 31: 60, 33: 20 }),
+    HR(400, 'claude-fable-5-1', 'medium', 80000, 2100000, { 26: 40 }),
+  ]),
+  recent: RECENT,
+  streams: RECENT,
+}
+export const CODEX = { generated: NOW, available: true, days: {}, tps: { '2026-10-16|gpt-5-codex|high': [9000, 150000, 6, { 29: 6 }] }, streams: [{ ts: NOW - 20000, model: 'gpt-5-codex', effort: 'high', out: 600, ms: 10000 }] }
+
 const noop = () => {}
 const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
 
@@ -82,7 +103,7 @@ const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: n
 export function panneauView(columns, o = {}) {
   o = { ...o, closed: { 'pfw-wf_1': false, ...(o.closed || {}) } }
   // as the Panneau opens: every section unfolded but Fichiers (folded by default, Julian 17 Oct)
-  const open = o.open || { conv: true, convs: true, barres: true, graphe: true, 'wf:r1': true }
+  const open = o.open || { conv: true, convs: true, barres: true, debit: true, graphe: true, 'wf:r1': true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
   const syn = synthesis(CLASSEMENT, SCAN, null, filter, {}, NOW)
   const usage = { rateLimits: [{ kind: 'five_hour', percentUsed: 21, resetsAt: new Date(NOW + 130 * 60000).toISOString() }, { kind: 'seven_day', percentUsed: 85, resetsAt: new Date(NOW + 50 * 3600000).toISOString() }, { kind: 'spend_limit', percentUsed: 12 }] }
@@ -96,6 +117,7 @@ export function panneauView(columns, o = {}) {
     workflows: activeWorkflows({ runs: [{ id: 'r1', name: 'package-wave', live: true, agents: [{ id: '1', label: 'coder', model: 'claude-opus-5-5', status: 'running', tokens: 300000 }, { id: '2', label: 'verify', model: 'claude-sonnet-5-5', status: 'done', tokens: 80000 }] }] }, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
+    debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
   // every conversation row unfolds under itself to its factory; the active ones (b waits, d works) by default
   const under = convFactories({ scan: SCAN, runs: RUNS, syn, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},

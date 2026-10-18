@@ -115,6 +115,10 @@ export function tpsAdd(row, out, ms, sign = 1) {
   return row
 }
 const STREAMS_KEPT = 10
+/** Besides the last STREAMS_KEPT, a file keeps every stream of the hour before its newest (at most STREAMS_HOUR_MAX):
+ * the exact streams behind the Panneau's « 30 min » row (cockpit Débit). */
+export const STREAMS_HOUR_MS = HOUR
+const STREAMS_HOUR_MAX = 400
 
 /**
  * One usage record from a parsed transcript line, or null. Only assistant rows with a `message.usage` count;
@@ -176,7 +180,7 @@ function timeStream(st, r, rec) {
   tpsAdd((st.tps[row] = st.tps[row] || [0, 0, 0, {}]), out, ms)
   rec.t = { row, out, ms }
   st.streams.push({ k: r.key, ts: r.ts, model: r.model, effort: r.effort, out, ms })
-  if (st.streams.length > STREAMS_KEPT) st.streams.splice(0, st.streams.length - STREAMS_KEPT)
+  while (st.streams.length > STREAMS_KEPT && (st.streams.length > STREAMS_HOUR_MAX || st.streams[0].ts < r.ts - STREAMS_HOUR_MS)) st.streams.shift()
 }
 
 /**
@@ -266,7 +270,7 @@ const bump = (map, key, v) => {
  */
 export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subRule = 'peer' } = {}) {
   const from = now - days * 86400000
-  const out = { generated: now, tzMin, hourly: {}, hourlyModel: {}, days: {}, sessions: {}, rates: {}, tps: {}, streams: [] }
+  const out = { generated: now, tzMin, hourly: {}, hourlyModel: {}, days: {}, sessions: {}, rates: {}, tps: {}, streams: [], tpsHourly: {}, recentStreams: [] }
   for (const st of Object.values(files)) {
     if (st.kind === 'journal') continue
     const kind = isSubConversation(st, subRule) ? 'subconversation' : st.kind
@@ -280,13 +284,19 @@ export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subR
     for (const [rk, t] of Object.entries(st.tps || {})) {
       const [h, model, effort] = rk.split('|')
       if (Number(h) < from) continue
-      const row = (out.tps[`${model}|${effort}`] = out.tps[`${model}|${effort}`] || [0, 0, 0, {}])
-      row[0] += t[0]
-      row[1] += t[1]
-      row[2] += t[2]
-      for (const [b, n] of Object.entries(t[3])) row[3][b] = (row[3][b] || 0) + n
+      for (const row of [(out.tps[`${model}|${effort}`] = out.tps[`${model}|${effort}`] || [0, 0, 0, {}]), (out.tpsHourly[rk] = out.tpsHourly[rk] || [0, 0, 0, {}])]) {
+        row[0] += t[0]
+        row[1] += t[1]
+        row[2] += t[2]
+        for (const [b, n] of Object.entries(t[3])) row[3][b] = (row[3][b] || 0) + n
+      }
     }
-    for (const x of st.streams || []) if (x.ts >= from) out.streams.push({ ts: x.ts, model: x.model, effort: x.effort, out: x.out, ms: x.ms, kind, project, session: sid })
+    for (const x of st.streams || []) {
+      if (x.ts < from) continue
+      const one = { ts: x.ts, model: x.model, effort: x.effort, out: x.out, ms: x.ms, kind, project, session: sid }
+      out.streams.push(one)
+      if (x.ts >= now - STREAMS_HOUR_MS) out.recentStreams.push(one)
+    }
     for (const [rk, v] of Object.entries(st.rows)) {
       const [h, model, effort, skill, mcp] = rk.split('|')
       const hour = Number(h)
@@ -311,5 +321,8 @@ export function aggregate(files, { now, tzMin = 0, days = 8, surfaces = {}, subR
     }
   }
   out.streams = out.streams.sort((a, b) => b.ts - a.ts).slice(0, STREAMS_KEPT * 3)
+  // tpsHourly: the same TPS rows per `hour|model|effort`, so a reader can cut its own windows (cockpit's Débit);
+  // recentStreams: every stream of the last hour, newest first
+  out.recentStreams = out.recentStreams.sort((a, b) => b.ts - a.ts).slice(0, 4000)
   return out
 }
