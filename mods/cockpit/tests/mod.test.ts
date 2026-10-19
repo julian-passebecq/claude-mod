@@ -345,9 +345,9 @@ test('Panneau: a Workflow is a tree node under its conversation, unfolds to its 
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  // macro: « └── ● package-wave · workflow  › », its metrics « 0/1 ● · … » under it, no agent, no phases
+  // macro: « └──── ● package-wave · workflow  › », its metrics « 0/1 ● · … » under it, no agent, no phases
   expect(await has(ui, /^package-wave · workflow$/)).toBe(true)
-  expect(await has(ui, /└──\s*$/)).toBe(true)
+  expect(await has(ui, /└────\s*$/)).toBe(true) // 6-column indents at 75 columns (Julian, 20 Oct)
   expect(await has(ui, /^0\/1$/)).toBe(true)
   expect(await has(ui, /^Phases$/)).toBe(false)
   expect(await has(ui, /^coder · build/)).toBe(false)

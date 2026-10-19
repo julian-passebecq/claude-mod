@@ -108,27 +108,30 @@ export function panneauView(columns, o = {}) {
   // and Workflow, Quotas / Débit / Graphe one line each; o.open / o.closed unfold the details (micro)
   const open = o.open || { conv: true, convs: true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
-  const syn = synthesis(CLASSEMENT, SCAN, null, filter, {}, NOW)
+  const syn = synthesis(o.data || CLASSEMENT, SCAN, null, filter, {}, NOW)
+  // EN COURS counts every conversation of the window, not only the top N listed (as hooks/register.mjs passes it)
+  const every = { ...syn, rows: syn.every || syn.rows }
   const usage = { rateLimits: [{ kind: 'five_hour', percentUsed: 21, resetsAt: new Date(NOW + 130 * 60000).toISOString() }, { kind: 'seven_day', percentUsed: 85, resetsAt: new Date(NOW + 50 * 3600000).toISOString() }, { kind: 'spend_limit', percentUsed: 12 }] }
   const card = usageCard(usage, SCAN.sessions[0], FCFG, NOW)
   const panel = {
     open, closed: o.closed || {}, act: ACT,
     files: { head: 'proj-one · main', rows: [{ id: 'C:/code/proj-one/src', label: '▾ src', git: 'M', color: '#e5c07b', selected: false }, { id: 'C:/code/proj-one/src/panel.ts', label: '  · panel.ts', git: '?', selected: true }], more: 3, selected: 'src/panel.ts', attach: true, busy: false },
     factory: convFactory(SCAN, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, SCAN, null, { period: 'today' }, {}, NOW).tpsById.lead }),
-    syn, filter,
+    syn, synAll: every, filter,
     bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
   // every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
-  const under = convFactories({ scan: SCAN, runs: RUNS, syn, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
+  const under = convFactories({ scan: SCAN, runs: RUNS, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
     tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
   panel.unfold = under.unfold
   panel.tree = under.tree
   panel.kids = under.kids
   panel.convFactories = under.factories
-  return { cfg: {}, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
+  // o.indent: panel.tree.indent (columns per tree level, or "auto")
+  return { cfg: o.indent === undefined ? {} : { panel: { tree: { indent: o.indent } } }, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }
 

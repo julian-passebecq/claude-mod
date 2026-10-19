@@ -496,6 +496,8 @@ function panelView(now) {
   const syn = synthesis(D.consoData, D.scan, D.codexData, { ...f, fcfg: FCFG || {}, runs }, CFG || {}, now)
   const claudeAll = f.who === 'codex' || f.project || f.state ? synthesis(D.consoData, D.scan, null, { ...f, who: 'claude', project: '', state: '', runs }, CFG || {}, now) : syn
   const tps = claudeAll.tps
+  // EN COURS counts every conversation of the window, not only the top N shown (Julian, 20 Oct)
+  const every = { ...claudeAll, rows: claudeAll.every || claudeAll.rows }
   // Cette conversation: the lead's Usage-like card and one Background-tasks-like card per Workflow / background agents
   const me = D.scan && D.self ? findSession(D.scan, D.self) : null
   const card = usageCard(D.usageRaw, me, FCFG || {}, now)
@@ -510,11 +512,11 @@ function panelView(now) {
   // each conversation row: its factory (counts, détails), its children unfolded while it runs a Workflow (Julian, 20 Oct)
   let under = { unfold: new Set(), factories: {}, tree: new Set(), kids: new Set() }
   try {
-    under = convFactories({ scan: D.scan, runs, syn, synAll: claudeAll, graphe, self: D.self, selfFactory: factory, closed: D.pclosed, autoWindow: ctxWindow,
+    under = convFactories({ scan: D.scan, runs, syn, synAll: every, graphe, self: D.self, selfFactory: factory, closed: D.pclosed, autoWindow: ctxWindow,
       tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now) }, FCFG || {}, CFG || {}, D.at || now)
   } catch { /* rows stay folded */ }
   return {
-    unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: claudeAll, link: depuisConfig(CFG || {}).session_link, ctxWindow,
+    unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: every, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
