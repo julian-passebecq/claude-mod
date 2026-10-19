@@ -15,7 +15,7 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, s
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readQuotas } from '../lib/core/usage.mjs'
+import { readQuotas, readSeries } from '../lib/core/usage.mjs'
 import { readVeille } from '../lib/core/veille.mjs'
 import { runnerLoad, runnerLine } from '../lib/core/runner.mjs'
 import { estimateOf, etaOf } from '../lib/core/estimate.mjs'
@@ -41,6 +41,9 @@ export function cardsData(req = {}, paths = {}) {
   const home = slash(req.home || homedir())
   const cl = (rest) => `${home}/.claude/${rest}`
   const quotas = readQuotas(paths.usage || cl('usage-mod'), now)
+  // the readings of the current 5 h and week windows, for the Quotas curves (lib/viz_quota.mjs)
+  let quotaSeries = { five: [], week: [] }
+  try { quotaSeries = readSeries(paths.usage || cl('usage-mod'), now, 60) } catch { /* no curve */ }
   const v = readVeille({ veilleHome: paths.veille || cl('veille'), afaireHome: paths.afaire || cl('a-faire'), env: {} })
   const top = v.filWaiting[0]
   const veille = v.available || v.aToiAvailable
@@ -51,7 +54,7 @@ export function cardsData(req = {}, paths = {}) {
   const lines = jsonl(paths.problemes || cl('problemes/register.jsonl'))
   const todoText = text(paths.controle || expand(decideConfig(req.cfg).controle.file, home))
   return {
-    at: now, quotas, veille, runner, runnerText: runnerLine(runner),
+    at: now, quotas, quotaSeries, veille, runner, runnerText: runnerLine(runner),
     ci: ciSummary(cache), ciBy: { all: ciSummary(cache, 'all'), claude: ciSummary(cache, 'claude'), codex: ciSummary(cache, 'codex') },
     pipelines: cache ? pipelinesLive(cache, now, estimateOf, etaOf) : [],
     problemes: lines ? problemsToday(lines, now) : { available: false },

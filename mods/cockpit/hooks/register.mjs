@@ -32,6 +32,9 @@ import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow } fr
 import { convFactory, convFactories } from '../lib/panel_conv.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
+import { sankeyModel } from '../lib/viz_sankey.mjs'
+import { quotaCurves } from '../lib/viz_quota.mjs'
+import { tpsHourly } from '../lib/viz_spark.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -519,7 +522,15 @@ function panelView(now) {
     bars: barsOf({ usage: D.usageRaw, quotas: (D.cardsRaw && D.cardsRaw.quotas) || null, tps, codex: f.who === 'codex', card }, CFG || {}),
     graphe,
     debit: debitView(now, f.who),
+    // the diagrams (lib/viz_*.mjs): built only for what is unfolded
+    sankey: D.scan && D.self ? safe(() => sankeyModel(D.scan, D.self, runs)) : null,
+    quotaCurves: (D.popen || {}).barres ? safe(() => quotaCurves({ series: D.cardsRaw && D.cardsRaw.quotaSeries, usage: D.usageRaw, now }, (CFG && CFG.panel && CFG.panel.viz && CFG.panel.viz.quota) || {})) : null,
+    debitSpark: (D.popen || {}).debit ? safe(() => tpsHourly(D.debitData, now, CFG || {})) : null,
   }
+}
+
+function safe(f) {
+  try { return f() } catch { return null }
 }
 
 // What the tab on screen needs, now.
