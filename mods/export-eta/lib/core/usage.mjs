@@ -80,3 +80,29 @@ export function readQuotas(dir = DATA_DIR, now = Date.now()) {
   try { cx = JSON.parse(fs.readFileSync(path.join(d, 'codex.json'), 'utf8')) } catch { /* no codex scan */ }
   return { claude: claudeWindows(samples, now), codex: codexWindows(cx, now), codexAvailable: !!(cx && cx.available) }
 }
+
+/**
+ * The readings of the current window of Claude's 5 h and week, for a curve: { five: [{ ts, pct, reset }], week: [...] }, each
+ * oldest first, only the readings with the latest reading's reset, thinned to at most `max` points (the last kept).
+ */
+export function claudeSeries(samples, now = Date.now(), max = 60) {
+  const of = (k) => {
+    const rs = (samples || []).filter((s) => s && s[k] && Number.isFinite(s[k].pct) && Number.isFinite(s.ts) && s.ts <= now)
+      .map((s) => ({ ts: s.ts, pct: s[k].pct, reset: s[k].reset ?? null }))
+    if (!rs.length) return []
+    const last = rs[rs.length - 1]
+    if (last.reset && last.reset <= now) return []
+    const same = rs.filter((r) => r.reset === last.reset)
+    if (same.length <= max) return same
+    const step = (same.length - 1) / (max - 1)
+    return Array.from({ length: max }, (_, i) => same[Math.round(i * step)])
+  }
+  return { five: of('five_hour'), week: of('seven_day') }
+}
+
+/** claudeSeries() from the usage mod's samples.jsonl. A missing file gives empty series. */
+export function readSeries(dir = DATA_DIR, now = Date.now(), max = 60) {
+  let samples = []
+  try { samples = parseSamples(fs.readFileSync(path.join(dataDir(dir), 'samples.jsonl'), 'utf8')) } catch { /* no samples yet */ }
+  return claudeSeries(samples, now, max)
+}

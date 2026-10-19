@@ -25,6 +25,12 @@ import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
 import { drawDayGantt, drawWfGantt } from './viz_gantt.mjs'
 import { tpsText as debitTps, secText, clockText, fitColumns, tokText } from '../lib/debit.mjs'
+import { vizConfig, modelColor, modelTone } from '../lib/viz_palette.mjs'
+import { sankeySvg, sankeyAlt } from './viz_sankey.mjs'
+import { quotaSvg } from './viz_quota.mjs'
+import { sparkSvg, sparkText } from './viz_spark.mjs'
+import { graphSvg, graphAlt } from './viz_graph.mjs'
+import { graphLayout } from '../lib/viz_graph.mjs'
 
 const len = (s) => [...String(s ?? '')].length
 const clip = (t, n) => {
@@ -499,7 +505,12 @@ function leadCard(u, P, L, m, noTitle) {
     { label: L.stat_tps, value: s.tps === null ? '—' : tpsText(s.tps) },
   ], 'pl-grid'))
   if (m.share.length) kids.push(h.T(`${L.models} : ${m.share.map((x) => `${x.family.charAt(0).toUpperCase() + x.family.slice(1)} ${x.pct} %`).join(' · ')}`, { dim: true, wrap: 'truncate-end', key: 'pl-share' }))
-  if (m.contributors.length) {
+  // this conversation's tokens as a Sankey (fil principal / Workflows / agents → models) where the surface draws Svg;
+  // « Ce qui contribue » stays the text fallback (lib/viz_sankey.mjs, hooks/viz_sankey.mjs)
+  const sk = m === P.factory && P.sankey && P.sankey.available
+    ? h.svg(sankeySvg(P.sankey, { width: vizConfig(P.cfg).px(u.W), height: Math.min(120, 30 + 18 * Math.max(P.sankey.sources.length, P.sankey.models.length)) }), sankeyAlt(P.sankey, { title: vizConfig(P.cfg).labels.sankey }), 'pl-sankey') : null
+  if (sk) kids.push(h.T(vizConfig(P.cfg).labels.sankey, { bold: true, key: 'pl-sankey-h' }), sk)
+  else if (m.contributors.length) {
     // the same thin bar as Barres (Svg on the desktop, ▰▱ elsewhere), the label left, the bar and % right
     kids.push(h.T(L.contributing, { bold: true, key: 'pl-contrib' }))
     const cells = Math.max(4, Math.min(12, Math.floor(u.W / 6)))
@@ -737,10 +748,20 @@ function drawBarres(u, P, L, width) {
         u.sub(2).line(b.label, b.detail, b.text, { tone, key: 'pb-' + b.id }),
         u.sub(2).bar(b.pct, 'pbb-' + b.id, { tone }),
         b.under ? h.T(b.under, { dim: true, wrap: 'truncate-end', key: 'pbu-' + b.id }) : null,
+        ...quotaCurve(u, P, b.id),
       ], { key: 'pbc-' + b.id }))
     }
     return out
   })
+}
+
+// the 5 h / week curve with its dashed projection (Svg), and its sentence (every surface): lib/viz_quota.mjs
+function quotaCurve(u, P, id) {
+  const { h } = u
+  const p = P.quotaCurves && P.quotaCurves[id]
+  if (!p) return []
+  const svg = h.svg(quotaSvg(p, { width: vizConfig(P.cfg).px(u.W - 2), height: 40 }), p.text || `${Math.round(p.last.pct)} %`, 'pqc-' + id)
+  return [svg, p.text ? h.T(p.text, { tone: p.over ? 'bad' : undefined, dim: !p.over, bold: p.over, wrap: 'truncate-end', key: 'pqt-' + id }) : null]
 }
 
 // ---- 4b. Débit: one line, › tokens per second per model ------------------------------------------------------------
@@ -799,7 +820,13 @@ function debitBody(u, P, L, m) {
   ], { key, flexWrap: 'nowrap', gap: 1 })
   const card = (k, ci, pre) => {
     if (ci) out.push(u.blank(`${pre}-${ci}-gap`))
-    out.push(h.T(fill(L.debit_model, { model: k.label }), { bold: true, key: `${pre}-${ci}-t` }))
+    const title = fill(L.debit_model, { model: k.label })
+    const sp = P.debitSpark && P.debitSpark[k.label]
+    const cells = Math.max(6, Math.min(24, u.W - len(title) - 3))
+    const spark = sp && cells >= 6 ? (h.svg(sparkSvg(sp, modelColor(k.label), { width: vizConfig(P.cfg).px(cells), height: 14 }), `${vizConfig(P.cfg).labels.spark} ${k.label}`, `${pre}-${ci}-sp`)
+      || h.T(sparkText(sp.values, Math.min(12, cells)), { color: modelTone(k.label), key: `${pre}-${ci}-spt` })) : null
+    out.push(spark ? h.row([h.T(title, { bold: true, wrap: 'truncate-end' }), spark], { key: `${pre}-${ci}-t`, flexWrap: 'nowrap', gap: 2, alignItems: 'center' })
+      : h.T(title, { bold: true, key: `${pre}-${ci}-t` }))
     out.push(line(head.window || '', cols.map((x) => x.head), `${pre}-${ci}-h`, { dim: true }))
     k.rows.forEach((r, ri) => out.push(line(r.label, cols.map((x) => cell(r, x.id)), `${pre}-${ci}-${ri}`)))
   }
@@ -848,7 +875,18 @@ function drawGrapheSection(u, P, L, width) {
   const wide = width >= (Number(u.c.style.wide_cols) || 60)
   const sum = m && m.ready ? m.macro || m.summary : L.graphe_slot
   const variants = [[item(h, clip(sum, Math.max(6, oneLineRoom(u, L.graphe_head) - 1)), { dim: true })]]
-  return oneLine(u, P, 'graphe', L.graphe_head, variants, () => drawGraphe(h, m, L, width - 3, P.act,
+  return oneLine(u, P, 'graphe', L.graphe_head, variants, () => [...grapheSvg(u, P, m, width - 3), ...drawGraphe(h, m, L, width - 3, P.act,
     { bar: u.bar, open: P.open, ctxCells: Number(u.c.style.ctx_cells) || 4, handoffPct, unfold: P.unfold, openLabel: wide ? L.open_conv : L.open_conv_short, noClick: true,
-      under: (cli, pad) => convUnder(u.sub(2), P, L, cli, 'pgu-' + cli, pad) }))
+      under: (cli, pad) => convUnder(u.sub(2), P, L, cli, 'pgu-' + cli, pad) })])
+}
+
+// the graph as a diagram (lib/viz_graph.mjs): boxes per project, arrows parent → child, dashed peers; Svg only
+function grapheSvg(u, P, m, width) {
+  const v = vizConfig(P.cfg)
+  if (!m || !m.ready || m.empty) return []
+  let g = null
+  try { g = graphLayout(m, { width: v.px(width), max: v.graph_max }) } catch { g = null }
+  if (!g || !g.nodes.length) return []
+  const s = u.h.svg(graphSvg(g), graphAlt(g, v.labels.graph), 'pg-svg')
+  return s ? [s, u.blank('pg-svg-gap')] : []
 }
