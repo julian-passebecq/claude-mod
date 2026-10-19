@@ -338,28 +338,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
   }
 }
 
-test('Panneau: a Workflow is one line under its conversation, unfolds to its phases and the Modèle | Temps table; folds are kept in $.store', async ($, on) => {
+test('Panneau: a Workflow is a tree node under its conversation, unfolds to its agents; folds are kept in $.store', async ($, on) => {
   world(on, { self: 'child-cli' })
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  // macro: « └ ● package-wave  0/1 ●  … › », no phases
-  expect(await has(ui, /^package-wave$/)).toBe(true)
-  expect(await has(ui, /^└$/)).toBe(true)
+  // macro: « └── ● package-wave · workflow  › », its metrics « 0/1 ● · … » under it, no agent, no phases
+  expect(await has(ui, /^package-wave · workflow$/)).toBe(true)
+  expect(await has(ui, /└──\s*$/)).toBe(true)
   expect(await has(ui, /^0\/1$/)).toBe(true)
   expect(await has(ui, /^Phases$/)).toBe(false)
+  expect(await has(ui, /^coder · build/)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
-  expect(await has(ui, /^Phases$/)).toBe(true)
-  expect(await has(ui, /^Modèle$/)).toBe(true)
-  expect(await has(ui, /^Temps$/)).toBe(true)
-  expect(await has(ui, /^\s*coder · build/)).toBe(true)
+  // unfolded: its agents as children, one line each (label · model), never « general-purpose »
+  expect(await has(ui, /^coder · build/)).toBe(true)
   expect(await has(ui, /general-purpose/)).toBe(false)
   expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":false') // opened
-  await ui.press({ plugin: 'cockpit', key: 'pfw-wf_1-ph0' })
-  expect(await has(ui, /^\s*coder · build/)).toBe(false)
-  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1-ph0":true') // closed
+  await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
+  expect(await has(ui, /^coder · build/)).toBe(false)
+  expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":true') // closed
 })
 
 test('Fichiers: a clicked file goes along with the next prompt as filetree’s context line, cleared by Effacer', async ($, on) => {

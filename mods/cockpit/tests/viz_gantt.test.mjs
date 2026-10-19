@@ -135,14 +135,14 @@ test('SVG: bars in model colours, hatched stalled, dashed ETA, the now line, a t
   assert.ok(h < 80, 'small: ' + h)
 })
 
-test('Panneau: « Aujourd’hui » under the conversations, folded with its title; a Workflow unfolded shows its Gantt above Phases', () => {
+test('Panneau: « Aujourd’hui » under the conversations, folded with its title; a Workflow unfolded shows its Gantt above its agents', () => {
   for (const cols of [45, 60, 75]) {
     const t = panneauText(cols)
-    assert.match(t, /○ \[Lane gamma\] 500K \[›\]\n\[Aujourd’hui ⌄\][^\n]*\nLane alpha[^\n]*▕[^\n]*▏\nLane delta[^\n]*▕[^\n]*▏\n[^\n]*\dh/, t)
+    assert.match(t, /└(?:──)? ○ \[Lane gamma\] \[›\]\n +500K · terminée\n\[Aujourd’hui ⌄\][^\n]*\nLane alpha[^\n]*▕[^\n]*▏\nLane delta[^\n]*▕[^\n]*▏\n[^\n]*\dh/, t)
     for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   }
   const folded = panneauText(75, { closed: { pgantt: true } })
   assert.match(folded, /\[Aujourd’hui ›\][^\n]*\n\n\[QUOTAS\]/)
   const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
-  assert.match(wf, /│ 4 agents[^\n]*\n {4}│ Wave A\n {4}│ sonnet\s+▕█+[^\n]*▏\n {4}│ haiku\s+▕█+[^\n]*\n {4}│ Wave B\n {4}│ opus\s+▕\s+█+▓░+▏\n {4}│ Merge\n {4}│ sonnet[^\n]*\n {4}│ [^\n]*\dh[^\n]*\n {4}│ Phases/, wf)
+  assert.match(wf, /│ 4 agents[^\n]*\n {8}│ Wave A\n {8}│ sonnet\s+▕█+[^\n]*▏\n {8}│ haiku\s+▕█+[^\n]*\n {8}│ Wave B\n {8}│ opus\s+▕\s+█+▓░+▏\n {8}│ Merge\n {8}│ sonnet[^\n]*\n {8}│ [^\n]*\dh[^\n]*\n {8}│\n {8}├── ✓ verify/, wf)
 })

@@ -6,17 +6,21 @@
 // « Modèle | Temps » tables, the bars, the Débit tables, the graph.
 //   À toi de cliquer           one amber line at the very top while a conversation waits for Julian, nothing otherwise
 //   ▸ Fichiers                 filetree's tree (hooks/files.mjs), folded by default
-//   CETTE CONVERSATION         ● title  opus·med  ctx ▰▰▰▱ 30 %  $9.50  ›   then its running Workflows:
-//                                ├ ● name  1/4 ■●□□  phase · 1 opus  20 min · fin ~16:55  ›
-//   CONVERSATIONS · N actives  one line per conversation (filters behind « filtres › »), its Workflows under it
+//   CETTE CONVERSATION         a one-root tree (since 19 Oct, Julian's « project structure » poster):
+//                                └── ● title                                   ›
+//                                    │ ctx ▰▰▰▱ 30 % · $9.50 · opus·med · travaille
+//                                    │
+//                                    └── ● name · workflow                     ›
+//                                          1/4 ■●□□ · phase · 1 opus · 20 min · fin ~16:55
+//   CONVERSATIONS · N actives  the same tree: conversation → sub-conversations → Workflows → agents (filtres ›)
 //   QUOTAS                     5 h ▰▰▱ 21 % · reset …  sem ▰▰▰▰ 85 %  852 tok/s  ›   (› the Usage-like bars)
 //   DÉBIT                      opus 59 · sonnet 88 TPS (30 min)  tableau ›   (› one table per model, the last streams)
 //   GRAPHE                     6 conv · 1 coord · rien ne t'attend  ›   (› filters, projects → conversations)
 //   then one grey line, cut: the old views and their /cockpit commands
 // Colours: one state colour per line (its mark: ● travaille green, ◆ t'attend amber, ✕ bloquée red, ⚠ à l'arrêt amber,
 // ✓ / ○ grey); a number is bold and coloured only when it is alarming (context at style.ctx_warn_pct amber, past the
-// hand-off red with ⚠, a quota at 80 % amber, 90 % red); the rest is grey or plain. At 45, 60 or 75 columns a row cuts
-// its title first, then drops the ETA, then the model, then the bars; a number is never cut.
+// hand-off red with ⚠, a quota at 80 % amber, 90 % red); the rest is grey or plain. At 45, 60 or 75 columns a node line
+// cuts its title, its metrics line drops the ETA, then the model, then the bar; a number is never cut.
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok, convKey, markOf, minText, modelShort } from '../lib/panel.mjs'
 import { modelName } from '../lib/panel_conv.mjs'
@@ -132,36 +136,6 @@ const markItem = (u, mk) => item(u.h, mk.glyph, { tone: mk.tone === 'dim' ? unde
 const arrowItem = (u, open, onPress, key) => ({ el: u.h.tbtn(open ? '⌄' : '›', onPress, key, { plain: true }), w: 3 })
 const cellsOf = (c, width) => (width >= (Number(c.style.wide_cols) || 60) ? Number(c.style.macro_cells) || 10 : Number(c.style.macro_cells_narrow) || 6)
 
-/** The context of a row: « ctx ▰▰▰▱ 77 % ⚠ », amber and bold at style.ctx_warn_pct, red with ⚠ past the hand-off. */
-function ctxItems(u, x, key, cells) {
-  const { h, c } = u
-  if (!x || !Number.isFinite(x.pct)) return { full: [], bare: [] }
-  const tone = x.over ? 'bad' : x.pct >= (Number(c.style.ctx_warn_pct) || 62.5) ? 'warn' : undefined
-  const pct = item(h, `${Math.round(x.pct)} %`, { bold: Boolean(tone), tone, dim: !tone })
-  const warn = x.over ? [item(h, c.labels.handoff_mark || '⚠', { tone: 'bad', bold: true })] : []
-  const word = item(h, 'ctx', { dim: true })
-  const bar = { el: u.bar(Math.min(100, x.pct), key, { cells, tone, mark: x.markPct }), w: cells }
-  return { full: [word, bar, pct, ...warn], noBar: [word, pct, ...warn], bare: [pct, ...warn] }
-}
-
-/**
- * A conversation's macro line. o: { key, mark (panel.marks entry), title, titleKey, onToggle, open, model, effort,
- * ctx: { pct, over, markPct } | null, value (cost or tokens), indent }.
- */
-function convMacro(u, P, L, o) {
-  const { h, c } = u
-  const cells = cellsOf(c, P.columns || 75)
-  const cx = ctxItems(u, o.ctx, o.key + '-bar', cells)
-  const model = modelShort(o.model, o.effort, P.cfg)
-  const m = model ? [item(h, model, { dim: true })] : []
-  const val = o.value ? [item(h, o.value, { dim: true })] : []
-  const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
-  const vs = cx.full.length
-    ? [[...m, ...cx.full, ...val, arrow], [...cx.full, ...val, arrow], [...cx.noBar, ...val, arrow], [...cx.bare, ...val, arrow]]
-    : [[...m, ...val, arrow], [...val, arrow]]
-  return macroRow(u, { key: o.key, lead: [markItem(u, o.mark)], title: o.title, titleKey: o.titleKey, onPress: o.onToggle, variants: vs, indent: o.indent, minTitle: 14 })
-}
-
 /** One dot per agent on a Workflow line: grey ■ done, ● running, grey □ pending, red ✕ failed; past macro_dots, +N. */
 function macroDots(u, list, key) {
   const { h, c } = u
@@ -182,62 +156,181 @@ function macroDots(u, list, key) {
   return { el: h.row(kids, { gap: 0, flexWrap: 'nowrap', key }), w: shown.length + len(more) }
 }
 
-/**
- * A Workflow (or the background agents) as one line under its conversation: tree glyph, state mark, name, done/count
- * and one dot per agent, the running phase(s), how many agents run on which model, the time (or « à l'arrêt 1 h 09 »
- * amber), the ETA. Its › unfolds the card's detail (tokens, cost, phases, « Modèle | Temps » tables).
- */
-function wfMacro(u, P, L, k, last, indent) {
-  const { h } = u
-  const agents = k.phases.flatMap((p) => p.agents)
-  const done = agents.filter((a) => a.status === 'done').length
-  const mark = k.failed ? { glyph: '✕', tone: 'bad' } : k.stalled ? { glyph: '⚠', tone: 'warn' } : k.live ? { glyph: '●', tone: 'ok' } : { glyph: '✓', tone: 'dim' }
-  const phase = k.kind === 'workflow' ? k.phases.filter((p) => p.running > 0 && p.title !== L.phase_default && p.title !== k.title).map((p) => p.title).join('+') : ''
-  const fam = {}
-  for (const a of agents) if (a.status === 'running') { const f = String(a.model || '?').split(' ')[0].toLowerCase(); fam[f] = (fam[f] || 0) + 1 }
-  const models = Object.entries(fam).map(([f, n]) => fill(L.wf_running, { n, model: f })).join('+')
-  const time = k.stalled ? item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true }) : item(h, minText(k.elapsed), { dim: true })
-  const eta = k.eta ? [item(h, '· ' + fill(L.wf_eta, { time: k.eta }), { dim: true })] : []
-  const count = item(h, `${done}/${agents.length || k.count}`, { dim: true })
-  const dots = macroDots(u, k.dots || [], `pkd-${k.key}`)
-  const detail = (xs) => (xs.filter(Boolean).length ? [item(h, xs.filter(Boolean).join(' · '), { dim: true })] : [])
-  const arrow = arrowItem(u, k.open, () => P.act.nodeToggle(k.key, k.open), `pk-${k.key}-x`)
-  const head = [count, dots]
-  const vs = [
-    [...head, ...detail([phase, models]), time, ...eta, arrow],
-    [...head, ...detail([phase, models]), time, arrow],
-    [...head, ...detail([phase]), time, arrow],
-    [...head, time, arrow],
-    [count, time, arrow],
-  ]
-  return macroRow(u, { key: `pkm-${k.key}`, lead: [item(h, last ? '└' : '├', { dim: true }), markItem(u, mark)], title: k.title, titleKey: `pk-${k.key}-t`,
-    onPress: () => P.act.nodeToggle(k.key, k.open), variants: vs, indent, minTitle: 10, width: u.W - (indent || 0) })
+// ---- the tree (Julian, 19 Oct: « like a project-structure tree ») ------------------------------------------------------
+// CETTE CONVERSATION and CONVERSATIONS are drawn as a tree: conversation → the sub-conversations it spawned
+// (spawnedFrom) → its Workflows / background agents → their agents. Every node is two lines: the node line (connector,
+// state mark, title cut, ⚠ / › / ⌄ at the right) and its metrics line, grey, indented under the title (after the
+// connector column); an empty « │ » line separates siblings (not the agents of one Workflow: they stay dense, one line
+// each). Connectors ├── └── │ are grey text columns; under style.wide_cols columns the indent is 2 (├ └ │) instead of 4.
+// An unfolded node draws its detail (micro) inside the tree, under its metrics line, the tree rule running on its left.
+
+
+/** The connector strings at this width: 4-column indents, or 2 under style.wide_cols. */
+function glyphsOf(u, P) {
+  const narrow = (P.columns || 75) < (Number(u.c.style.wide_cols) || 60)
+  return narrow ? { mid: '├ ', end: '└ ', bar: '│ ', none: '  ' } : { mid: '├── ', end: '└── ', bar: '│   ', none: '    ' }
 }
 
-/** A conversation's running Workflows as ├ / └ lines, each unfolding its detail one step further in. */
-function wfLines(u, P, L, cards, indent, key) {
+/** `el` behind a grey prefix column (« │   ├── », « │   │ »): the prefix keeps its width, the element takes the rest. */
+function pre(u, prefix, el, key) {
+  const { h } = u
+  if (!prefix) return h.col([el], { key })
+  return h.row([
+    // no-break spaces: a surface may drop a Text's leading spaces, the columns must stay
+    h.col([h.T(prefix.replace(/ /g, NBSP), { dim: true })], { width: len(prefix), flexShrink: 0, key: 'p' }),
+    h.col([el], { flexGrow: 1, flexShrink: 1, key: 'b' }),
+  ], { key, flexWrap: 'nowrap', gap: 0 })
+}
+
+/**
+ * Draws `nodes` (siblings) under `base` (the ancestors' « │   » / «    » columns). A node: { key, head(width) -> el,
+ * metrics(width) -> el | null, micro(u) -> elements | null (its detail, drawn under its metrics line), children,
+ * dense (its children are agents: no spacer between them) }. -> one-line elements, top to bottom.
+ */
+function drawTree(u, P, nodes, base, dense = false) {
+  const g = glyphsOf(u, P)
   const out = []
-  cards.forEach((k, i) => {
-    out.push(wfMacro(u, P, L, k, i === cards.length - 1, indent))
-    if (k.open) {
-      const inner = u.sub(indent + 4)
-      out.push(u.h.col(inner.rule(taskBody(inner, P, L, k, true), `${key}-${k.key}-r`), { key: `${key}-${k.key}-micro`, marginLeft: indent + 2 }))
-    }
+  nodes.forEach((n, i) => {
+    const last = i === nodes.length - 1
+    if (!dense || i === 0) out.push(u.h.T((base + '│').replace(/ /g, NBSP), { dim: true, key: n.key + '-sp' }))
+    const conn = base + (last ? g.end : g.mid)
+    const cont = base + (last ? g.none : g.bar)
+    const kids = n.children || []
+    out.push(pre(u, conn, n.head(u.W - len(conn)), n.key + '-n'))
+    // the metrics and the detail sit under the title: the connector column, then « │ » when children follow
+    const mp = cont + (kids.length ? '│ ' : '  ')
+    const mw = u.W - len(mp)
+    const met = n.metrics ? n.metrics(mw) : null
+    if (met) out.push(pre(u, mp, met, n.key + '-m'))
+    const micro = n.micro ? n.micro(u.sub(len(mp))) : null
+    if (micro) micro.filter(Boolean).forEach((l, j) => out.push(pre(u, mp, l, `${n.key}-u${j}`)))
+    if (kids.length) out.push(...drawTree(u, P, kids, cont, Boolean(n.dense)))
   })
   return out
 }
 
-/** A conversation's micro view under its row: « ouvrir ↗ » (another conversation), its card, Terminés, the log. */
-function convMicro(u, P, L, m, o) {
+/**
+ * One fitted grey line of items: the first of `variants` (lists of { el, w }, fullest first) that fits `width`, else
+ * the barest; then `tail` (a text, cut) when at least 8 cells are left. Numbers are items: they are dropped whole,
+ * never cut.
+ */
+function fitLine(u, width, variants, key, tail = '') {
   const { h } = u
-  const step = (o.indent || 0) + 2
-  const inner = u.sub(step + 2)
+  const sum = (xs) => xs.reduce((a, x) => a + x.w + 1, 0) - (xs.length ? 1 : 0)
+  const v = variants.find((x) => sum(x) <= width) || variants[variants.length - 1] || []
+  const room = width - sum(v) - (v.length ? 3 : 0)
+  const t = tail && room >= 8 ? [h.T((v.length ? '· ' : '') + clip(tail, room), { dim: true, wrap: 'truncate-end', key: key + '-tail' })] : []
+  return h.row([...v.map((x) => x.el), ...t], { key, flexWrap: 'nowrap', gap: 1, alignItems: 'center' })
+}
+
+/** A node line: state mark, title (a plain button when onPress), then the right items (⚠, › / ⌄), never cut. */
+function nodeHead(u, o, width) {
+  return macroRow(u, { key: o.key, lead: [markItem(u, o.mark)], title: o.title, titleKey: o.titleKey, onPress: o.onPress, bold: o.bold,
+    variants: [o.right || []], minTitle: 3, width })
+}
+
+const dot = (u) => item(u.h, '·', { dim: true })
+const withDots = (u, xs) => xs.filter(Boolean).flatMap((x, i) => (i ? [dot(u), x] : [x]))
+
+/** The context of a metrics line: « ctx ▰▰▰▱ 77 % » (amber, bold at style.ctx_warn_pct; red past the hand-off). */
+function ctxParts(u, P, x, key) {
+  const { h, c } = u
+  if (!x || !Number.isFinite(x.pct)) return null
+  const tone = x.over ? 'bad' : x.pct >= (Number(c.style.ctx_warn_pct) || 62.5) ? 'warn' : undefined
+  const pct = item(h, `${Math.round(x.pct)} %`, { bold: Boolean(tone), tone, dim: !tone })
+  const word = item(h, 'ctx', { dim: true })
+  const cells = cellsOf(c, P.columns || 75)
+  const bar = { el: u.bar(Math.min(100, x.pct), key, { cells, tone, mark: x.markPct }), w: cells }
+  // one item each, so the line drops the bar whole, not half of it
+  return { full: { el: h.row([word.el, bar.el, pct.el], { gap: 1, flexWrap: 'nowrap', key: key + '-c' }), w: word.w + bar.w + pct.w + 2 },
+    noBar: { el: h.row([word.el, pct.el], { gap: 1, flexWrap: 'nowrap', key: key + '-c' }), w: word.w + pct.w + 1 }, bare: pct }
+}
+
+/**
+ * A conversation as a tree node. o: { key, mark, title, titleKey, open, onToggle, model, effort, ctx: { pct, over,
+ * markPct } | null, value (tokens or cost), state (its word), from (« ↖ lancée par … » when its parent is not drawn),
+ * micro, children }. The ⚠ past the hand-off threshold sits on the node line; the metrics line says the context, the
+ * value, model · effort and the state; short of room the state goes, then the model, then the bar; never a number.
+ */
+function convNode(u, P, L, o) {
+  const { h } = u
+  const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
+  const warn = o.ctx && o.ctx.over ? [item(h, L.handoff_mark || '⚠', { tone: 'bad', bold: true })] : []
+  return {
+    key: o.key, children: o.children || [], micro: o.micro || null,
+    head: (w) => nodeHead(u, { key: o.key + '-h', mark: o.mark, title: o.title, titleKey: o.titleKey, onPress: o.onToggle, right: [...warn, arrow] }, w),
+    metrics: (w) => {
+      const cx = ctxParts(u, P, o.ctx, o.key + '-bar')
+      const val = o.value ? item(h, o.value, { dim: true }) : null
+      const model = modelShort(o.model, o.effort, P.cfg)
+      const m = model ? item(h, model, { dim: true }) : null
+      const st = o.state ? item(h, o.state, { dim: true }) : null
+      const vs = cx
+        ? [[cx.full, val, m, st], [cx.full, val, st], [cx.full, val], [cx.noBar, val], [cx.bare, val]]
+        : [[val, m, st], [val, st], [val]]
+      return fitLine(u, w, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)
+    },
+  }
+}
+
+/**
+ * A Workflow (or the background agents) as a tree node: « ● name · workflow  › », its metrics line « 2/4 ■■●□ · Wave B
+ * · 1 opus · 40 min · fin ~16:55 » (or « à l'arrêt 1 h 09 » amber). Unfolded (⌄): its agents as dense children (one
+ * line each: mark, label · model, time · tokens), its tokens, cost and Gantt as its detail.
+ */
+function wfNode(u, P, L, k) {
+  const { h } = u
+  const agents = k.phases.flatMap((p) => p.agents)
+  const done = agents.filter((a) => a.status === 'done').length
+  const mark = k.failed ? { glyph: '✕', tone: 'bad' } : k.stalled ? { glyph: '⚠', tone: 'warn' } : k.live ? { glyph: '●', tone: 'ok' } : { glyph: '✓', tone: 'dim' }
+  const toggle = () => P.act.nodeToggle(k.key, k.open)
+  const kind = k.kind === 'workflow' ? String(L.kind_workflow || 'Workflow').toLowerCase() : ''
+  return {
+    key: `pkm-${k.key}`, dense: true,
+    head: (w) => nodeHead(u, { key: `pkh-${k.key}`, mark, title: kind ? `${k.title} · ${kind}` : k.title, titleKey: `pk-${k.key}-t`, onPress: toggle,
+      right: [arrowItem(u, k.open, toggle, `pk-${k.key}-x`)] }, w),
+    metrics: (w) => {
+      const phase = k.kind === 'workflow' ? k.phases.filter((p) => p.running > 0 && p.title !== L.phase_default && p.title !== k.title).map((p) => p.title).join('+') : ''
+      const fam = {}
+      for (const a of agents) if (a.status === 'running') { const f = String(a.model || '?').split(' ')[0].toLowerCase(); fam[f] = (fam[f] || 0) + 1 }
+      const models = Object.entries(fam).map(([f, n]) => fill(L.wf_running, { n, model: f })).join('+')
+      const time = k.stalled ? item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true }) : item(h, minText(k.elapsed), { dim: true })
+      const eta = k.eta ? item(h, fill(L.wf_eta, { time: k.eta }), { dim: true }) : null
+      const count = item(h, `${done}/${agents.length || k.count}`, { dim: true })
+      const dots = macroDots(u, k.dots || [], `pkd-${k.key}`)
+      const ph = phase ? item(h, phase, { dim: true }) : null
+      const mo = models ? item(h, models, { dim: true }) : null
+      const head = { el: h.row([count.el, dots.el], { gap: 1, flexWrap: 'nowrap', key: `pkc-${k.key}` }), w: count.w + dots.w + 1 }
+      const vs = [[head, ph, mo, time, eta], [head, ph, mo, time], [head, ph, time], [head, time], [count, time]]
+      return fitLine(u, w, vs.map((v) => withDots(u, v)), `pkl-${k.key}`)
+    },
+    micro: k.open ? (inner) => taskBody(inner, P, L, k, true, true) : null,
+    children: k.open ? agents.map((a) => agentNode(u, L, a, `${k.key}-${a.id}`)) : [],
+  }
+}
+
+/** An agent of an unfolded Workflow: one line, « ✓ label · opus  47 min · 146K », the numbers never cut. */
+function agentNode(u, L, a, key) {
+  const { h } = u
+  const mark = a.status === 'running' ? { glyph: '●', tone: 'ok' } : a.status === 'failed' ? { glyph: '✕', tone: 'bad' } : a.status === 'done' ? { glyph: '✓', tone: 'dim' } : { glyph: '○', tone: 'dim' }
+  const fam = String(a.model || '?').split(' ')[0].toLowerCase()
+  const nums = [a.ms ? minText(a.ms) : '', `${kTok(a.tokens)}`].filter(Boolean).join(' · ')
+  return {
+    key: 'pka-' + key,
+    head: (w) => nodeHead(u, { key: 'pkah-' + key, mark, title: `${a.label} · ${fam}`, right: [item(h, nums, { dim: true })] }, w),
+  }
+}
+
+/** A conversation's detail inside the tree: « ouvrir ↗ » (another conversation), its card, Terminés, the log. */
+function convMicroLines(u, P, L, m, o) {
+  const { h } = u
   const lines = []
   if (o.link) lines.push(h.row([h.btn(o.openLabel || L.open_conv, () => P.act.openConv(o.link), false, 'pco-' + o.cli)], { key: 'pco-row-' + o.cli }))
-  if (m && m.available) lines.push(...factoryLines(inner, P, L, m, o.log, { noTitle: true, noLive: o.noLive }))
+  if (m && m.available) lines.push(...factoryLines(u, P, L, m, o.log, { noTitle: true, noLive: o.noLive }))
   else lines.push(h.T(L.conv_no_factory, { dim: true, wrap: 'truncate-end', key: 'nf' }))
-  return h.col([...inner.rule(lines, o.key + '-l'), u.blank(o.key + '-gap')], { key: o.key, marginLeft: step })
+  return lines
 }
+
 
 // ---- the primitives of Claude's panes, from the kit ----------------------------------------------------------------
 
@@ -377,7 +470,7 @@ const ctxOfRow = (u, P, tokens) => {
   return { pct: (100 * tokens) / win, over: tokens >= thr, markPct: Math.min(100, (100 * thr) / win) }
 }
 
-/** This conversation: its macro line, its running Workflows under it; › unfolds its card, Terminés and its log. */
+/** This conversation as a one-root tree: its node and metrics lines, its running Workflows under it; › unfolds its card. */
 function drawConv(u, P, L) {
   const { h, c } = u
   const m = P.factory
@@ -387,14 +480,15 @@ function drawConv(u, P, L) {
   const toggle = () => P.act.nodeToggle('pself', open)
   const x = m.ctx && m.ctx.known ? m.ctx : null
   const s = m.stats
-  out.push(convMacro(u, P, L, {
+  // one root: its metrics line, (unfolded) its card, then its running Workflows as its children
+  const node = convNode(u, P, L, {
     key: 'pself-row', mark: c.marks[markOf(m.lead.stateId)] || c.marks.idle, title: m.lead.title, titleKey: 'pself', onToggle: toggle, open,
-    model: m.lead.model, effort: m.lead.effort, ctx: x ? { pct: x.pct, over: x.over, markPct: x.markPct } : null,
+    model: m.lead.model, effort: m.lead.effort, ctx: x ? { pct: x.pct, over: x.over, markPct: x.markPct } : null, state: m.lead.state,
     value: s.cost === null || s.cost === undefined ? (s.tokens ? fmtTokens(s.tokens) : '') : fmtUsd(s.cost),
-  }))
-  // its running Workflows right under its line, then (unfolded) its card
-  out.push(...wfLines(u, P, L, m.cards, 2, 'pself-wf'))
-  if (open) out.push(convMicro(u, P, L, m, { key: 'pself-micro', log: true, noLive: true }))
+    micro: open ? (inner) => convMicroLines(inner, P, L, m, { log: true, noLive: true }) : null,
+    children: m.cards.map((k) => wfNode(u, P, L, k)),
+  })
+  out.push(...drawTree(u, P, [node], ''))
   return h.col(out, { key: 'p-conv' })
 }
 
@@ -551,7 +645,7 @@ function taskCard(u, P, L, k) {
  * The detail of a card: tokens and cost (under a macro line also « à l'arrêt ? », the agents, the exact time and the
  * ETA), then the Phases, each unfolding to its « Modèle | Temps » table.
  */
-function taskBody(u, P, L, k, macro = false) {
+function taskBody(u, P, L, k, macro = false, noPhases = false) {
   const { h } = u
   const kids = []
   // a running card whose agents wrote nothing for conv.stall_min minutes: « à l'arrêt ? », amber
@@ -561,6 +655,8 @@ function taskBody(u, P, L, k, macro = false) {
     : [fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : '']
   kids.push(h.T(clip(head.filter(Boolean).join('  '), u.W), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
   if (macro && k.kind === 'workflow') kids.push(...drawWfGantt(u, P, k))
+  // in the tree its agents are its children already: no Phases tables under it
+  if (noPhases) return kids
   if (k.kind === 'workflow') kids.push(h.T(L.phases, { bold: true, key: `pk-${k.key}-ph` }))
   for (const p of k.phases) {
     const right = `${p.done}/${p.count}`
@@ -646,9 +742,11 @@ function filterRow(u, P, L) {
 }
 
 /**
- * One line per conversation (biggest consumer first): state mark, title, model · effort, context bar and %, tokens, ›.
- * Its running Workflows follow as ├ / └ lines; › unfolds its card under it with « ouvrir ↗ ». The filters and the total
- * are behind « filtres › » (always shown while a filter is set).
+ * The conversations as a tree (biggest consumer first): each one a node line (state mark, title, ⚠, › / ⌄) and a
+ * metrics line (context bar and %, tokens, model · effort, state); the sub-conversations it spawned and its running
+ * Workflows hang under it; › unfolds its card inside the tree with « ouvrir ↗ ». A sub-conversation whose parent is not
+ * listed sits at the top with « ↖ lancée par … ». The filters and the total are behind « filtres › » (always shown while
+ * a filter is set).
  */
 function drawConvs(u, P, L, width) {
   const { h, c } = u
@@ -667,24 +765,40 @@ function drawConvs(u, P, L, width) {
   if (!s.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return h.col(out, { key: 'p-convs' }) }
   const codex = f.who === 'codex'
   const wide = width >= (Number(c.style.wide_cols) || 60)
-  s.rows.forEach((r) => {
-    if (codex) { out.push(u.line(r.label, '', fmtTokens(r.tokens), { key: 'pc-' + r.id, boldValue: false })); return }
-    const self = r.id === P.self
-    const fm = (P.convFactories || {})[r.id]
-    const open = self ? P.closed && P.closed.pself === false : Boolean(P.unfold && P.unfold.has(r.id))
-    const key = self ? 'pself' : convKey(r.id)
-    out.push(convMacro(u, P, L, {
-      key: 'pc-' + r.id, mark: c.marks[r.mark] || c.marks.idle, title: r.label, titleKey: 'pcv-' + r.id, open,
-      onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
-    }))
-    if (self) return // its card and Workflows are under « Cette conversation »
-    const live = fm && fm.available && P.tree && P.tree.has(r.id) ? fm.cards : []
-    out.push(...wfLines(u, P, L, live, 2, 'pc-wf-' + r.id))
-    if (open) {
-      const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
-      out.push(convMicro(u, P, L, fm, { key: 'pcu-' + r.id, cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short, noLive: live.length > 0 }))
+  if (codex) {
+    s.rows.forEach((r) => out.push(u.line(r.label, '', fmtTokens(r.tokens), { key: 'pc-' + r.id, boldValue: false })))
+  } else {
+    // the sub-conversations under their parent (spawnedFrom), in the rows' order; a child whose parent is not listed
+    // sits at the top with « ↖ lancée par <parent> »
+    const bySid = new Map(s.rows.filter((r) => r.sid).map((r) => [r.sid, r]))
+    const parentOf = (r) => (r.parent && r.parent !== r.sid ? bySid.get(r.parent) || null : null)
+    const kids = new Map()
+    const roots = []
+    for (const r of s.rows) {
+      // a loop in the links (should not happen): the row goes to the top
+      let p = parentOf(r)
+      const seen = new Set([r.id])
+      for (let q = p; q; q = parentOf(q)) { if (seen.has(q.id)) { p = null; break } seen.add(q.id) }
+      if (p) { if (!kids.has(p.id)) kids.set(p.id, []); kids.get(p.id).push(r) } else roots.push(r)
     }
-  })
+    const nodeOf = (r) => {
+      const self = r.id === P.self
+      const fm = (P.convFactories || {})[r.id]
+      const open = self ? P.closed && P.closed.pself === false : Boolean(P.unfold && P.unfold.has(r.id))
+      const key = self ? 'pself' : convKey(r.id)
+      // this conversation's card and Workflows are under « Cette conversation »
+      const live = !self && fm && fm.available && P.tree && P.tree.has(r.id) ? fm.cards : []
+      const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
+      return convNode(u, P, L, {
+        key: 'pc-' + r.id, mark: c.marks[r.mark] || c.marks.idle, title: r.label, titleKey: 'pcv-' + r.id, open,
+        onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
+        state: r.mark !== 'idle' && r.mark !== 'stalled' && (L.graphe_states || {})[r.mark] ? L.graphe_states[r.mark] : r.stateLabel, from: r.parent && !parentOf(r) && r.parentTitle ? fill(L.graphe_from, { title: r.parentTitle }) : '',
+        micro: open && !self ? (inner) => convMicroLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short, noLive: live.length > 0 }) : null,
+        children: [...(kids.get(r.id) || []).map(nodeOf), ...live.map((k) => wfNode(u, P, L, k))],
+      })
+    }
+    out.push(...drawTree(u, P, roots.map(nodeOf), ''))
+  }
   if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
   out.push(...drawDayGantt(u, P)) // « Aujourd’hui »: the Gantt of today's Workflows, one track per active conversation
   return h.col(out, { key: 'p-convs' })
