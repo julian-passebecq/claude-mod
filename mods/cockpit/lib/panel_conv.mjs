@@ -207,12 +207,61 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   log.sort((a, b) => a.at - b.at)
   // no Workflow nor agent and a small usage: two lines (model · effort · state, the context inline) until « détails »
   const dk = pre + 'pdetails'
+  const jk = pre + 'pjournal'
   const compactable = !cards.length && tokens < (Number(c.conv.compact_tokens) || 0)
+  // what runs now, counted (Julian, 20 Oct: « I don't see how many workflows, agents, sub-agents »): live Workflows, the
+  // running agents of the live cards and their model families
+  const runningAgents = liveCards.flatMap((k) => k.phases.flatMap((p) => p.agents)).filter((a) => a.status === 'running')
+  const fams = {}
+  for (const a of runningAgents) { const f = familyOf(a.model); fams[f] = (fams[f] || 0) + 1 }
   return {
     available: true, lead, ctx: extra.contexte || null, stats, share, contributors,
     cards: liveCards, finished, log: log.slice(-Math.max(1, Number(c.conv.log_max) || 6)),
-    compactable, compact: compactable && closed[dk] !== false, detailsKey: dk,
+    // « détails › » on the metrics line (context card, stats, Ce qui contribue / Sankey, journal): folded by default
+    compactable, compact: compactable && closed[dk] !== false, detailsKey: dk, detailsOpen: closed[dk] === false,
+    journalKey: jk, journalOpen: closed[jk] === false,
+    live: { workflows: liveCards.filter((k) => k.kind === 'workflow').length, agents: runningAgents.length, fams, stalled: liveCards.some((k) => k.stalled) },
   }
+}
+
+/** « Opus 5.5 » / « claude-sonnet-5-5 » -> « opus » / « sonnet ». */
+const familyOf = (m) => String(m || '?').toLowerCase().replace(/^claude-/, '').split(/[\s-]/)[0] || '?'
+
+/** Model families counted, biggest first: { opus: 7, sonnet: 2 } -> [['opus', 7], ['sonnet', 2]]. */
+export const famList = (fams) => Object.entries(fams || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+
+/**
+ * The « EN COURS » line at the very top of the Panneau: how many conversations run, how many Workflows, how many agents
+ * on which models, how many conversations are blocked. in: { syn (synthesis(), Claude's list), factory (this
+ * conversation's convFactory), factories ({ [cli]: convFactory }), self }. A conversation counts as blocked when its
+ * row is « bloquée » or « bloquée ? » or one of its running Workflows stopped writing; else as running when its row
+ * works or it has a live Workflow / agent. -> { convs, workflows, agents, fams: [[family, n]], blocked }.
+ */
+export function enCours({ syn, factory, factories, self } = {}) {
+  const rows = (syn && syn.rows ? syn.rows : []).filter((r) => r.id !== 'codex')
+  const seen = new Map()
+  const fmOf = (cli) => (cli === self ? factory : (factories || {})[cli]) || null
+  const add = (cli, mark, fm) => {
+    if (seen.has(cli)) return
+    const live = fm && fm.available && fm.live ? fm.live : null
+    const blocked = mark === 'blocked' || mark === 'stalled' || Boolean(live && live.stalled)
+    const running = !blocked && (mark === 'working' || Boolean(live && (live.workflows || live.agents)))
+    seen.set(cli, { blocked, running, live })
+  }
+  for (const r of rows) add(r.id, r.mark, fmOf(r.id))
+  if (self && factory && factory.available && !seen.has(self)) add(self, ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[factory.lead.stateId] || '', factory)
+  const out = { convs: 0, workflows: 0, agents: 0, fams: [], blocked: 0 }
+  const fams = {}
+  for (const x of seen.values()) {
+    if (x.blocked) out.blocked++
+    else if (x.running) out.convs++
+    if (!x.live) continue
+    out.workflows += x.live.workflows || 0
+    out.agents += x.live.agents || 0
+    for (const [f, n] of Object.entries(x.live.fams || {})) fams[f] = (fams[f] || 0) + n
+  }
+  out.fams = famList(fams)
+  return out
 }
 
 /** The one-line summary of a folded « Cette conversation ». */
@@ -235,7 +284,7 @@ export { kTok }
  * the active ones (tree, whose running Workflows are macro lines); every Workflow card starts folded (macro view).
  */
 export function convFactories(input, fcfg, cfg, nowMs) {
-  const { scan, runs, syn, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf, autoWindow } = input || {}
+  const { scan, runs, syn, synAll, graphe, self, selfFactory, closed = {}, tpsById = {}, cardOf, autoWindow } = input || {}
   const c = panelConfig(cfg)
   const active = activeClis({ scan, runs, graphe }, fcfg, nowMs)
   // only a conversation the scan has (its transcript read) unfolds by default: the others would show « non lue »
@@ -248,11 +297,14 @@ export function convFactories(input, fcfg, cfg, nowMs) {
   // the macro view draws each active conversation's running Workflows as ├ / └ lines under its row: their factory is
   // built too (the first convs.tree_max of them, in the rows' order), drawn only as those lines until unfolded
   const tmax = Math.max(0, Number(c.convs.tree_max ?? 8) || 0)
-  const listed = syn && syn.rows && syn.rows.every((r) => r.id !== 'codex') ? syn.rows.map((r) => r.id) : []
-  const tree = new Set([...new Set(listed)].filter((cli) => cli !== self && active.has(cli)).slice(0, tmax))
+  const claude = (x) => (x && x.rows && x.rows.every((r) => r.id !== 'codex') ? x.rows : [])
+  const listed = claude(syn).map((r) => r.id)
+  // every listed conversation gets its factory (its metrics line counts its Workflows and running agents, EN COURS sums
+  // them); the unfiltered list too, so EN COURS does not depend on the filters
+  const counted = [...new Set([...listed, ...claude(synAll).map((r) => r.id)])]
   const fwin = (fcfg || {}).context_window
   const factories = {}
-  for (const cli of new Set([...unfold, ...tree])) {
+  for (const cli of new Set([...unfold, ...counted])) {
     if (cli === self && selfFactory) { factories[cli] = selfFactory; continue }
     const s = ((scan && scan.sessions) || []).find((x) => x.cli === cli)
     if (!s) { factories[cli] = null; continue }
@@ -262,5 +314,23 @@ export function convFactories(input, fcfg, cfg, nowMs) {
       contexte: contexteOf({ usage: null, ctxTokens: Number(s.ctx) || NaN, fwin: c.contexte.window || fwin, auto: autoWindow }, cfg), tps: tpsById[cli],
     })
   }
-  return { unfold, factories, tree }
+  // kids: the conversation rows whose children (sub-conversations, running Workflows and agents, Terminés N ›) are drawn
+  // under them. The viewer's fold wins (key cv:<cli>, pself for this conversation); by default a conversation with a
+  // running Workflow / agent, or a running sub-conversation, unfolds (the first convs.tree_max of them)
+  const rows = claude(syn)
+  const bySid = new Map(rows.filter((r) => r.sid).map((r) => [r.sid, r]))
+  const runningKid = new Set(rows.filter((r) => r.parent && bySid.has(r.parent) && (r.mark === 'working' || r.mark === 'stalled')).map((r) => bySid.get(r.parent).id))
+  const kids = new Set()
+  let n = 0
+  for (const cli of [...new Set(listed)]) {
+    const k = cli === self ? 'pself' : convKey(cli)
+    if (closed[k] !== undefined) { if (closed[k] === false) kids.add(cli); continue }
+    const fm = cli === self ? selfFactory || factories[cli] : factories[cli]
+    const busy = (fm && fm.available && fm.cards && fm.cards.length > 0) || runningKid.has(cli)
+    if (busy && n < tmax) { kids.add(cli); n++ }
+  }
+  return { unfold, factories, kids, tree: kids }
 }
+
+/** Whether a conversation's children are drawn: the viewer's fold (closed[key]) wins, else running Workflows / agents. */
+export const kidsOpen = (closed, key, m) => (closed && closed[key] !== undefined ? closed[key] === false : Boolean(m && m.available && m.cards && m.cards.length))

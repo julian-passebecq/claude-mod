@@ -158,7 +158,7 @@ test('graph layout: boxes per project, layered, no overlapping nodes, active fir
 })
 
 test('the Panneau places the diagrams where the surface draws Svg and keeps the text elsewhere', () => {
-  const view = panneauView(75, { open: { conv: true, convs: true, barres: true, debit: true, graphe: true }, closed: { pself: false } })
+  const view = panneauView(75, { open: { conv: true, convs: true, barres: true, debit: true, graphe: true }, closed: { pdetails: false } })
   const series = { five: [{ ts: NOW - 2 * H, pct: 0 }, { ts: NOW - 30 * MIN, pct: 1 }], week: [] }
   const panel = { ...view.panel,
     sankey: sankeyModel({ sessions: [{ cli: 'lead', models: { 'claude-opus-5-5': v(1000) }, subs: [{ workflow: 'wf_1', models: { 'claude-sonnet-5-5': v(300) } }] }] }, 'lead', [{ id: 'wf_1', name: 'package-wave' }]),

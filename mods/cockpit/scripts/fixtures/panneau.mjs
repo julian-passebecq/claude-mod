@@ -121,11 +121,12 @@ export function panneauView(columns, o = {}) {
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
-  // every conversation row unfolds under itself to its factory; the active ones (b waits, d works) by default
+  // every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
   const under = convFactories({ scan: SCAN, runs: RUNS, syn, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
     tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
   panel.unfold = under.unfold
   panel.tree = under.tree
+  panel.kids = under.kids
   panel.convFactories = under.factories
   return { cfg: {}, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
