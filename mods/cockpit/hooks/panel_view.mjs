@@ -23,6 +23,7 @@ import { modelName } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
+import { drawDayGantt, drawWfGantt } from './viz_gantt.mjs'
 import { tpsText as debitTps, secText, clockText, fitColumns, tokText } from '../lib/debit.mjs'
 
 const len = (s) => [...String(s ?? '')].length
@@ -548,6 +549,7 @@ function taskBody(u, P, L, k, macro = false) {
     ? [fill(L.layer_count, { n: k.count }), fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : '', durText(k.elapsed, true), k.eta ? fill(L.layer_eta, { time: k.eta }) : '']
     : [fill(L.layer_tokens, { tokens: kTok(k.tokens) }), k.cost ? fmtUsd(k.cost) : '']
   kids.push(h.T(clip(head.filter(Boolean).join('  '), u.W), { dim: true, wrap: 'truncate-end', key: `pk-${k.key}-n` }))
+  if (macro && k.kind === 'workflow') kids.push(...drawWfGantt(u, P, k))
   if (k.kind === 'workflow') kids.push(h.T(L.phases, { bold: true, key: `pk-${k.key}-ph` }))
   for (const p of k.phases) {
     const right = `${p.done}/${p.count}`
@@ -673,6 +675,7 @@ function drawConvs(u, P, L, width) {
     }
   })
   if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
+  out.push(...drawDayGantt(u, P)) // « Aujourd’hui »: the Gantt of today's Workflows, one track per active conversation
   return h.col(out, { key: 'p-convs' })
 }
 
