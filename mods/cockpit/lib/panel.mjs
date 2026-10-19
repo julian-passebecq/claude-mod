@@ -4,9 +4,10 @@
 // click »), drawn by hooks/panel_view.mjs; each line unfolds its detail (micro), kept in $.store:
 //   À toi de cliquer                  one amber line at the top while a conversation waits for Julian
 //   1. Fichiers                       data-goblin's file tree, embedded, FOLDED by default (hooks/files.mjs)
-//   2. CETTE CONVERSATION             one line (state, title, model·effort, context bar, cost), its running Workflows as
-//                                     ├ / └ lines; micro: the Usage-like card, Terminés N ›, the log (lib/panel_conv.mjs)
-//   3. CONVERSATIONS · N actives      one line per conversation, its running Workflows under it; filters behind « filtres › »
+//   2. CETTE CONVERSATION             a one-root tree: node line (state, title), metrics line (context bar, cost,
+//                                     model·effort, state), its running Workflows as children; micro: the Usage-like
+//                                     card, Terminés N ›, the log (lib/panel_conv.mjs), inside the tree
+//   3. CONVERSATIONS · N actives      the same tree: conversation → sub-conversations (parent) → Workflows → agents
 //   4. QUOTAS                         one line (5 h, semaine, tok/s); micro: Session 5 h, Semaine, Codex, crédits as Usage rows
 //   4b. DÉBIT                         one line (weighted TPS per model in use); micro: one card per model, last streams (lib/debit.mjs)
 //   5. GRAPHE                         one line (conv, coord, who waits); micro: by project like the sidebar (lib/graphe.mjs)
@@ -497,7 +498,8 @@ const clipText = (t, n) => {
  * Workflow screen runs: an idle conversation whose Workflow runs « travaille », or « bloquée ? » when it stopped writing
  * (liveness()). A row past the hand-off threshold (the scan's ctx) gets over: true.
  * Returns { rows, others, total, projects, period, periods, tps, hasData }.
- * rows: [{ id, label, project, state, mark (panel.marks key), stateLabel, tokens, cost, tps, last }], biggest consumer first (basis).
+ * rows: [{ id, sid, label, project, state, mark (panel.marks key), stateLabel, tokens, cost, tps, last, parent (the sid of the
+ * conversation that spawned it), parentTitle, ctx, model, effort }], biggest consumer first (basis).
  */
 export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const c = panelConfig(cfg)
@@ -514,9 +516,13 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   }
   if (!base.hasData) return base
   const sessions = new Map()
+  const bySid = new Map()
   for (const s of (scan && scan.sessions) || []) {
     if (s.cli) sessions.set(s.cli, s)
+    if (s.sid) bySid.set(s.sid, s)
   }
+  // the conversation that spawned it (spawnedFrom): its sid, and its title for « ↖ lancée par » when it is not listed
+  const titleOfSid = (sid) => { const p = bySid.get(sid); return p ? p.app_title || (data.sessions && data.sessions[p.cli] && data.sessions[p.cli].t) || '' : '' }
   // every conversation of the window (top: all), so filters apply before the cut
   const r = rank(data, { now: nowMs, preset: period, group: 'conversation', top: 100000, basis: q.basis === 'cost' ? 'cost' : 'tokens' })
   // tok/s: tokens of the last hour (its clock-hour buckets) over the seconds they cover
@@ -532,6 +538,7 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
       stateLabel: st === 'stalled' ? L.stalled : L.states[g] || g, mark: s ? markOf(st) : 'idle',
       over: Boolean(s && Number(s.ctx) >= (Number(c.contexte.handoff_tokens) || 250000)),
       tokens: tokensOf(x.v), cost: x.v[7], tps: tpsOf.get(x.id) || 0, last: clipText(s ? lastLine(s) : '', q.last_max),
+      parent: (s && s.parent) || '', parentTitle: s && s.parent ? titleOfSid(s.parent) : '',
       ctx: s ? Number(s.ctx) || 0 : 0, model: s ? s.app_model || s.model || '' : '', effort: s ? s.app_effort || s.effort || '' : '',
     }
   })
