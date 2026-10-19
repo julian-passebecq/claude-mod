@@ -262,7 +262,8 @@ for (const columns of [45, 60, 75]) {
     assert.equal(foot.split('\n').length, 1, foot)
     assert.ok(body.indexOf('Autres vues') > body.indexOf('[GRAPHE]'))
     assert.ok(widest(body) <= columns, `${widest(body)} columns\n${body}`)
-    assert.doesNotMatch(body, BOX, body)
+    // the « Aujourd’hui » Gantt's ▕███░░▏ rows are the one place block glyphs are drawn
+    assert.doesNotMatch(body.split('\n').filter((l) => !/▕.*▏/.test(l)).join('\n'), BOX, body)
     // macro: no card, no table, no stats, no « Workflows actifs » (the tree under each conversation says it)
     assert.doesNotMatch(body, /Workflows actifs|Cache hit|Ce qui contribue|Journal de la session|Modèle Temps|Fenêtre|Phases|Session 5 h/)
     // À toi de cliquer: one amber line at the very top
@@ -293,7 +294,7 @@ test('micro: a click on a conversation unfolds its card, stats, contributors, lo
   assert.match(self, /\$9\.50 \[⌄\]\n {2}└ ● \[package-wave\][^\n]*\n {2}│ Opus 5\.5 · medium · travaille/) // its Workflow line stays right under its row
   assert.doesNotMatch(self, /general-purpose/)
   const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
-  assert.match(wf, /└ ● \[package-wave\][^\n]*\[⌄\]\n {4}│ 4 agents {2}2\.0M tokens {2}\$9\.40 {2}40m 00s {2}fin vers \d\d:\d\d\n {4}│ Phases\n {4}│ \[Wave A ›\] 2\/2 ■■\n {4}│ \[Wave B ⌄\] 0\/1 ■\n {4}│ │ Modèle Temps\n {4}│ │ ● Opus 5\.5 20m 00s\n {4}│ │\s{3}coder: cockpit-claude-style · medium · 1\.5M tok · 1250 tok\/s\n {4}│ \[Merge ›\] 0\/1 □/)
+  assert.match(wf, /└ ● \[package-wave\][^\n]*\[⌄\]\n {4}│ 4 agents {2}2\.0M tokens {2}\$9\.40 {2}40m 00s {2}fin vers \d\d:\d\d\n(?: {4}│ [^\n]*\n)+? {4}│ Phases\n {4}│ \[Wave A ›\] 2\/2 ■■\n {4}│ \[Wave B ⌄\] 0\/1 ■\n {4}│ │ Modèle Temps\n {4}│ │ ● Opus 5\.5 20m 00s\n {4}│ │\s{3}coder: cockpit-claude-style · medium · 1\.5M tok · 1250 tok\/s\n {4}│ \[Merge ›\] 0\/1 □/)
   assert.match(panneauText(75, { closed: { 'pfw-wf_1': false, 'pfw-wf_1-ph0': false } }), /\[Wave A ⌄\] 2\/2 ■■\n {4}│ │ Modèle Temps\n {4}│ │ ✓ Sonnet 5\.5 15m 00s\n {4}│ │\s+verify · low · 408K tok · \d+ tok\/s\n {4}│ │ ✓ Haiku 5\.5 5m 00s\n/)
   assert.match(panneauText(75, { closed: { pself: false, 'pfw-finished': false } }), /Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
   // another conversation: its Workflow line, then « ouvrir ↗ » and its card; the Workflow drawn once
