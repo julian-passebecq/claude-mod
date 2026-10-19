@@ -237,12 +237,14 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { widest, el, renderText } from '../lib/factory/scanner/textrender.mjs'
-import { panneauText, panneauView, SCAN as PSCAN, FCFG as PFCFG } from '../scripts/fixtures/panneau.mjs'
+import { panneauText, panneauView, SCAN as PSCAN, FCFG as PFCFG, CLASSEMENT } from '../scripts/fixtures/panneau.mjs'
 import { drawCockpit } from '../hooks/view.mjs'
+import { treeGlyphs } from '../hooks/panel_view.mjs'
 
 const PREVIEW = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'preview.mjs')
-// the tree's connectors at a width: 4-column indents, 2 under style.wide_cols (60)
-const TREE = (cols) => (cols < 60 ? { m: '├ ', e: '└ ', b: '│ ', n: '  ' } : { m: '├── ', e: '└── ', b: '│   ', n: '    ' })
+// the tree's connectors at a width (Julian, 20 Oct: « ajoute de l'indentation »): 6-column indents, 4 under
+// style.wide_cols (60)
+const TREE = (cols) => (cols < 60 ? { m: '├── ', e: '└── ', b: '│   ', n: '    ' } : { m: '├──── ', e: '└──── ', b: '│     ', n: '      ' })
 const q = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // the macro view's headers, in order (Julian, 19 Oct: small one-line headers, no big chips)
 const HEADERS = ['▸ Fichiers', 'CETTE CONVERSATION', 'CONVERSATIONS · 3 actives', '[QUOTAS]', '[DÉBIT]', '[GRAPHE]']
@@ -270,12 +272,12 @@ for (const columns of [45, 60, 75]) {
     // macro: no card, no table, no stats, no « Workflows actifs » (the tree under each conversation says it)
     assert.doesNotMatch(body, /Workflows actifs|Cache hit|Ce qui contribue|Journal de la session|Modèle Temps|Fenêtre|Phases|Session 5 h/)
     // À toi de cliquer: one amber line at the very top, EN COURS right under it (Julian, 20 Oct)
-    assert.match(body, /^◆ À toi de cliquer : \[Lane beta\][^\n]*\nEN COURS {2}\[2 conv\] · 2 (?:workflows|wf) · 2 agents/)
+    assert.match(body, /^◆ À toi de cliquer : \[Lane beta\][^\n]*\nEN COURS {2}\[2 conv\] · 2 (?:workflows|wf) · 2 (?:agents en cours|ag\.)/)
     // folded by default: no card, no journal, no duplicate « Opus 5.5 · medium · travaille » line
     assert.doesNotMatch(body, /journal \(|Opus 5\.5 · medium|Contexte \d/)
     // the quotas, the débit and the graph: one line each
     for (const re of [/^\[QUOTAS\] 5 h .*21 % sem .*85 %.* \[›\]$/m, /^\[DÉBIT\] opus 56 .*TPS \(30 min\) \[›\]$/m, /^\[GRAPHE\] 7 conv · 3 coord · 1 t’attend.* \[›\]$/m]) assert.match(body, re)
-    // the conversations as a project-structure tree (Julian, 19 Oct): ├── └── │ connectors (├ └ │ at 45 columns); a
+    // the conversations as a project-structure tree (Julian, 19 Oct): ├──── └──── │ connectors (├── └── │ at 45); a
     // running conversation has its node line and its metrics line, its children unfolded (Workflows, Terminés N ›,
     // sub-conversations); one with nothing running is ONE line (Julian, 20 Oct: « so the running ones stand out »)
     const g = TREE(columns)
@@ -283,8 +285,8 @@ for (const columns of [45, 60, 75]) {
     const starts = (...ls) => assert.match(body, new RegExp('^' + ls.map((l, i) => q(l) + (i === ls.length - 1 ? '' : '[^\\n]*')).join('\\n'), 'm'), body)
     // Cette conversation: one root, its running Workflow then « Terminés 1 » under it
     starts(`${g.e}● [Lane alpha · tableau de bord] [⌄]`, `${g.n}│ `, `${g.n}│`, `${g.n}${g.m}● [package-wave · workflow] [›]`, `${g.n}${g.b}  2/4 ■■●□ · `, `${g.n}│`, `${g.n}${g.e}✓ [Terminés 1] [›]`)
-    assert.match(body, /\n {2,4}│ [^\n]*30 % · \$9\.50 · [^\n]*\[détails ›\]/)
-    assert.match(body, /\n {2,4}│ {3,5}2\/4 ■■●□ · [^\n]*40 min/)
+    assert.match(body, new RegExp(`\\n${g.n}│ [^\\n]*30 % · [^\\n]*1 wf · [^\\n]*\\[détails ›\\]`))
+    assert.match(body, new RegExp(`\\n${g.n}│ {${g.n.length + 1}}2/4 ■■●□ · [^\\n]*40 min`))
     // Conversations: a spacer under the header, then the roots
     seq('CONVERSATIONS · 3 actives [filtres ›]', '│', `${g.m}● [Lane alpha · tableau de bord] [⌄]`)
     starts(`${g.m}● [Lane alpha · tableau de bord] [⌄]`, `│${g.n.slice(1)}│ `, `│${g.n.slice(1)}│`, `│${g.n.slice(1)}${g.e}○ [Package four] 10 % · 200K`)
@@ -300,17 +302,107 @@ test('tree rows: counts on the metrics line; the node line cuts its title; the m
   const t45 = panneauText(45)
   const t36 = panneauText(36)
   // a Workflow: done/count and dots, the phase, how many agents run on which model, the time
-  assert.match(t75, /\n {4}│ {5}2\/4 ■■●□ · Wave B · 1 agent en cours \(opus\) · 40 min\n/)
-  assert.match(t45, /\n {2}│ {3}2\/4 ■■●□ · 1 en cours · 40 min\n/) // the phase and the model go first
-  assert.match(t36, /\n {2}│ {3}2\/4 ■■●□ · 40 min\n/)
+  // at 75 columns the model breakdown goes first, « fin ~HH:MM » stays (Julian, 20 Oct)
+  assert.match(t75, /\n {6}│ {7}2\/4 ■■●□ · Wave B · 1 agent en cours · 40 min · fin ~\d\d:\d\d\n/)
+  assert.match(panneauText(60), /\n {6}│ {7}2\/4 ■■●□ · 1 agent en cours · 40 min\n/) // then the phase, then the ETA
+  assert.match(t45, /\n {4}│ {5}2\/4 ■■●□ · 1 ag\. · 40 min\n/) // « 1 ag. » only when the width forces it
+  assert.match(t36, /\n {4}│ {5}2\/4 ■■●□ · 1 ag\. · 40 min\n/)
   // a conversation: ctx, value, its live Workflows, its running agents, its sub-conversations; « détails › » at the right
-  assert.match(t75, /└── ● \[Lane alpha · tableau de bord\] \[⌄\]\n {4}│ ctx [▰▱|]{10} 30 % · \$9\.50 · 1 wf · 1 agent en cours \[détails ›\]\n/)
-  assert.match(t75, /├── ● \[Lane alpha · tableau de bord\] \[⌄\]\n│   │ ctx [▰▱|]{10} 30 % · 3\.6M · 1 wf · 1 agent en cours · 1 sous-conv\n/)
-  assert.match(t45, /└ ● \[Lane alpha · tableau de bord\] \[⌄\]\n {2}│ 30 % · \$9\.50 · 1 wf · 1 ag\. \[détails ›\]\n/)
-  assert.match(t36, /└ ● \[Lane alpha · tableau de …\] \[⌄\]\n {2}│ 30 % · \$9\.50 \[détails ›\]\n/) // the title cut
+  assert.match(t75, /└──── ● \[Lane alpha · tableau de bord\] \[⌄\]\n {6}│ ctx [▰▱|]{10} 30 % · \$9\.50 · 1 wf · 1 agent en cours \[détails ›\]\n/)
+  assert.match(t75, /├──── ● \[Lane alpha · tableau de bord\] \[⌄\]\n│ {5}│ ctx [▰▱|]{10} 30 % · 3\.6M · 1 wf · 1 agent en cours · 1 sous-conv\n/)
+  // at 45 the counts (what runs) keep their place, the cost goes (« détails › » has it)
+  assert.match(t45, /└── ● \[Lane alpha · tableau de bord\] \[⌄\]\n {4}│ 30 % · 1 wf · 1 ag\. \[détails ›\]\n/)
+  assert.match(t36, /└── ● \[Lane alpha · tableau d…\] \[⌄\]\n {4}│ 30 % · \$9\.50 \[détails ›\]\n/) // the title cut
   for (const k of ['30 %', '$9.50', '3.6M', '800K', '500K', '1.0M', '200K', '2/4', '1/2', '40 min', '15 min']) assert.ok(t36.includes(k), k + '\n' + t36)
-  for (const t of [t45, panneauText(60), t75]) for (const k of ['30 %', '$9.50', '3.6M', '800K', '500K', '1.0M', '200K', '2/4', '1/2', '40 min', '15 min', '1 wf', '21 %', '85 %', '852 tok/s']) assert.ok(t.includes(k), k + '\n' + t)
+  for (const t of [t45, panneauText(60), t75]) for (const k of ['30 %', ...(t === t45 ? [] : ['$9.50']), '3.6M', '800K', '500K', '1.0M', '200K', '2/4', '1/2', '40 min', '15 min', '1 wf', '21 %', '85 %', '852 tok/s']) assert.ok(t.includes(k), k + '\n' + t)
   for (const [t, cols] of [[t36, 36], [t45, 45], [t75, 75]]) for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
+})
+
+// ---- indentation (Julian, 20 Oct after PR #65: « ajoute de l'indentation ») -----------------------------------------
+// the column of a node's connector (├ └) on a line, -1 when none
+const connAt = (l) => l.search(/[├└]/)
+
+test('tree indent: 6 columns per level at 60 / 75, 4 at 45; conversation, sub-conversation, Workflow, agent stepped; panel.tree.indent', () => {
+  const auto = panelConfig({})
+  assert.equal(auto.tree.indent, 'auto')
+  assert.deepEqual(treeGlyphs(auto, 75), { mid: '├──── ', end: '└──── ', bar: '│     ', none: '      ' })
+  assert.deepEqual(treeGlyphs(auto, 60), treeGlyphs(auto, 75))
+  assert.deepEqual(treeGlyphs(auto, 45), { mid: '├── ', end: '└── ', bar: '│   ', none: '    ' })
+  assert.deepEqual(treeGlyphs(panelConfig({ panel: { tree: { indent: 3 } } }), 75), { mid: '├─ ', end: '└─ ', bar: '│  ', none: '   ' })
+  assert.equal(treeGlyphs(panelConfig({ panel: { tree: { indent: 1 } } }), 75).mid, '├ ') // at least 2
+  for (const [cols, n] of [[45, 4], [60, 6], [75, 6]]) {
+    // CETTE CONVERSATION with its Workflow unfolded: the conversation at 0, its Workflow one level in, its agents two
+    const t = panneauText(cols, { closed: { 'pfw-wf_1': false } }).split('\n')
+    const at = (re) => connAt(t.find((l) => re.test(l)) || '')
+    assert.equal(at(/[├└]─+ ● \[Lane alpha/), 0, t.join('\n'))
+    assert.equal(at(/[├└]─+ ● \[package-wave/), n, t.join('\n'))
+    for (const a of ['verify · ', 'explore-fast', 'coder: ', 'verify: ']) assert.equal(at(new RegExp(`[├└]─+ [✓●○] ${q(a)}`)), 2 * n, a + '\n' + t.join('\n'))
+    // CONVERSATIONS: a sub-conversation one level under its conversation, a Workflow too
+    const c = t.slice(t.findIndex((l) => l.startsWith('CONVERSATIONS')))
+    assert.equal(connAt(c.find((l) => l.includes('[Package four]'))), n, c.join('\n'))
+    assert.equal(connAt(c.find((l) => l.includes('[wf_2 · workflow]'))), n, c.join('\n'))
+    assert.equal(connAt(c.find((l) => l.includes('[Lane delta]'))), 0, c.join('\n'))
+  }
+  // a number in the config: that many columns per level, at every width
+  const t3 = panneauText(75, { indent: 3 })
+  assert.match(t3, /\n└─ ● \[Lane alpha · tableau de bord\] \[⌄\]\n {3}│ ctx /)
+  assert.match(t3, /\n {3}├─ ● \[package-wave · workflow\] \[›\]\n/)
+})
+
+test('tree: the metrics line starts under the title’s first letter and wraps nowhere', () => {
+  for (const cols of [45, 60, 75]) {
+    for (const o of [{}, { closed: { 'pfw-wf_1': false } }, { closed: { [convKey('b')]: false, [convKey('c')]: false } }]) {
+      const t = panneauText(cols, o).split('\n')
+      let checked = 0
+      t.forEach((l, i) => {
+        // a node line: connector, state mark, then the title (a plain button, drawn « [ » here)
+        const m = /^([│ ]*[├└]─+ )[●◆✕✓○⚠·] \[/.exec(l)
+        const next = t[i + 1] || ''
+        if (!m || /^[│ ]*$/.test(next) || /[├└]/.test(next) || !/^[│ ]+\S/.test(next)) return
+        const title = m[1].length + 2
+        const start = next.search(/[^│ ]/)
+        assert.equal(start, title, `${cols} columns, under « ${l} »:\n${next}`)
+        // one line: the line after the metrics line is a spacer, a node, a detail line under the same column, or the end
+        const after = t[i + 2] || ''
+        assert.ok(/^[│ ]*$/.test(after) || /[├└]/.test(after) || after.search(/[^│ ]/) === title || !/^[│ ]/.test(after), `${cols}: wrapped?\n${l}\n${next}\n${after}`)
+        assert.ok([...next].length <= cols, next)
+        checked++
+      })
+      assert.ok(checked >= 3, `${cols} ${JSON.stringify(o)}: ${checked} metrics lines\n${t.join('\n')}`)
+    }
+  }
+})
+
+test('tree: a blank « │ » line between sibling conversations at the top level, none between the agents of one Workflow', () => {
+  for (const cols of [45, 60, 75]) {
+    const t = panneauText(cols, { closed: { 'pfw-wf_1': false } }).split('\n')
+    const c = t.slice(t.findIndex((l) => l.startsWith('CONVERSATIONS')))
+    const roots = c.map((l, i) => [l, i]).filter(([l]) => /^[├└]─+ /.test(l))
+    assert.equal(roots.length, 4, c.join('\n'))
+    for (const [, i] of roots) assert.equal(c[i - 1], '│', `${cols}: no spacer above « ${c[i]} »\n${c.join('\n')}`)
+    // the agents of the unfolded Workflow: four node lines in a row
+    const first = t.findIndex((l) => /[├└]─+ ✓ verify · sonnet/.test(l))
+    assert.ok(first > 0, t.join('\n'))
+    for (let k = first; k < first + 4; k++) assert.match(t[k], /[├└]─+ [✓●○] /, `${cols}: a spacer between agents\n${t.join('\n')}`)
+  }
+})
+
+test('EN COURS counts every conversation of the scan: a 16th conversation, past the top 15 shown, still counts', () => {
+  // 13 idle conversations between Lane beta (1.0M) and Lane delta (800K): Lane delta, working with its Workflow, is 16th
+  const fill13 = Array.from({ length: 13 }, (_, i) => `f${i}`)
+  const data = { ...CLASSEMENT, sessions: { ...CLASSEMENT.sessions, ...Object.fromEntries(fill13.map((id, i) => [id, { t: `Filler ${i}`, p: 'proj-one' }])) },
+    rows: [...CLASSEMENT.rows, ...fill13.map((id) => [Math.floor(NOW / 3600000) * 3600000 - 3600000, id, 'main', 'claude-opus-5-5', '', '', '', 900000, 0, 0, 0, 0, 1, 0, 1])] }
+  const view = panneauView(75, { data })
+  const P = view.panel
+  assert.equal(P.syn.rows.length, 15)
+  assert.ok(!P.syn.rows.some((r) => r.id === 'd'), P.syn.rows.map((r) => r.id).join(' '))
+  assert.equal(P.syn.every.length, 18)
+  assert.equal(P.syn.every.findIndex((r) => r.id === 'd'), 15)
+  const n = enCours({ syn: P.synAll, factory: P.factory, factories: P.convFactories, self: 'lead' })
+  assert.deepEqual([n.convs, n.workflows, n.agents], [2, 2, 2])
+  assert.match(renderText(drawCockpit(el, view), 75), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours \(1 opus, 1 sonnet\)\n/)
+  // the rows shown only (no synAll): its factory, built for an active conversation of the scan, still counts it
+  assert.deepEqual(enCours({ syn: P.syn, factory: P.factory, factories: P.convFactories, self: 'lead' }).workflows, 2)
 })
 
 test('EN COURS: conversations, Workflows, running agents by model, blocked ones, counted from the fixtures', () => {
@@ -323,12 +415,14 @@ test('EN COURS: conversations, Workflows, running agents by model, blocked ones,
   const syn = { rows: [{ id: 'x', mark: 'blocked' }, { id: 'y', mark: 'working' }, { id: 'w', mark: 'working' }, { id: 'z', mark: 'done' }] }
   assert.deepEqual(enCours({ syn, factory: null, factories: { w: stuck }, self: 'me' }), { convs: 1, workflows: 1, agents: 1, fams: [['opus', 1]], blocked: 2 })
   assert.deepEqual(enCours({}), { convs: 0, workflows: 0, agents: 0, fams: [], blocked: 0 })
-  assert.match(panneauText(75), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents \(1 opus, 1 sonnet\)\n/)
-  assert.match(panneauText(45), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents\n/) // the models go first
-  assert.match(panneauText(36), /\nEN COURS {2}\[2 conv\] · 2 wf · 2 agents\n/)
-  const t = renderText(drawCockpit(el, { ...view, panel: { ...P, syn: { ...P.syn, rows: [...P.syn.rows.slice(0, 1).map((r) => ({ ...r, mark: 'blocked' })), ...P.syn.rows.slice(1)] } } }), 75)
-  assert.match(t, /\nEN COURS {2}\[1 conv\] · 2 workflows · 2 agents · \[1 bloqué\]\n/) // the models make room for it
-  const idle = renderText(drawCockpit(el, { ...view, panel: { ...P, factory: null, syn: { ...P.syn, rows: [] }, convFactories: {} } }), 75)
+  // « N agents en cours » as on every row (Julian, 20 Oct); the models go first, « 2 ag. » only when the width forces it
+  assert.match(panneauText(75), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours \(1 opus, 1 sonnet\)\n/)
+  assert.match(panneauText(60), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours\n/)
+  assert.match(panneauText(45), /\nEN COURS {2}\[2 conv\] · 2 wf · 2 ag\.\n/)
+  const blockedSyn = { ...P.syn, rows: [...P.syn.rows.slice(0, 1).map((r) => ({ ...r, mark: 'blocked' })), ...P.syn.rows.slice(1)] }
+  const t = renderText(drawCockpit(el, { ...view, panel: { ...P, syn: blockedSyn, synAll: blockedSyn } }), 75)
+  assert.match(t, /\nEN COURS {2}\[1 conv\] · 2 workflows · 2 agents en cours · \[1 bloqué\]\n/) // the models make room for it
+  const idle = renderText(drawCockpit(el, { ...view, panel: { ...P, factory: null, syn: { ...P.syn, rows: [] }, synAll: null, convFactories: {} } }), 75)
   assert.match(idle, /\nEN COURS {2}rien ne tourne\n/)
   // the numbers filter CONVERSATIONS: en cours, t'attend
   const filtered = []
@@ -347,30 +441,30 @@ test('micro: unfolding a conversation shows its children only; « détails › �
   for (const k of ['Contexte 120K / 400K · relais 250K 30 %', 'Coût', 'Cache hit', 'Sous-agents', 'Modèles : Opus 100 %', 'Ce qui contribue', '[journal (6) ›]', '[détails ⌄]']) assert.ok(self.includes(k), k + '\n' + self)
   // no « Opus 5.5 · medium · travaille » line under the row: the metrics line says it
   assert.doesNotMatch(self, /Opus 5\.5 · medium|Journal de la session|PR #42 ouverte/)
-  assert.match(self, /└── ● \[Lane alpha · tableau de bord\] \[⌄\]\n {4}│ ctx [^\n]*\[détails ⌄\]\n {4}│ Contexte 120K/)
-  assert.match(self, /\[journal \(6\) ›\]\n {4}│\n {4}├── ● \[package-wave · workflow\] \[›\]\n/)
+  assert.match(self, /└──── ● \[Lane alpha · tableau de bord\] \[⌄\]\n {6}│ ctx [^\n]*\[détails ⌄\]\n {6}│ Contexte 120K/)
+  assert.match(self, /\[journal \(6\) ›\]\n {6}│\n {6}├──── ● \[package-wave · workflow\] \[›\]\n/)
   const log = panneauText(75, { closed: { pdetails: false, pjournal: false } })
   for (const k of ['[journal (6) ⌄]', 'PR #42 ouverte', 'PR #41 mergée']) assert.ok(log.includes(k), k + '\n' + log)
   assert.doesNotMatch(self, /general-purpose/)
   // its children folded: the row and its metrics line, nothing under it
   const folded = panneauText(75, { closed: { pself: true } })
-  assert.match(folded, /└── ● \[Lane alpha · tableau de bord\] \[›\]\n {6}ctx [^\n]*\n\nCONVERSATIONS/)
+  assert.match(folded, /└──── ● \[Lane alpha · tableau de bord\] \[›\]\n {8}ctx [^\n]*\n\nCONVERSATIONS/)
   // a Workflow unfolded: its metrics, tokens, cost, Gantt, then its agents as dense children (no spacer between them)
   const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
-  assert.match(wf, /├── ● \[package-wave · workflow\] \[⌄\]\n {4}│   │ 2\/4 ■■●□ · [^\n]*\n {4}│   │ 4 agents {2}2\.0M tokens {2}\$9\.40 {2}40m 00s {2}fin vers \d\d:\d\d\n(?: {4}│   │[^\n]*\n)+? {4}│   │\n {4}│   ├── ✓ verify · sonnet 15 min · 408K\n {4}│   ├── ✓ explore-fast: map files · haiku 5 min · 100K\n {4}│   ├── ● coder: cockpit-claude-style · opus 20 min · 1\.5M\n {4}│   └── ○ verify: CI · sonnet 0\n/)
+  assert.match(wf, /├──── ● \[package-wave · workflow\] \[⌄\]\n {6}│ {5}│ 2\/4 ■■●□ · [^\n]*\n {6}│ {5}│ 4 agents {2}2\.0M tokens {2}\$9\.40 {2}40m 00s {2}fin vers \d\d:\d\d\n(?: {6}│ {5}│[^\n]*\n)+? {6}│ {5}│\n {6}│ {5}├──── ✓ verify · sonnet 15 min · 408K\n {6}│ {5}├──── ✓ explore-fast: map files · haiku 5 min · 100K\n {6}│ {5}├──── ● coder: cockpit-claude-style · opus 20 min · 1\.5M\n {6}│ {5}└──── ○ verify: CI · sonnet 0\n/)
   assert.doesNotMatch(wf, /Phases|Modèle Temps/) // the agents are its children: no table repeating them
   // « Terminés N › » is a child, folded; unfolded its finished cards
-  assert.match(panneauText(75, { closed: { 'pfw-finished': false, 'pfw-bg': false } }), /└── ✓ \[Terminés 1\] \[⌄\]\n[\s\S]*Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
+  assert.match(panneauText(75, { closed: { 'pfw-finished': false, 'pfw-bg': false } }), /└──── ✓ \[Terminés 1\] \[⌄\]\n[\s\S]*Agents en arrière-plan[\s\S]*explore-fast · find the tests/)
   // another conversation: its children (its Workflow), « détails › » adds « ouvrir ↗ » and its card; the Workflow drawn once
   const d = panneauText(75, { closed: { 'cv:d:pdetails': false } })
-  assert.match(d, /├── ● \[Lane delta\] \[⌄\]\n│   │ ctx [^\n]*\[détails ⌄\]\n│   │ \[ouvrir ↗\]\n│   │ Contexte 60K[^\n]*\n(?:│   │[^\n]*\n)+│   └── ● \[wf_2 · workflow\] \[›\]\n/)
+  assert.match(d, /├──── ● \[Lane delta\] \[⌄\]\n│ {5}│ ctx [^\n]*\[détails ⌄\]\n│ {5}│ \[ouvrir ↗\]\n│ {5}│ Contexte 60K[^\n]*\n(?:│ {5}│[^\n]*\n)+│ {5}└──── ● \[wf_2 · workflow\] \[›\]\n/)
   assert.equal(d.split('\n').filter((l) => l.includes('[wf_2')).length, 1, d)
   // an idle conversation is ONE line; unfolded, its metrics line (its state said), « détails › »
-  assert.match(plain, /\n└── ○ \[Lane gamma\] 500K\n/)
-  assert.match(panneauText(75, { closed: { [convKey('c')]: false } }), /└── ○ \[Lane gamma\] \[⌄\]\n {6}500K · terminée \[détails ›\]\n/)
-  assert.match(panneauText(75, { closed: { [convKey('c')]: false, 'cv:c:pdetails': false } }), /500K · terminée \[détails ⌄\]\n {6}fabrique non lue/)
+  assert.match(plain, /\n└──── ○ \[Lane gamma\] 500K\n/)
+  assert.match(panneauText(75, { closed: { [convKey('c')]: false } }), /└──── ○ \[Lane gamma\] \[⌄\]\n {8}500K · terminée \[détails ›\]\n/)
+  assert.match(panneauText(75, { closed: { [convKey('c')]: false, 'cv:c:pdetails': false } }), /500K · terminée \[détails ⌄\]\n {8}fabrique non lue/)
   const b = panneauText(75, { closed: { [convKey('b')]: false } })
-  assert.match(b, /├── ◆ \[Lane beta\] \[⌄\]\n│ {5}1\.0M · t’attend · ↖ lancée par PM BETA \[détails ›\]\n│\n├── ● \[Lane delta\]/)
+  assert.match(b, /├──── ◆ \[Lane beta\] \[⌄\]\n│ {7}1\.0M · t’attend · ↖ lancée par PM BETA \[détails ›\]\n│\n├──── ● \[Lane delta\]/)
 })
 
 test('micro: Quotas unfold to the Usage-like bars, Débit to its tables, Graphe to its tree; filters behind « filtres › »', () => {
@@ -405,7 +499,7 @@ test('colours: one state colour per line, numbers bold only when alarming (ctx a
   // a stalled Workflow: amber ⚠ and « à l'arrêt 1 h 10 » in bold
   const stuck = convFactory(STALL_SCAN(70), 'w', {}, {}, NOW, {}, { runs: STALL_RUN(70) })
   const t = renderText(drawCockpit(el, { ...view, panel: { ...view.panel, factory: stuck } }), 75)
-  assert.match(t.replace(/\u00a0/g, ' '), /── ⚠ \[Preview release · workflow\] \[›\]\n {4}[│ ] {5}0\/1 ● · 1 agent en cours \(opus\) · à l’arrêt 1 h 10\n/)
+  assert.match(t.replace(/\u00a0/g, ' '), /── ⚠ \[Preview release · workflow\] \[›\]\n {6}[│ ] {7}0\/1 ● · 1 agent en cours \(opus\) · à l’arrêt 1 h 10\n/)
   // running nodes bold, finished / idle grey
   const conv = find(drawCockpit(el, view), 'pcv-d')
   assert.equal(conv.props.children[0].props.bold, true)

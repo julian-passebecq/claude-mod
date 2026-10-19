@@ -249,6 +249,8 @@ export function enCours({ syn, factory, factories, self } = {}) {
     seen.set(cli, { blocked, running, live })
   }
   for (const r of rows) add(r.id, r.mark, fmOf(r.id))
+  // a conversation of the scan with no row in the window (nothing spent yet) still counts by its factory
+  for (const [cli, fm] of Object.entries(factories || {})) if (fm && fm.available) add(cli, ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[fm.lead && fm.lead.stateId] || '', fm)
   if (self && factory && factory.available && !seen.has(self)) add(self, ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[factory.lead.stateId] || '', factory)
   const out = { convs: 0, workflows: 0, agents: 0, fams: [], blocked: 0 }
   const fams = {}
@@ -300,8 +302,11 @@ export function convFactories(input, fcfg, cfg, nowMs) {
   const claude = (x) => (x && x.rows && x.rows.every((r) => r.id !== 'codex') ? x.rows : [])
   const listed = claude(syn).map((r) => r.id)
   // every listed conversation gets its factory (its metrics line counts its Workflows and running agents, EN COURS sums
-  // them); the unfiltered list too, so EN COURS does not depend on the filters
-  const counted = [...new Set([...listed, ...claude(synAll).map((r) => r.id)])]
+  // them); past the list (filters, the top N cut) only the ones that run or wait, and the active ones of the scan, so EN
+  // COURS counts every conversation (Julian, 20 Oct: a 16th conversation was not counted)
+  const busyMark = new Set(['working', 'stalled', 'waiting', 'blocked'])
+  const extra = claude(synAll).filter((r) => busyMark.has(r.mark) || active.has(r.id)).map((r) => r.id)
+  const counted = [...new Set([...listed, ...extra, ...active])]
   const fwin = (fcfg || {}).context_window
   const factories = {}
   for (const cli of new Set([...unfold, ...counted])) {

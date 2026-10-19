@@ -60,6 +60,10 @@ export const PANEL_DEFAULTS = {
     show_hidden: false,
     git: true,
   },
+  // the tree of CETTE CONVERSATION and CONVERSATIONS (Julian, 20 Oct: « ajoute de l'indentation »): indent = columns per
+  // level (the connector « ├──── » and the « │ » rule under it, at least 2); "auto": 6 at style.wide_cols columns and
+  // more, 4 under it
+  tree: { indent: 'auto' },
   convs: {
     // short: the label when the filter row would not fit on one line (a 45-column pane)
     periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', short: 'auj.', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
@@ -121,17 +125,18 @@ export const PANEL_DEFAULTS = {
     click_line: 'À toi de cliquer',
     wf_stalled: 'à l’arrêt {age}',
     wf_eta: 'fin ~{time}',
-    // « 2 agents en cours (opus) », « 3 agents en cours (2 opus, 1 sonnet) »; short of room « 2 en cours »
+    // « 2 agents en cours (opus) », « 3 agents en cours (2 opus, 1 sonnet) »; short of room the models go (« 1 agent en
+    // cours », tree_agents), then the words (« 1 ag. », tree_agents_short): one wording everywhere (Julian, 20 Oct)
     wf_running: '{n} {agents} en cours ({models})',
-    wf_running_short: '{n} en cours',
     agent_one: 'agent',
     agent_many: 'agents',
     // EN COURS (Julian, 20 Oct: « I don't see how many workflows, agents, sub-agents »): one line at the very top
     encours_head: 'EN COURS',
     encours_conv: '{n} conv',
     encours_wf: '{n} workflows',
+    encours_wf_one: '{n} workflow',
     encours_wf_short: '{n} wf',
-    encours_agents: '{n} agents',
+    // its agents: tree_agents (« 1 agent en cours »), tree_agents_short (« 1 ag. ») only when the width forces it
     encours_fam: '({list})',
     encours_blocked: '{n} bloqués',
     encours_blocked_one: '{n} bloqué',
@@ -570,7 +575,8 @@ export function synthesis(data, scan, codex, f, cfg, nowMs) {
   const rest = kept.slice(top)
   const others = rest.length ? { count: rest.length, label: fill(L.others, { n: rest.length }), ...sum(rest), tps: rest.reduce((a, x) => a + x.tps, 0) } : null
   const tps = [...tpsOf.values()].reduce((a, b) => a + b, 0)
-  return { ...base, rows, others, total: sum(kept), projects, tps, tpsById: Object.fromEntries(tpsOf) }
+  // every: every conversation of the window, unfiltered and uncut (EN COURS counts them all, not only the top N shown)
+  return { ...base, rows, every: all, others, total: sum(kept), projects, tps, tpsById: Object.fromEntries(tpsOf) }
 }
 
 // ---- a conversation's factory under its row (« Toutes les conversations », graph) ---------------------------------------

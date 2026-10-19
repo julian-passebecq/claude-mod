@@ -7,11 +7,11 @@
 //   À toi de cliquer           one amber line at the very top while a conversation waits for Julian, nothing otherwise
 //   ▸ Fichiers                 filetree's tree (hooks/files.mjs), folded by default
 //   CETTE CONVERSATION         a one-root tree (since 19 Oct, Julian's « project structure » poster):
-//                                └── ● title                                   ›
-//                                    │ ctx ▰▰▰▱ 30 % · $9.50 · opus·med · travaille
-//                                    │
-//                                    └── ● name · workflow                     ›
-//                                          1/4 ■●□□ · phase · 1 opus · 20 min · fin ~16:55
+//                                └──── ● title                                 ›
+//                                      │ ctx ▰▰▰▱ 30 % · $9.50 · 1 wf · 1 agent en cours
+//                                      │
+//                                      └──── ● name · workflow                 ›
+//                                                1/4 ■●□□ · phase · 1 agent en cours · 20 min · fin ~16:55
 //   CONVERSATIONS · N actives  the same tree: conversation → sub-conversations → Workflows → agents (filtres ›)
 //   QUOTAS                     5 h ▰▰▱ 21 % · reset …  sem ▰▰▰▰ 85 %  852 tok/s  ›   (› the Usage-like bars)
 //   DÉBIT                      opus 59 · sonnet 88 TPS (30 min)  tableau ›   (› one table per model, the last streams)
@@ -126,14 +126,17 @@ function drawEnCours(u, P, L) {
     : item(h, text, o, key))
   const conv = clickable(fill(L.encours_conv, { n: n.convs }), { tone: n.convs ? 'ok' : undefined, bold: n.convs > 0, dim: !n.convs }, 'pec-conv',
     act.pfilter ? () => act.pfilter('state', 'running') : null)
-  const wf = (short) => item(h, fill(short ? L.encours_wf_short : L.encours_wf, { n: n.workflows }), { tone: n.workflows ? 'ok' : undefined, bold: n.workflows > 0, dim: !n.workflows })
-  const ag = item(h, fill(L.encours_agents, { n: n.agents }), { tone: n.agents ? 'ok' : undefined, bold: n.agents > 0, dim: !n.agents })
+  const wf = (short) => item(h, fill(short ? L.encours_wf_short : n.workflows === 1 ? L.encours_wf_one || L.encours_wf : L.encours_wf, { n: n.workflows }), { tone: n.workflows ? 'ok' : undefined, bold: n.workflows > 0, dim: !n.workflows })
+  // « 1 agent en cours » as on every row; « 1 ag. » only when the width forces it (Julian, 20 Oct)
+  const agO = { tone: n.agents ? 'ok' : undefined, bold: n.agents > 0, dim: !n.agents }
+  const ag = item(h, fill(L.tree_agents, { n: n.agents, agents: n.agents === 1 ? L.agent_one : L.agent_many }), agO)
+  const agS = item(h, fill(L.tree_agents_short, { n: n.agents }), agO)
   const fams = n.fams.length ? item(h, fill(L.encours_fam, { list: n.fams.map(([f, k]) => `${k} ${f}`).join(', ') }), { dim: true }) : null
   const agFull = fams ? { el: h.row([ag.el, fams.el], { gap: 1, flexWrap: 'nowrap', key: 'pec-ag' }), w: ag.w + fams.w + 1 } : ag
   const blocked = n.blocked ? clickable(fill(n.blocked === 1 ? L.encours_blocked_one : L.encours_blocked, { n: n.blocked }), { tone: 'bad', bold: true }, 'pec-blocked',
     act.pfilter ? () => act.pfilter('state', 'waiting') : null) : null
   const room = u.W - head.w - 2
-  const vs = [[conv, wf(false), agFull, blocked], [conv, wf(false), ag, blocked], [conv, wf(true), ag, blocked]].map((v) => withDots(u, v))
+  const vs = [[conv, wf(false), agFull, blocked], [conv, wf(false), ag, blocked], [conv, wf(true), ag, blocked], [conv, wf(true), agS, blocked]].map((v) => withDots(u, v))
   return h.row([head.el, fitLine(u, room, vs, 'pec-l')], { key: 'p-encours', gap: 2, flexWrap: 'nowrap', alignItems: 'center', marginBottom: 1 })
 }
 
@@ -193,15 +196,20 @@ function macroDots(u, list, key) {
 // (spawnedFrom) → its Workflows / background agents → their agents. Every node is two lines: the node line (connector,
 // state mark, title cut, ⚠ / › / ⌄ at the right) and its metrics line, grey, indented under the title (after the
 // connector column); an empty « │ » line separates siblings (not the agents of one Workflow: they stay dense, one line
-// each). Connectors ├── └── │ are grey text columns; under style.wide_cols columns the indent is 2 (├ └ │) instead of 4.
+// each). Connectors ├──── └──── │ are grey text columns, panel.tree.indent columns per level (Julian, 20 Oct: « ajoute
+// de l'indentation »; "auto": 6, 4 under style.wide_cols columns). The metrics line starts under the title's first letter.
 // An unfolded node draws its detail (micro) inside the tree, under its metrics line, the tree rule running on its left.
 
 
-/** The connector strings at this width: 4-column indents, or 2 under style.wide_cols. */
-function glyphsOf(u, P) {
-  const narrow = (P.columns || 75) < (Number(u.c.style.wide_cols) || 60)
-  return narrow ? { mid: '├ ', end: '└ ', bar: '│ ', none: '  ' } : { mid: '├── ', end: '└── ', bar: '│   ', none: '    ' }
+/** The connector strings: panel.tree.indent columns per level ("auto": 6, 4 under style.wide_cols columns). */
+export function treeGlyphs(c, columns) {
+  const set = c && c.tree ? c.tree.indent : 'auto'
+  const narrow = (columns || 75) < (Number(c && c.style && c.style.wide_cols) || 60)
+  const n = Number.isFinite(Number(set)) && set !== '' && set !== null ? Math.max(2, Math.min(12, Math.round(Number(set)))) : narrow ? 4 : 6
+  const rule = '─'.repeat(n - 2)
+  return { mid: `├${rule} `, end: `└${rule} `, bar: '│' + ' '.repeat(n - 1), none: ' '.repeat(n) }
 }
+const glyphsOf = (u, P) => treeGlyphs(u.c, P.columns)
 
 /** `el` behind a grey prefix column (« │   ├── », « │   │ »): the prefix keeps its width, the element takes the rest. */
 function pre(u, prefix, el, key) {
@@ -249,7 +257,9 @@ function drawTree(u, P, nodes, base, dense = false) {
 function fitLine(u, width, variants, key, tail = '') {
   const { h } = u
   const sum = (xs) => xs.reduce((a, x) => a + x.w + 1, 0) - (xs.length ? 1 : 0)
-  const v = variants.find((x) => sum(x) <= width) || variants[variants.length - 1] || []
+  let v = variants.find((x) => sum(x) <= width) || variants[variants.length - 1] || []
+  // the line wraps nowhere: past the barest variant, whole items go from the end (a « · » never ends the line)
+  while (v.length > 1 && sum(v) > width) { v = v.slice(0, -1); while (v.length > 1 && v[v.length - 1].dot) v = v.slice(0, -1) }
   const room = width - sum(v) - (v.length ? 3 : 0)
   const t = tail && room >= 8 ? [h.T((v.length ? '· ' : '') + clip(tail, room), { dim: true, wrap: 'truncate-end', key: key + '-tail' })] : []
   return h.row([...v.map((x) => x.el), ...t], { key, flexWrap: 'nowrap', gap: 1, alignItems: 'center' })
@@ -261,7 +271,7 @@ function nodeHead(u, o, width) {
     variants: [o.right || []], minTitle: 3, width })
 }
 
-const dot = (u) => item(u.h, '·', { dim: true })
+const dot = (u) => ({ ...item(u.h, '·', { dim: true }), dot: true })
 const withDots = (u, xs) => xs.filter(Boolean).flatMap((x, i) => (i ? [dot(u), x] : [x]))
 
 /** The context of a metrics line: « ctx ▰▰▰▱ 77 % » (amber, bold at style.ctx_warn_pct; red past the hand-off). */
@@ -315,9 +325,10 @@ function convNode(u, P, L, o) {
       const agS = counts.agents ? item(h, fill(L.tree_agents_short, { n: counts.agents })) : null
       const sub = counts.subs ? item(h, fill(L.tree_subs, { n: counts.subs }), { dim: true }) : null
       const vs = cx
-        ? [[cx.full, val, m, wf, ag, sub, st], [cx.full, val, m, wf, ag, sub], [cx.full, val, wf, ag, sub], [cx.full, val, wf, ag], [cx.full, val, wf, agS],
-          [cx.noBar, val, wf, agS], [cx.bare, val, wf, agS], [cx.bare, val]]
-        : [[val, m, wf, ag, sub, st], [val, m, wf, ag, sub], [val, wf, ag, sub], [val, wf, ag], [val, wf, agS], [val]]
+        // « 1 agent en cours » keeps its words until the bar went: « 1 ag. » only when the width forces it
+        ? [[cx.full, val, m, wf, ag, sub, st], [cx.full, val, m, wf, ag, sub], [cx.full, val, wf, ag, sub], [cx.full, val, wf, ag], [cx.noBar, val, wf, ag],
+          [cx.bare, val, wf, ag], [cx.bare, val, wf, agS], [cx.bare, wf, agS], [cx.bare, val]]
+        : [[val, m, wf, ag, sub, st], [val, m, wf, ag, sub], [val, wf, ag, sub], [val, wf, ag], [val, wf, agS], [wf, agS], [val]]
       if (!d) return fitLine(u, w, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)
       const label = `${L.details} ${d.open ? '⌄' : '›'}`
       const btn = h.tbtn(label, d.onToggle, d.key, { plain: true, dim: true })
@@ -360,20 +371,24 @@ function wfNode(u, P, L, k) {
       const phase = k.kind === 'workflow' ? k.phases.filter((p) => p.running > 0 && p.title !== L.phase_default && p.title !== k.title).map((p) => p.title).join('+') : ''
       const fam = {}
       for (const a of agents) if (a.status === 'running') { const f = String(a.model || '?').split(' ')[0].toLowerCase(); fam[f] = (fam[f] || 0) + 1 }
-      // « 2 agents en cours (opus) », « 3 agents en cours (2 opus, 1 sonnet) »; short of room « 3 en cours »
+      // « 2 agents en cours (opus) », « 3 agents en cours (2 opus, 1 sonnet) »; short of room the models go first (« fin
+      // ~HH:MM » stays at 75 columns), then the phase, then « 3 ag. » (Julian, 20 Oct)
       const fl = famList(fam)
       const nRun = fl.reduce((a, x) => a + x[1], 0)
       const models = nRun ? fill(L.wf_running, { n: nRun, agents: nRun === 1 ? L.agent_one : L.agent_many, models: fl.length === 1 ? fl[0][0] : fl.map(([f, n]) => `${n} ${f}`).join(', ') }) : ''
-      const modelsShort = nRun ? fill(L.wf_running_short, { n: nRun }) : ''
+      const modelsPlain = nRun ? fill(L.tree_agents, { n: nRun, agents: nRun === 1 ? L.agent_one : L.agent_many }) : ''
+      const modelsShort = nRun ? fill(L.tree_agents_short, { n: nRun }) : ''
       const time = k.stalled ? item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true }) : item(h, minText(k.elapsed), { dim: true })
       const eta = k.eta ? item(h, fill(L.wf_eta, { time: k.eta }), { dim: true }) : null
       const count = item(h, `${done}/${agents.length || k.count}`, { dim: true })
       const dots = macroDots(u, k.dots || [], `pkd-${k.key}`)
       const ph = phase ? item(h, phase, { dim: true }) : null
       const mo = models ? item(h, models) : null
+      const moP = modelsPlain ? item(h, modelsPlain) : null
       const moS = modelsShort ? item(h, modelsShort) : null
       const head = { el: h.row([count.el, dots.el], { gap: 1, flexWrap: 'nowrap', key: `pkc-${k.key}` }), w: count.w + dots.w + 1 }
-      const vs = [[head, ph, mo, time, eta], [head, ph, mo, time], [head, ph, moS, time], [head, moS, time], [head, time], [count, time]]
+      const vs = [[head, ph, mo, time, eta], [head, ph, moP, time, eta], [head, moP, time, eta], [head, moP, time], [head, moS, time, eta], [head, moS, time],
+        [head, time], [count, time]]
       return fitLine(u, w, vs.map((v) => withDots(u, v)), `pkl-${k.key}`)
     },
     micro: k.open ? (inner) => taskBody(inner, P, L, k, true, true) : null,
