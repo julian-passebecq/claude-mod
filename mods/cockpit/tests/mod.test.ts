@@ -312,12 +312,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await has(ui, /▸ src/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/src' })
       expect(await has(ui, /· main\.ts/)).toBe(true)
-      // this conversation: one line (title, context %); its card only on a click, no box drawing
+      // this conversation: its node and metrics lines (title, context %); its card only on « détails », no box drawing
       expect(await has(ui, /^Galaxy fin/)).toBe(true) // its title, cut first at 60 columns
       expect(await has(ui, /^10 %$/)).toBe(true)
       expect(await has(ui, /^Cache hit$/)).toBe(false)
       expect(await has(ui, /[╭╮╰╯]/)).toBe(false)
-      await ui.press({ plugin: 'cockpit', key: 'pself' })
+      await ui.press({ plugin: 'cockpit', key: 'pdetails' }) // « détails › » on its metrics line (its › folds its children)
       expect(await has(ui, /^Contexte$/)).toBe(true)
       expect(await has(ui, /^103K \/ 1\.0M · relais 250K$/)).toBe(true)
       expect(await has(ui, /^Cache hit$/)).toBe(true)

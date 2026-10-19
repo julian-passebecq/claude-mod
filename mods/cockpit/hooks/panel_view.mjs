@@ -23,7 +23,7 @@
 // cuts its title, its metrics line drops the ETA, then the model, then the bar; a number is never cut.
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok, convKey, markOf, minText, modelShort } from '../lib/panel.mjs'
-import { modelName } from '../lib/panel_conv.mjs'
+import { modelName, enCours, famList, kidsOpen } from '../lib/panel_conv.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
@@ -57,6 +57,7 @@ export function drawPanel(h, P) {
   const out = []
   const click = drawClick(u, P, L)
   if (click) out.push(click)
+  out.push(drawEnCours(u, P, L))
   // the one-line sections sit together; a block of rows (Fichiers, the conversations) is followed by an empty line
   const oneLine = new Set(['barres', 'debit', 'graphe'])
   let prev = ''
@@ -102,7 +103,38 @@ function drawClick(u, P, L) {
       h.T(clip(tail, Math.max(4, u.W - len(head) - len(title) - 4)), { tone: 'warn', wrap: 'truncate-end' }),
     ], { key: 'pk-click-' + w.key, flexWrap: 'nowrap', alignItems: 'center' }))
   }
-  return h.col(lines, { key: 'p-click', marginBottom: 1 })
+  return h.col(lines, { key: 'p-click' })
+}
+
+// ---- EN COURS: one line, what runs now (Julian, 20 Oct: « I don't see how many workflows, agents, sub-agents ») -------
+
+/**
+ * « EN COURS  3 conv · 4 workflows · 9 agents (7 opus, 2 sonnet) · 2 bloqués »: the conversations that work (green, a
+ * click filters CONVERSATIONS on « en cours »), the live Workflows, the running agents and their models, the blocked
+ * conversations (red, a click filters on « t'attend »). Short of room the models go, then the words get short.
+ */
+function drawEnCours(u, P, L) {
+  const { h } = u
+  const n = enCours({ syn: P.synAll || P.syn, factory: P.factory, factories: P.convFactories, self: P.self })
+  const head = item(h, L.encours_head, { bold: true })
+  if (!n.convs && !n.workflows && !n.agents && !n.blocked) {
+    return h.row([head.el, h.T(L.encours_none, { dim: true })], { key: 'p-encours', gap: 2, flexWrap: 'nowrap', marginBottom: 1 })
+  }
+  const act = P.act || {}
+  const clickable = (text, o, key, onPress) => (onPress && h.tbtn
+    ? { el: h.tbtn(text, onPress, key, { plain: true, ...o }), w: len(text) + 2 }
+    : item(h, text, o, key))
+  const conv = clickable(fill(L.encours_conv, { n: n.convs }), { tone: n.convs ? 'ok' : undefined, bold: n.convs > 0, dim: !n.convs }, 'pec-conv',
+    act.pfilter ? () => act.pfilter('state', 'running') : null)
+  const wf = (short) => item(h, fill(short ? L.encours_wf_short : L.encours_wf, { n: n.workflows }), { tone: n.workflows ? 'ok' : undefined, bold: n.workflows > 0, dim: !n.workflows })
+  const ag = item(h, fill(L.encours_agents, { n: n.agents }), { tone: n.agents ? 'ok' : undefined, bold: n.agents > 0, dim: !n.agents })
+  const fams = n.fams.length ? item(h, fill(L.encours_fam, { list: n.fams.map(([f, k]) => `${k} ${f}`).join(', ') }), { dim: true }) : null
+  const agFull = fams ? { el: h.row([ag.el, fams.el], { gap: 1, flexWrap: 'nowrap', key: 'pec-ag' }), w: ag.w + fams.w + 1 } : ag
+  const blocked = n.blocked ? clickable(fill(n.blocked === 1 ? L.encours_blocked_one : L.encours_blocked, { n: n.blocked }), { tone: 'bad', bold: true }, 'pec-blocked',
+    act.pfilter ? () => act.pfilter('state', 'waiting') : null) : null
+  const room = u.W - head.w - 2
+  const vs = [[conv, wf(false), agFull, blocked], [conv, wf(false), ag, blocked], [conv, wf(true), ag, blocked]].map((v) => withDots(u, v))
+  return h.row([head.el, fitLine(u, room, vs, 'pec-l')], { key: 'p-encours', gap: 2, flexWrap: 'nowrap', alignItems: 'center', marginBottom: 1 })
 }
 
 // ---- the macro rows ---------------------------------------------------------------------------------------------------
@@ -123,7 +155,7 @@ function macroRow(u, o) {
   const r = Math.max(3, room(v))
   const text = clip(o.title, r)
   const title = o.onPress
-    ? h.tbtn(text, o.onPress, o.titleKey, { plain: true, bold: o.bold })
+    ? h.tbtn(text, o.onPress, o.titleKey, { plain: true, bold: o.bold, dim: o.dim })
     : h.T(text, { bold: o.bold, dim: o.dim, wrap: 'truncate-end' })
   return h.row([
     h.row([...(o.lead || []).map((x) => x.el), title], { flexWrap: 'nowrap', gap: 1, alignItems: 'center', flexShrink: 1, key: 'l' }),
@@ -225,7 +257,7 @@ function fitLine(u, width, variants, key, tail = '') {
 
 /** A node line: state mark, title (a plain button when onPress), then the right items (⚠, › / ⌄), never cut. */
 function nodeHead(u, o, width) {
-  return macroRow(u, { key: o.key, lead: [markItem(u, o.mark)], title: o.title, titleKey: o.titleKey, onPress: o.onPress, bold: o.bold,
+  return macroRow(u, { key: o.key, lead: [markItem(u, o.mark)], title: o.title, titleKey: o.titleKey, onPress: o.onPress, bold: o.bold, dim: o.dim,
     variants: [o.right || []], minTitle: 3, width })
 }
 
@@ -247,29 +279,64 @@ function ctxParts(u, P, x, key) {
 }
 
 /**
- * A conversation as a tree node. o: { key, mark, title, titleKey, open, onToggle, model, effort, ctx: { pct, over,
- * markPct } | null, value (tokens or cost), state (its word), from (« ↖ lancée par … » when its parent is not drawn),
- * micro, children }. The ⚠ past the hand-off threshold sits on the node line; the metrics line says the context, the
- * value, model · effort and the state; short of room the state goes, then the model, then the bar; never a number.
+ * A conversation as a tree node (Julian, 20 Oct: « more compact, hard to see what is really running »). o: { key, mark,
+ * title, titleKey, open (its children drawn), onToggle, running (bold), idle (grey), model, effort, ctx: { pct, over,
+ * markPct } | null, value (tokens or cost), state (its word, said only when it does not run), counts: { wf, agents,
+ * subs }, from (« ↖ lancée par … »), details: { open, onToggle, key, lines(inner) } | null, children }.
+ * Folded with nothing running: ONE line, « ○ title   42 % · 507K ». Else the node line (⚠ past the hand-off, › / ⌄)
+ * and its metrics line « ctx ▰▰▱ 42 % · 76M · opus·med · 2 wf · 5 agents en cours · 1 sous-conv   détails › »; short
+ * of room the state goes, then the model, the sub-conversations, the long words, the bar; never a number.
+ * « détails › » unfolds the card (context, stats, Ce qui contribue / Sankey, journal) under the metrics line.
  */
 function convNode(u, P, L, o) {
   const { h } = u
-  const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
   const warn = o.ctx && o.ctx.over ? [item(h, L.handoff_mark || '⚠', { tone: 'bad', bold: true })] : []
+  const counts = o.counts || {}
+  const head = { key: o.key + '-h', mark: o.mark, title: o.title, titleKey: o.titleKey, onPress: o.onToggle, bold: Boolean(o.running), dim: Boolean(o.idle) }
+  if (!o.running && !o.open) {
+    // one line: the title, then « 1 sous-conv · 42 % · 507K » at the right
+    const nums = [counts.subs ? fill(L.tree_subs, { n: counts.subs }) : '', o.ctx && Number.isFinite(o.ctx.pct) ? `${Math.round(o.ctx.pct)} %` : '', o.value || ''].filter(Boolean).join(' · ')
+    return { key: o.key, children: [], head: (w) => nodeHead(u, { ...head, right: [...warn, ...(nums ? [item(h, nums, { dim: true })] : [])] }, w) }
+  }
+  const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
+  const d = o.details
   return {
-    key: o.key, children: o.children || [], micro: o.micro || null,
-    head: (w) => nodeHead(u, { key: o.key + '-h', mark: o.mark, title: o.title, titleKey: o.titleKey, onPress: o.onToggle, right: [...warn, arrow] }, w),
+    key: o.key, children: o.open ? o.children || [] : [],
+    micro: d && d.open ? d.lines : null,
+    head: (w) => nodeHead(u, { ...head, right: [...warn, arrow] }, w),
     metrics: (w) => {
       const cx = ctxParts(u, P, o.ctx, o.key + '-bar')
       const val = o.value ? item(h, o.value, { dim: true }) : null
       const model = modelShort(o.model, o.effort, P.cfg)
       const m = model ? item(h, model, { dim: true }) : null
-      const st = o.state ? item(h, o.state, { dim: true }) : null
+      const st = o.state && !o.running ? item(h, o.state, { dim: true }) : null
+      const wf = counts.wf ? item(h, fill(L.tree_wf, { n: counts.wf })) : null
+      const ag = counts.agents ? item(h, fill(L.tree_agents, { n: counts.agents, agents: counts.agents === 1 ? L.agent_one : L.agent_many })) : null
+      const agS = counts.agents ? item(h, fill(L.tree_agents_short, { n: counts.agents })) : null
+      const sub = counts.subs ? item(h, fill(L.tree_subs, { n: counts.subs }), { dim: true }) : null
       const vs = cx
-        ? [[cx.full, val, m, st], [cx.full, val, st], [cx.full, val], [cx.noBar, val], [cx.bare, val]]
-        : [[val, m, st], [val, st], [val]]
-      return fitLine(u, w, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)
+        ? [[cx.full, val, m, wf, ag, sub, st], [cx.full, val, m, wf, ag, sub], [cx.full, val, wf, ag, sub], [cx.full, val, wf, ag], [cx.full, val, wf, agS],
+          [cx.noBar, val, wf, agS], [cx.bare, val, wf, agS], [cx.bare, val]]
+        : [[val, m, wf, ag, sub, st], [val, m, wf, ag, sub], [val, wf, ag, sub], [val, wf, ag], [val, wf, agS], [val]]
+      if (!d) return fitLine(u, w, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)
+      const label = `${L.details} ${d.open ? '⌄' : '›'}`
+      const btn = h.tbtn(label, d.onToggle, d.key, { plain: true, dim: true })
+      return h.row([
+        h.col([fitLine(u, w - len(label) - 3, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)], { flexShrink: 1, key: 'l' }),
+        h.col([btn], { flexShrink: 0, key: 'r' }),
+      ], { key: o.key + '-mr', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' })
     },
+  }
+}
+
+/** « Terminés N › » as a tree node under a conversation: its finished Workflows / agents, folded by default. */
+function finishedNode(u, P, L, f) {
+  const toggle = () => P.act.nodeToggle(f.key, f.open)
+  return {
+    key: 'pkt-' + f.key,
+    head: (w) => nodeHead(u, { key: 'pkth-' + f.key, mark: { glyph: '✓', tone: 'dim' }, title: fill(L.finished, { n: f.count }), titleKey: f.key, onPress: toggle, dim: true,
+      right: [arrowItem(u, f.open, toggle, f.key + '-x')] }, w),
+    children: f.open ? f.cards.map((k) => wfNode(u, P, L, k)) : [],
   }
 }
 
@@ -288,20 +355,25 @@ function wfNode(u, P, L, k) {
   return {
     key: `pkm-${k.key}`, dense: true,
     head: (w) => nodeHead(u, { key: `pkh-${k.key}`, mark, title: kind ? `${k.title} · ${kind}` : k.title, titleKey: `pk-${k.key}-t`, onPress: toggle,
-      right: [arrowItem(u, k.open, toggle, `pk-${k.key}-x`)] }, w),
+      bold: Boolean(k.live), dim: !k.live, right: [arrowItem(u, k.open, toggle, `pk-${k.key}-x`)] }, w),
     metrics: (w) => {
       const phase = k.kind === 'workflow' ? k.phases.filter((p) => p.running > 0 && p.title !== L.phase_default && p.title !== k.title).map((p) => p.title).join('+') : ''
       const fam = {}
       for (const a of agents) if (a.status === 'running') { const f = String(a.model || '?').split(' ')[0].toLowerCase(); fam[f] = (fam[f] || 0) + 1 }
-      const models = Object.entries(fam).map(([f, n]) => fill(L.wf_running, { n, model: f })).join('+')
+      // « 2 agents en cours (opus) », « 3 agents en cours (2 opus, 1 sonnet) »; short of room « 3 en cours »
+      const fl = famList(fam)
+      const nRun = fl.reduce((a, x) => a + x[1], 0)
+      const models = nRun ? fill(L.wf_running, { n: nRun, agents: nRun === 1 ? L.agent_one : L.agent_many, models: fl.length === 1 ? fl[0][0] : fl.map(([f, n]) => `${n} ${f}`).join(', ') }) : ''
+      const modelsShort = nRun ? fill(L.wf_running_short, { n: nRun }) : ''
       const time = k.stalled ? item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true }) : item(h, minText(k.elapsed), { dim: true })
       const eta = k.eta ? item(h, fill(L.wf_eta, { time: k.eta }), { dim: true }) : null
       const count = item(h, `${done}/${agents.length || k.count}`, { dim: true })
       const dots = macroDots(u, k.dots || [], `pkd-${k.key}`)
       const ph = phase ? item(h, phase, { dim: true }) : null
-      const mo = models ? item(h, models, { dim: true }) : null
+      const mo = models ? item(h, models) : null
+      const moS = modelsShort ? item(h, modelsShort) : null
       const head = { el: h.row([count.el, dots.el], { gap: 1, flexWrap: 'nowrap', key: `pkc-${k.key}` }), w: count.w + dots.w + 1 }
-      const vs = [[head, ph, mo, time, eta], [head, ph, mo, time], [head, ph, time], [head, time], [count, time]]
+      const vs = [[head, ph, mo, time, eta], [head, ph, mo, time], [head, ph, moS, time], [head, moS, time], [head, time], [count, time]]
       return fitLine(u, w, vs.map((v) => withDots(u, v)), `pkl-${k.key}`)
     },
     micro: k.open ? (inner) => taskBody(inner, P, L, k, true, true) : null,
@@ -321,16 +393,42 @@ function agentNode(u, L, a, key) {
   }
 }
 
-/** A conversation's detail inside the tree: « ouvrir ↗ » (another conversation), its card, Terminés, the log. */
-function convMicroLines(u, P, L, m, o) {
+/**
+ * A conversation's « détails » inside the tree: « ouvrir ↗ » (another conversation), its card (context, stats, model
+ * share, Sankey or « Ce qui contribue ») without the model · effort · state line (the metrics line says it) nor the
+ * hand-off note (the red ⚠ on the row says it), then « journal (N) › », folded by default.
+ */
+function detailLines(u, P, L, m, o) {
   const { h } = u
   const lines = []
   if (o.link) lines.push(h.row([h.btn(o.openLabel || L.open_conv, () => P.act.openConv(o.link), false, 'pco-' + o.cli)], { key: 'pco-row-' + o.cli }))
-  if (m && m.available) lines.push(...factoryLines(u, P, L, m, o.log, { noTitle: true, noLive: o.noLive }))
-  else lines.push(h.T(L.conv_no_factory, { dim: true, wrap: 'truncate-end', key: 'nf' }))
+  if (!m || !m.available) { lines.push(h.T(L.conv_no_factory, { dim: true, wrap: 'truncate-end', key: 'nf' })); return lines }
+  lines.push(...leadCard(u, P, L, m, true, { noMeta: true, noNote: true }))
+  const open = Boolean(m.journalOpen)
+  lines.push(h.row([h.tbtn(`${fill(L.journal, { n: m.log.length })} ${open ? '⌄' : '›'}`, () => P.act.nodeToggle(m.journalKey, open), m.journalKey, { plain: true })], { key: m.journalKey + '-row' }))
+  if (open) {
+    if (!m.log.length) lines.push(h.T(L.log_none, { dim: true, key: 'pfj-none' }))
+    m.log.forEach((e, i) => lines.push(h.T(clip(`${String(new Date(e.at).getHours()).padStart(2, '0')}:${String(new Date(e.at).getMinutes()).padStart(2, '0')}  ${e.text}`, u.W), { key: 'pfj-' + i, tone: e.tone || undefined, dim: !e.tone, wrap: 'truncate-end' })))
+  }
   return lines
 }
 
+/** A conversation's children in the tree: its sub-conversations, its running Workflows / agents, « Terminés N › ». */
+const childrenOf = (u, P, L, m, subs = [], withCards = true) => [
+  ...subs,
+  ...(withCards && m && m.available ? m.cards.map((k) => wfNode(u, P, L, k)) : []),
+  ...(withCards && m && m.available && m.finished ? [finishedNode(u, P, L, m.finished)] : []),
+]
+
+/** The counts of a conversation's metrics line: its live Workflows, its running agents, its sub-conversations. */
+const countsOf = (m, subs) => ({ wf: m && m.available && m.live ? m.live.workflows : 0, agents: m && m.available && m.live ? m.live.agents : 0, subs: subs || 0 })
+
+/** The sub-conversations of a conversation in Claude's list (spawnedFrom = its sid). */
+const subsOf = (P, cli) => {
+  const rows = (P.syn && P.syn.rows) || []
+  const me = rows.find((r) => r.id === cli)
+  return me && me.sid ? rows.filter((r) => r.parent === me.sid && r.id !== cli).length : 0
+}
 
 // ---- the primitives of Claude's panes, from the kit ----------------------------------------------------------------
 
@@ -470,23 +568,26 @@ const ctxOfRow = (u, P, tokens) => {
   return { pct: (100 * tokens) / win, over: tokens >= thr, markPct: Math.min(100, (100 * thr) / win) }
 }
 
-/** This conversation as a one-root tree: its node and metrics lines, its running Workflows under it; › unfolds its card. */
+/** This conversation as a one-root tree: its node and metrics lines, its running Workflows under it; « détails › » its card. */
 function drawConv(u, P, L) {
   const { h, c } = u
   const m = P.factory
   const out = [headLine(u, L.conv_head, '', 'p-sec-conv')]
   if (!m || !m.available) return h.col([...out, h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })], { key: 'p-conv' })
-  const open = P.closed && P.closed.pself === false
+  // › / ⌄ folds its children (unfolded while a Workflow / agent runs); « détails › » its card (folded by default)
+  const open = kidsOpen(P.closed, 'pself', m)
   const toggle = () => P.act.nodeToggle('pself', open)
   const x = m.ctx && m.ctx.known ? m.ctx : null
   const s = m.stats
-  // one root: its metrics line, (unfolded) its card, then its running Workflows as its children
+  const mark = markOf(m.lead.stateId)
   const node = convNode(u, P, L, {
-    key: 'pself-row', mark: c.marks[markOf(m.lead.stateId)] || c.marks.idle, title: m.lead.title, titleKey: 'pself', onToggle: toggle, open,
+    key: 'pself-row', mark: c.marks[mark] || c.marks.idle, title: m.lead.title, titleKey: 'pself', onToggle: toggle, open,
+    running: mark === 'working' || mark === 'stalled' || m.cards.length > 0, idle: mark === 'done' || mark === 'idle' || mark === 'archived',
     model: m.lead.model, effort: m.lead.effort, ctx: x ? { pct: x.pct, over: x.over, markPct: x.markPct } : null, state: m.lead.state,
     value: s.cost === null || s.cost === undefined ? (s.tokens ? fmtTokens(s.tokens) : '') : fmtUsd(s.cost),
-    micro: open ? (inner) => convMicroLines(inner, P, L, m, { log: true, noLive: true }) : null,
-    children: m.cards.map((k) => wfNode(u, P, L, k)),
+    counts: countsOf(m, subsOf(P, P.self)),
+    details: { open: m.detailsOpen, key: m.detailsKey, onToggle: () => P.act.nodeToggle(m.detailsKey, m.detailsOpen), lines: (inner) => detailLines(inner, P, L, m, {}) },
+    children: childrenOf(u, P, L, m),
   })
   out.push(...drawTree(u, P, [node], ''))
   return h.col(out, { key: 'p-conv' })
@@ -573,21 +674,22 @@ function compactCard(u, P, L, m, noTitle) {
 }
 
 /** Claude's Usage pane, for the lead: title, model · effort · state, the context row and bar, the stats grid. */
-function leadCard(u, P, L, m, noTitle) {
+function leadCard(u, P, L, m, noTitle, o = {}) {
   const { h } = u
   const lead = m.lead
   const s = m.stats
   const x = m.ctx
+  // in the tree (o.noMeta, o.noNote) the metrics line says model · effort · state and the row's red ⚠ the hand-off
   const kids = [
     noTitle ? null : u.title(lead.title, 'pl-title'),
-    metaRow(u, P, L, m),
+    o.noMeta ? null : metaRow(u, P, L, m),
   ]
   if (x && x.known) {
     const tone = x.over ? 'bad' : x.pct >= 50 ? 'warn' : undefined
-    kids.push(u.blank('pl-ctx-gap'),
+    kids.push(o.noMeta ? null : u.blank('pl-ctx-gap'),
       u.line(L.ctx_label, x.detail, `${Math.round(x.pct)} %`, { tone, key: 'pl-ctx' }),
       u.bar(x.pct, 'pl-ctx-bar', { mark: x.markPct, tone: x.over ? 'bad' : undefined }),
-      x.over ? h.T(x.note, { tone: 'bad', wrap: 'truncate-end', key: 'pl-ctx-note' }) : null)
+      x.over && !o.noNote ? h.T(x.note, { tone: 'bad', wrap: 'truncate-end', key: 'pl-ctx-note' }) : null)
   } else kids.push(h.T(L.ctx_none, { dim: true, key: 'pl-ctx-none' }))
   const pct = (v) => (v === null || v === undefined ? '—' : `${v} %`)
   kids.push(...u.grid([
@@ -783,18 +885,27 @@ function drawConvs(u, P, L, width) {
     }
     const nodeOf = (r) => {
       const self = r.id === P.self
-      const fm = (P.convFactories || {})[r.id]
-      const open = self ? P.closed && P.closed.pself === false : Boolean(P.unfold && P.unfold.has(r.id))
+      const fm = self ? P.factory : (P.convFactories || {})[r.id]
+      // › / ⌄: its children only (sub-conversations, running Workflows / agents, Terminés N ›); unfolded by default while
+      // a Workflow, an agent or a sub-conversation of it runs (convFactories' kids); « détails › »: its card
+      const open = Boolean(P.kids ? P.kids.has(r.id) : P.tree && P.tree.has(r.id))
       const key = self ? 'pself' : convKey(r.id)
-      // this conversation's card and Workflows are under « Cette conversation »
-      const live = !self && fm && fm.available && P.tree && P.tree.has(r.id) ? fm.cards : []
       const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
+      const subs = (kids.get(r.id) || []).map(nodeOf)
+      const live = Boolean(fm && fm.available && fm.cards.length > 0)
+      const dk = key + ':pdetails'
+      const det = fm && fm.available ? { open: fm.detailsOpen, key: fm.detailsKey } : { open: Boolean(P.closed && P.closed[dk] === false), key: dk }
       return convNode(u, P, L, {
         key: 'pc-' + r.id, mark: c.marks[r.mark] || c.marks.idle, title: r.label, titleKey: 'pcv-' + r.id, open,
+        running: r.mark === 'working' || r.mark === 'stalled' || live, idle: r.mark === 'done' || r.mark === 'idle' || r.mark === 'archived',
         onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
         state: r.mark !== 'idle' && r.mark !== 'stalled' && (L.graphe_states || {})[r.mark] ? L.graphe_states[r.mark] : r.stateLabel, from: r.parent && !parentOf(r) && r.parentTitle ? fill(L.graphe_from, { title: r.parentTitle }) : '',
-        micro: open && !self ? (inner) => convMicroLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short, noLive: live.length > 0 }) : null,
-        children: [...(kids.get(r.id) || []).map(nodeOf), ...live.map((k) => wfNode(u, P, L, k))],
+        counts: countsOf(fm, subs.length),
+        // this conversation's card is under « Cette conversation »: no « détails » on its row here
+        details: self ? null : { ...det, onToggle: () => P.act.nodeToggle(det.key, det.open),
+          lines: (inner) => detailLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short }) },
+        // this conversation's Workflows are under « Cette conversation »
+        children: childrenOf(u, P, L, fm, subs, !self),
       })
     }
     out.push(...drawTree(u, P, roots.map(nodeOf), ''))

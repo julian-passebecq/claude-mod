@@ -6,36 +6,36 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**. Since 19 
 
 ```
 ◆ À toi de cliquer : [Lane beta] Choisir la version · depu…
+EN COURS  [2 conv] · 2 workflows · 2 agents
 
 [▸ Fichiers] proj-one · main · sélection : src/panel.ts
 
 CETTE CONVERSATION
 │
-└── ● [Lane alpha · tableau de bord] [›]
-    │ ctx ▰▰▰▱▱▱|▱▱▱ 30 % · $9.50 · opus·med · travaille
+└── ● [Lane alpha · tableau de bord] [⌄]
+    │ ctx 30 % · $9.50 · 1 wf · 1 ag. [détails ›]
     │
-    └── ● [package-wave · workflow] [›]
-          2/4 ■■●□ · Wave B · 1 opus · 40 min · fin ~18:55
+    ├── ● [package-wave · workflow] [›]
+    │     2/4 ■■●□ · Wave B · 1 en cours · 40 min
+    │
+    └── ✓ [Terminés 1] [›]
 
 CONVERSATIONS · 3 actives [filtres ›]
 │
-├── ● [Lane alpha · tableau de bord] [›]
-│   │ ctx ▰▰▰▱▱▱|▱▱▱ 30 % · 3.6M · opus·med · travaille
+├── ● [Lane alpha · tableau de bord] [⌄]
+│   │ ctx ▰▰▰▱▱▱|▱▱▱ 30 % · 3.6M · 1 wf · 1 agent en cours
 │   │
-│   └── ○ [Package four] [›]
-│         ctx ▰▱▱▱▱▱|▱▱▱ 10 % · 200K · opus·med · terminée
+│   └── ○ [Package four] 10 % · 200K
 │
-├── ◆ [Lane beta] [›]
-│     1.0M · t’attend · ↖ lancée par PM BETA
+├── ◆ [Lane beta] 1.0M
 │
-├── ● [Lane delta] [›]
-│   │ ctx ▰▰▱▱▱▱|▱▱▱ 15 % · 800K · sonnet·low · travaille
+├── ● [Lane delta] [⌄]
+│   │ ctx ▰▰▱▱▱▱|▱▱▱ 15 % · 800K · 1 wf · 1 ag. [détails ›]
 │   │
 │   └── ● [wf_2 · workflow] [›]
-│         1/2 ■● · 1 sonnet · 15 min
+│         1/2 ■● · 1 agent en cours (sonnet) · 15 min
 │
-└── ○ [Lane gamma] [›]
-      500K · terminée
+└── ○ [Lane gamma] 500K
 [Aujourd’hui ⌄] 17h → 19h · 2 conv.
 Lane alpha · ta… ▕             █  █████████████▓░░░░░░░░░ ▏
 Lane delta       ▕                         ████▓│         ▏
@@ -48,8 +48,10 @@ Lane delta       ▕                         ████▓│         ▏
 Autres vues : /cockpit cartes · mission · focus · arbre · p…
 ```
 
+- **EN COURS** (Julian, 20 Oct: « hard to see what is really running… I don't see how many workflows, agents, sub-agents »): one line right under À toi de cliquer, « EN COURS  3 conv · 4 workflows · 9 agents (7 opus, 2 sonnet) · 2 bloqués »: the conversations that work (green; a click filters CONVERSATIONS on « en cours »), their live Workflows, their running agents and the models they run on, the blocked conversations (« bloquée » / « bloquée ? » or a Workflow « à l’arrêt »; red, a click filters on « t’attend »), counted over Claude's unfiltered list (`enCours` in `lib/panel_conv.mjs`). Short of room the models go, then « workflows » becomes « wf ». « rien ne tourne » when nothing runs.
 - **À toi de cliquer**: one amber line at the very top while a conversation waits for you (the app's `interruptedAwaitingPerson`, or the open question factory's scan detects), oldest first, with its reason and age; a click on its title opens it in the app. Nothing at all when nobody waits.
 - **Fichiers**: data-goblin's file tree, embedded, folded by default (two mods' panes in one column become tabs, so it can only sit *above* the rest if Cockpit draws it). The tree's own logic is filetree's code, byte copies in `lib/filetree/` (`tree.ts`, `icons.ts`, `types/`, `LICENSE`, `NOTICE`), synced by `scripts/sync-libs.mjs` from `vendor/filetree`. Kept: folders on demand, git letters and branch, selection named to Claude (`panel.fichiers.attach_selection`, on by default, same words as filetree). Not here: search, preview, activity flashes, sizes, opening files: filetree's own pane (`/filetree`) still has them.
+- **Compact tree** (Julian, 20 Oct: « make it clearer, more compact… too much info, needs more collapsible stuff »): a conversation's `›` / `⌄` now unfolds **only its children** (sub-conversations, running Workflows, running background agents, then « Terminés N › » for the finished ones, folded); it is unfolded by default while a Workflow, an agent or a sub-conversation of it runs (at most `panel.convs.tree_max`). Its micro details (context card, stats grid, model share, Ce qui contribue / Sankey, journal) are behind « détails › » at the right of its metrics line, **folded by default for every conversation, this one included**; the journal inside is folded too (« journal (6) › »). The metrics line counts what hangs under it: « ctx ▰▰▱ 42 % · 76M · opus·med · 2 wf · 5 agents en cours · 1 sous-conv   détails › »; no « Opus 5.5 · medium · travaille » line under it any more, and the hand-off warning is the red ⚠ on the row only. A conversation with nothing running and folded is **one line**, « ○ title   42 % · 507K », grey; running nodes are bold, finished ones grey. A Workflow's line says « 2 agents en cours (opus) » (« 3 agents en cours (2 opus, 1 sonnet) »; « 2 en cours » when short of room). The shipped `cockpit.config.json` sets `panel.convs.unfold_max` to 0 again (it was 6, which unfolded six active conversations' full cards).
 - **CETTE CONVERSATION** (`lib/panel_conv.mjs`, drawn by `hooks/panel_view.mjs`). Macro: one tree root, « └── ● title  › » and under the title « ctx ▰▰▰▱ 30 % · $9.50 · opus·med · travaille » (the context bar with the hand-off mark at `panel.contexte.handoff_tokens`, the cost, model · effort, the state; past the hand-off a red ⚠ on the node line), then one child per running Workflow (or the background agents): « └── ● package-wave · workflow  › » and « 2/4 ■■●□ · Wave B · 1 opus · 40 min · fin ~18:55 » = done / count and one dot per agent (grey ■ done, ● running, grey □ pending, red ✕ failed), the running phase(s), how many agents run on which model, the elapsed time (or « à l’arrêt 1 h 10 » in amber when its agents wrote nothing for `panel.conv.stall_min` minutes), the ETA. Micro, on the conversation's `›`, inside the tree under its metrics line with the tree rule on its left: the Usage-like card (model · effort · state, the context row « Contexte  120K / 400K · relais 250K  30 % » over a full bar, the stats grid Coût / Tokens / Cache hit / Sous-agents / Agents / tok/s with fixed equal columns, the model share, « Ce qui contribue » on thin bars), « Terminés N › » (finished cards, Claude's mini cards), the session log (the last `log_max` events: agents started / finished, PR opened, PR merged). On a Workflow's `›` (⌄ once open): its tokens, cost, exact time and ETA, its Gantt, then its agents as dense children (no spacer between them), one line each « ✓ verify · sonnet  15 min · 408K » (label, never « general-purpose », model family, time, tokens). A finished card under « Terminés N › » keeps Claude's mini card with its **Phases** and « Modèle … Temps » tables.
   The cost uses the same price table as every other row (then the row's own figure, then the engine's), « — » when unknown, never $0.00 for tokens spent. Every context bar is measured against one window: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set, else the engine's, else factory's `context_window`. A conversation with no Workflow nor agent and under `panel.conv.compact_tokens` unfolds to two lines (model · effort · state, the context inline) until « détails › ».
 - **CONVERSATIONS · N actives**: the conversations of the period (the usage mod's `classement.json`, biggest first) as a tree: a node line (state mark, title, ⚠ past the hand-off, `›`) and a grey metrics line under the title (context bar and %, tokens, model · effort, state: travaille / t’attend / bloquée / finie); the sub-conversations it spawned (`spawnedFrom`, the scan's `parent`) nested under it, then its running Workflows (the first `panel.convs.tree_max` (8) active conversations), drawn as under Cette conversation; a sub-conversation whose parent is not listed stays at the top with « ↖ lancée par <parent> » at the end of its metrics line. Its `›` unfolds, inside the tree under its metrics line, « ouvrir ↗ » (opens it in the desktop app) and its card, exactly as Cette conversation's micro. Nothing unfolds by itself (`panel.convs.unfold_max` 0; set it to bring back 18 Oct's « active conversations unfolded »); your folds are kept in `$.store` (key `cv:<cli>`, shared with the graph). « filtres › » at the right of the header unfolds the filter row of cycling buttons (« aujourd’hui ▾ » « Projet ▾ » « État ▾ » « Claude ▾ ») and the total; it stays shown while a filter is set. Codex has no per-conversation figures: with « Codex » the list is one line from `codex.json`, by whole days. The separate « Workflows actifs » block is gone: the tree under each conversation says the same.
