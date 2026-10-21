@@ -47,8 +47,8 @@ import {
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
 import { barSvg, gaugeModel, gaugeSvg, gaugeText } from './gauge'
-import { cells, fitButtons, fitLine, jaugeCfg } from './jauge'
-import type { ActFacts, Field, JaugeCfg, JaugeFacts } from './jauge'
+import { cells, fitButtons, fitLine, jaugeCfg, layoutJauge, relayCells, relayText } from './jauge'
+import type { ActFacts, Field, Fitted, JaugeCfg, JaugeFacts, Relay } from './jauge'
 import type { Gauge } from './gauge'
 import {
   sectionsCfg,
@@ -686,16 +686,16 @@ export const register: Register = (on, raw) => {
       const cols = Math.max(20, Number((e.props as any).bodyColumns) || jc.columns_fallback)
       const ecData = (await read($, encoursAtom)) as EcData | null
       const facts = jaugeFacts(c, jc, ctx, v ?? null, en, actFacts(c, v ?? null, ecData, Boolean(isWorking)))
-      const relayHint = advice.show && c.handoff ? (jc.labels.relay_hint ?? 'relais conseillé') : ''
-      const relayBtn = jc.labels.relay_button ?? 'RESUME'
+      const relay: Relay | undefined = advice.show && c.handoff ? { hint: jc.labels.relay_hint ?? 'relais conseillé', button: jc.labels.relay_button ?? 'RESUME', mark: jc.labels.relay_mark ?? '●' } : undefined
       const stamps = (await read($, stampsAtom)) as Record<string, number>
       const stampOf = (b: LauncherButton) => stampText(b, stamps[launcherKey(b)])
       const stampW = buttons.reduce((s, b) => s + (stampOf(b) ? cells(stampOf(b)) + 1 : 0), 0)
-      const relayW = relayHint ? cells(relayHint) + cells(relayBtn) + jc.button_pad + 2 : 0
       const fitted = fitButtons(buttons.map(b => ({ label: b.label, ...(b.short ? { short: b.short } : {}), open: b.open })), jc, cols, 0)
-      const l1full = fitLine(jc.line1, facts, jc, cols)
-      const inline = jx.buttons_inline !== false && cells(l1full.text) + cells(jc.sep) + relayW + fitted.width + stampW <= cols
-      const l1 = inline ? l1full : fitLine(jc.line1, facts, jc, Math.max(10, cols - relayW))
+      // A field is never cut (Julian, 22 Oct): one row, else two (status counts, then ctx · 5 h · sem · tok/s), then
+      // whole fields of drop_order left out; the buttons join row 1 only when everything fits on it.
+      const lay = layoutJauge(jc.line1, facts, jc, cols, relay)
+      const inline =
+        jx.buttons_inline !== false && lay.rows.length === 1 && cells(lay.rows[0].text) + relayCells(relay, lay.relay, jc) + cells(jc.sep) + fitted.width + stampW <= cols
       const l2 = jc.line2.length ? fitLine(jc.line2, facts, jc, cols) : undefined
       // Traffic light on the mini bar and the % (ok green, warn orange, bad red); label words grey (Julian, 21 Oct).
       const toneOf = (t?: Field['tone']) => (t === 'ok' || t === 'warn' || t === 'bad' ? { color: c.colors[t] ?? t } : t === 'dim' ? { dimColor: true } : {})
@@ -703,34 +703,56 @@ export const register: Register = (on, raw) => {
       const miniSvg = (pct: number, tone: string | undefined, key: string, alt: string) => (
         <Svg key={key} source={barSvg(pct, svgColors[tone ?? 'ok'] ?? svgColors.ok, 36, svgColors.track)} alt={alt} width={36} height={6} />
       )
-      const figuresEls: any[] = []
-      l1.line.forEach((g, gi) => {
-        if (gi) figuresEls.push(<Text key={`j1-sep${gi}`} bold dimColor wrap="truncate-end">{l1.sep}</Text>)
-        g.forEach((f, fi) => {
-          if (fi) figuresEls.push(<Text key={`j1-dot${gi}-${fi}`} bold dimColor wrap="truncate-end">{l1.dot}</Text>)
-          if (f.value === undefined) {
-            figuresEls.push(<Text key={`j1-${f.id}`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.text}</Text>)
-            return
-          }
-          if (f.label) figuresEls.push(<Text key={`j1-${f.id}-l`} bold dimColor wrap="truncate-end">{f.label}</Text>)
-          if (f.bar !== undefined && f.pct !== undefined) {
-            figuresEls.push(Svg ? miniSvg(f.pct, f.tone, `j1-${f.id}-b`, `${f.label ?? ''}${f.value}`.replace(/\s+/g, ' ').trim()) : <Text key={`j1-${f.id}-b`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.bar}</Text>)
-          }
-          figuresEls.push(<Text key={`j1-${f.id}-v`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.value}</Text>)
-        })
-      })
+      // Each field is one Box that never shrinks (its separator in front), so a too-narrow row moves whole fields to
+      // the next row and never draws « 7 c… » (the old per-Text truncate-end squeezed every field at once).
+      const fieldEls = (row: Fitted, ri: number) =>
+        row.line.flatMap((g, gi) =>
+          g.map((f, fi) => {
+            const k = `j${ri}-${f.id}`
+            const pre = fi ? row.dot : gi ? row.sep : ''
+            const parts: any[] = pre ? [<Text key={`${k}-s`} bold dimColor>{pre}</Text>] : []
+            if (f.value === undefined) parts.push(<Text key={`${k}-t`} bold {...toneOf(f.tone)}>{f.text}</Text>)
+            else {
+              if (f.label) parts.push(<Text key={`${k}-l`} bold dimColor>{f.label}</Text>)
+              if (f.bar !== undefined && f.pct !== undefined) {
+                parts.push(Svg ? miniSvg(f.pct, f.tone, `${k}-b`, `${f.label ?? ''}${f.value}`.replace(/\s+/g, ' ').trim()) : <Text key={`${k}-b`} bold {...toneOf(f.tone)}>{f.bar}</Text>)
+              }
+              parts.push(<Text key={`${k}-v`} bold {...toneOf(f.tone)}>{f.value}</Text>)
+            }
+            return (
+              <Box key={k} flexDirection="row" flexShrink={0} flexWrap="nowrap">
+                {parts}
+              </Box>
+            )
+          }),
+        )
       let relayEls: any[] = []
-      if (relayHint && c.handoff) {
+      if (relay && c.handoff && lay.relay !== 'none') {
         const lc = await read($, launcherAtom)
         const hs = await read($, handoffAtom)
         const prep = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)[0]
+        // red: the words as one chip, narrower a red mark, narrowest RESUME alone
+        const mark = relayText(relay, lay.relay)
         relayEls = [
-          <Text key="band-relay-hint" color={c.colors.warn} wrap="truncate-end">{` ${relayHint}`}</Text>,
-          <Button key={prep.key} {...(prep.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, prep, isWorking)}>
-            {relayBtn}
+          ...(mark ? [<Text key="band-relay-hint" bold color={c.colors.bad}>{mark}</Text>] : []),
+          <Button key={prep.key} variant="primary" {...(prep.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, prep, isWorking)}>
+            {relay.button}
           </Button>,
-        ]
+        ].map((el, i) => (
+          <Box key={`band-relay-${i}`} flexShrink={0}>
+            {el}
+          </Box>
+        ))
       }
+      const rowEls = (tail: any[]) =>
+        lay.rows.map((row, ri) => (
+          <Box key={`jauge-r${ri}`} flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Box key="jauge-figures" flexDirection="row" flexWrap="wrap" flexShrink={1}>
+              {fieldEls(row, ri)}
+            </Box>
+            {ri === 0 ? tail : null}
+          </Box>
+        ))
       const buttonEls = buttons.flatMap((b, i) => {
         const st = stampOf(b)
         const btn = (
@@ -779,13 +801,7 @@ export const register: Register = (on, raw) => {
       if (inline) {
         return (
           <Box flexDirection="column">
-            <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap" gap={1}>
-              <Box key="jauge-figures" flexDirection="row" flexWrap="nowrap">
-                {figuresEls}
-              </Box>
-              {relayEls}
-              {buttonEls}
-            </Box>
+            {rowEls([...relayEls, ...buttonEls])}
             {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
             {ecEls}
             {keepOthers ? (theirs ?? null) : null}
@@ -794,12 +810,7 @@ export const register: Register = (on, raw) => {
       }
       return (
         <Box flexDirection="column">
-          <Box key="jauge-l1" flexDirection="row" flexWrap="nowrap" gap={1}>
-            <Box key="jauge-figures" flexDirection="row" flexWrap="nowrap">
-              {figuresEls}
-            </Box>
-            {relayEls}
-          </Box>
+          {rowEls(relayEls)}
           {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
           {ecEls}
           <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>

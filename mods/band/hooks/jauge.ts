@@ -3,9 +3,12 @@
 //            the activity status (actFields) reads « ✓ au repos » in green when nothing runs
 //   line 2, grey:  5 h 24 % · sem 14 % · Codex 30 % │ 3 agents · 5 conv actives │ 434 tok/s tout · 120 ce projet · 50 cette conv │ CPU 12 % · GPU 3 %
 //   buttons:       Cockpit · Veille · À toi · Registres · Référence · ▾
-// Context, 5 h and week carry a ▰▱ mini bar and a traffic light (jauge.levels); the waiting count is amber. Nothing wraps: each line is fitted to the band's width (bodyColumns)
-// first with the full labels, then the short ones, then by leaving out the fields of drop_order one by one. Which
-// fields, their order, labels, short labels and the drop order all come from band.config.json `jauge`.
+// Context, 5 h and week carry a ▰▱ mini bar and a traffic light (jauge.levels); the waiting count is amber.
+// A field is atomic: it is never cut. layoutJauge fits line1 to the band's width (bodyColumns): one row with the full
+// labels, else the short ones, else it WRAPS at jauge.wrap_at (row 1 the status counts, row 2 ctx · 5 h · sem · tok/s),
+// and only then leaves out whole fields of drop_order (tok/s, 5 h, CI, ag, wf). The relay shows as a red « relais
+// conseillé » chip next to RESUME, or RESUME alone when even that does not fit (Julian, 22 Oct: « I don't understand that »).
+// Which fields, their order, labels, short labels, wrap_at and the drop order all come from band.config.json `jauge`.
 
 /**
  * One figure. text is what the terminal shows (and what fitting counts). A figure with a level (context, 5 h, week)
@@ -52,8 +55,10 @@ export type Line = Field[][]
 export type JaugeCfg = {
   line1: string[]
   line2: string[]
-  /** fields left out first when a line is too wide, in order */
+  /** fields left out first when a line is too wide, in order (act_ci / act_ag / act_wf are the activity's parts) */
   drop_order: string[]
+  /** where line1 wraps when one row is too narrow: the fields from this id on go to row 2 */
+  wrap_at: string
   sep: string
   dot: string
   sep_short: string
@@ -128,7 +133,8 @@ export const DEF_JAUGE_SHORT: Record<string, string> = {
 export const DEF_JAUGE: JaugeCfg = {
   line1: ['activity', '|', 'waiting', 'todo', '|', 'context'],
   line2: ['five', 'week', 'codex_week', '|', 'agents', 'convs', '|', 'tps_all', 'tps_project', 'tps_conv', '|', 'cpu', 'gpu'],
-  drop_order: ['gpu', 'tps_project', 'convs', 'cpu', 'codex_week', 'five', 'tps_all', 'agents', 'todo'],
+  drop_order: ['gpu', 'tps_project', 'convs', 'cpu', 'codex_week', 'tps_all', 'five', 'act_ci', 'act_ag', 'act_wf', 'agents', 'todo'],
+  wrap_at: 'context',
   sep: ' │ ',
   dot: ' · ',
   sep_short: ' │ ',
@@ -296,7 +302,7 @@ export const buildLine = (ids: string[], f: JaugeFacts, L: Record<string, string
     }
     if (drop.has(id)) continue
     if (id === 'activity') {
-      out[out.length - 1].push(...actFields(f.act, L))
+      out[out.length - 1].push(...actFields(f.act, L).filter(x => !drop.has(x.id)))
       continue
     }
     const x = fieldText(id, f, L, c)
@@ -306,6 +312,9 @@ export const buildLine = (ids: string[], f: JaugeFacts, L: Record<string, string
 }
 
 export const lineText = (l: Line, sep: string, dot: string) => l.map(g => g.map(x => x.text).join(dot)).join(sep)
+
+/** Whether a line's ids hold this field (act_* are parts of « activity »). */
+const hasField = (ids: string[], id: string) => ids.includes(id) || (id.startsWith('act_') && ids.includes('activity'))
 
 export type Fitted = { line: Line; text: string; short: boolean; dropped: string[]; sep: string; dot: string }
 
@@ -322,7 +331,7 @@ export const fitLine = (ids: string[], f: JaugeFacts, c: JaugeCfg, columns: numb
   let best: Fitted | undefined
   for (const id of ['', ...c.drop_order]) {
     if (id) {
-      if (!ids.includes(id)) continue
+      if (!hasField(ids, id)) continue
       drop.add(id)
     }
     const l = buildLine(ids, f, S, drop, c)
@@ -331,6 +340,73 @@ export const fitLine = (ids: string[], f: JaugeFacts, c: JaugeCfg, columns: numb
     if (cells(t) <= columns) return best
   }
   return best!
+}
+
+/**
+ * The relay (past the hand-off threshold): a red « relais conseillé » chip and the RESUME button; narrower, a red mark
+ * (labels.relay_mark, a glyph, no words) and the button; narrowest, the button alone.
+ */
+export type Relay = { hint: string; button: string; mark?: string }
+export type RelayMode = 'chip' | 'mark' | 'button' | 'none'
+
+export type JaugeLayout = {
+  /** one or two rows of figures; each fits `columns` (row 1 with the relay) whenever dropping can make it fit */
+  rows: Fitted[]
+  /** chip: the words and the button; mark: the red mark and the button; button: RESUME alone; none: no relay */
+  relay: RelayMode
+  /** every field left out */
+  dropped: string[]
+}
+
+/** Cells the relay takes on row 1: a gap before each part, a button is its label plus button_pad. */
+export const relayCells = (r: Relay | undefined, mode: RelayMode, c: Pick<JaugeCfg, 'button_pad'>) =>
+  !r || mode === 'none' ? 0 : (mode === 'chip' ? cells(r.hint) + 1 : mode === 'mark' && r.mark ? cells(r.mark) + 1 : 0) + cells(r.button) + c.button_pad + 1
+
+/** The red words in front of RESUME for a relay mode: the chip's hint, the mark, or none. */
+export const relayText = (r: Relay | undefined, mode: RelayMode) => (!r ? '' : mode === 'chip' ? r.hint : mode === 'mark' ? (r.mark ?? '') : '')
+
+/**
+ * line1 laid out in `columns` cells, never cutting a field: one row (full labels, else short; the relay as a chip),
+ * else two rows split at wrap_at (each full, else short; the relay on row 1 as a chip, else a mark, else RESUME alone), then the
+ * fields of drop_order left out one by one until both rows fit. When nothing fits, the narrowest try: the renderer
+ * then moves whole fields to the next row, it never truncates one.
+ */
+export const layoutJauge = (ids: string[], f: JaugeFacts, c: JaugeCfg, columns: number, relay?: Relay): JaugeLayout => {
+  const modes: RelayMode[] = relay ? ['chip', ...(relay.mark ? (['mark'] as const) : []), 'button'] : ['none']
+  const S = { ...c.labels, ...c.labels_short }
+  const short = (xs: string[], drop: Set<string>): Fitted => {
+    const l = buildLine(xs, f, S, drop, c)
+    return { line: l, text: lineText(l, c.sep_short, c.dot_short), short: true, dropped: [...drop], sep: c.sep_short, dot: c.dot_short }
+  }
+  const fit = (xs: string[], cols: number, drop: Set<string>): Fitted | undefined => {
+    const l = buildLine(xs, f, c.labels, drop, c)
+    const t = lineText(l, c.sep, c.dot)
+    if (cells(t) <= cols) return { line: l, text: t, short: false, dropped: [...drop], sep: c.sep, dot: c.dot }
+    const s = short(xs, drop)
+    return cells(s.text) <= cols ? s : undefined
+  }
+  // one row, nothing dropped: wrapping comes before leaving anything out
+  const r1 = fit(ids, columns - relayCells(relay, modes[0], c), new Set())
+  if (r1) return { rows: [r1], relay: modes[0], dropped: [] }
+  const at = ids.indexOf(c.wrap_at)
+  const cut = at > 0 ? at : Math.max(1, ids.indexOf('|'))
+  const top = ids.slice(0, cut)
+  const bottom = ids.slice(cut)
+  const drop = new Set<string>()
+  for (const id of ['', ...c.drop_order]) {
+    if (id) {
+      if (!hasField(ids, id)) continue
+      drop.add(id)
+    }
+    const b = fit(bottom, columns, drop)
+    if (!b) continue
+    for (const m of modes) {
+      const t = fit(top, columns - relayCells(relay, m, c), drop)
+      if (t) return { rows: b.text ? [t, b] : [t], relay: m, dropped: [...drop] }
+    }
+  }
+  const b = short(bottom, drop)
+  return { rows: b.text ? [short(top, drop), b] : [short(top, drop)], relay: modes[modes.length - 1], dropped: [...drop] }
 }
 
 /** Button row: full labels when they fit, else each item's `short`, else as is (the row may still be too wide). */

@@ -4,7 +4,7 @@ Read-only band above the prompt, and `/jauge` for the detail pane. UI in French.
 
 ## La ligne
 
-One line fitted to the band's width, then the five buttons (Usage · Règles · Réf · Cockpit · Exporter):
+One line when it fits the band's width, else two rows, then the five buttons (Usage · Règles · Réf · Cockpit · Exporter):
 
 ```
 ▶ 1 conv · 0 wf · 0 ag · 0 CI │ ◆ 2 │ ctx ▰▰▱▱▱ 19 % │ 5 h ▱▱▱▱▱ 0 % │ sem ▰▰▰▰▱ 74 % │ 4.4k tok/s
@@ -26,8 +26,18 @@ One line fitted to the band's width, then the five buttons (Usage · Règles · 
 | 5 h, semaine | < 60 % | 60–85 %, or projected 90–100 % at reset | ≥ 85 %, or projected > 100 % at reset |
 
   The projection is the usage mod's samples' pace (`lib/core/usage.mjs` `runOut`) carried to the window's reset, worked out in `scanner/scan.mjs` (`claude.fiveProj` / `weekProj`); without samples only the % counts.
-- Too narrow: short labels (`5h ▱▱▱▱▱ 0%`), then the fields of `jauge.drop_order` (tok/s first).
-- Past the hand-off threshold, « relais conseillé » and a **RESUME** button join the line.
+- **A field is never cut** (Julian, 22 Oct, narrow chat column: « ▶ 7 c… .1… .3… » was unreadable). Each field (`▶ 7 conv`, `1 wf`, `3 ag`, `CI ?`, `ctx ▰▰▰▱▱ 63 %`, `5 h ▱▱▱▱▱ 2 %`, `sem ▰▰▰▰▱ 77 %`, `2.1k tok/s`) is drawn as one block that never shrinks. Too wide for one row (full labels, then short ones):
+  1. it **wraps** before `jauge.wrap_at` (`context`): row 1 the status counts, row 2 ctx · 5 h · sem · tok/s, each row with full labels, else short ones;
+  2. only then whole fields of `jauge.drop_order` are left out one by one: `tps_all`, `five`, `act_ci`, `act_ag`, `act_wf` (conv, ctx and sem stay).
+  If the engine's width is off (a desktop font wider than its cells), the row moves whole fields to the next row; it never truncates one.
+
+```
+50 colonnes, past the relay:
+▶ 7 conv · 1 wf · 3 ag · CI ? ● [ RESUME ]
+ctx ▰▰▰▱▱ 63 % │ 5 h ▱▱▱▱▱ 2 % │ sem ▰▰▰▰▱ 77 %
+```
+
+- Past the hand-off threshold, on row 1: a red chip « relais conseillé » (`labels.relay_hint`) next to a **RESUME** button; narrower a red `●` (`labels.relay_mark`, no words) before RESUME; narrowest RESUME alone.
 
 ## En cours (cette conversation)
 
@@ -50,7 +60,7 @@ Source: `scanner/encours.mjs`, a thin wrapper over `lib/core/running.mjs` (this 
 
 ## Preview
 
-`node mods/band/scripts/preview.mjs 60 90` prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle (`✓ au repos`), a busy-with-stale-CI (`CI ?`) and a running conversation at each width given (default 80), with each row's width. Invented fixtures.
+`node mods/band/scripts/preview.mjs --cols 40,50,60,80` (or bare widths: `60 90`) prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle (`✓ au repos`), a busy-with-stale-CI (`CI ?`), a running and a busy-past-the-relay conversation (7 conv · 1 wf · 3 ag, ctx 63 %) at each width given (default 80), with each row's width. Invented fixtures.
 
 ## Tests
 
