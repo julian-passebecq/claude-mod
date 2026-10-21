@@ -30,6 +30,7 @@ import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow } from '../lib/panel.mjs'
 import { convFactory, convFactories } from '../lib/panel_conv.mjs'
+import { ciNow } from '../lib/core/activity.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
@@ -306,6 +307,16 @@ async function loadDebit($, dir) {
   D.debitMemo = null
 }
 
+// the ci mod's pipelines cache for EN COURS (« 0 CI », or « CI : non lu depuis N min »): parsed again only when it changed
+async function loadCi($) {
+  const path = (await homeDir($)) + '/.claude/ci-pipelines-cache.json'
+  let mtime = 0
+  try { mtime = (await $.fs.stat(path)).mtimeMs || 0 } catch { mtime = 0 }
+  if (mtime === D.ciMtime && (D.ciCache || !mtime)) return
+  D.ciMtime = mtime
+  D.ciCache = mtime ? await readJson($, path) : null
+}
+
 /** The Débit model, computed again only when debit.json, codex.json, the minute or the Codex toggle changed. */
 function debitView(now, who) {
   const showCodex = who === 'codex'
@@ -470,6 +481,7 @@ async function refreshPanel($) {
   const now = await $.clock.now()
   try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
   await loadConso($, now).catch(() => undefined)
+  await loadCi($).catch(() => undefined)
   // the quotas file and every Workflow of the PC (phases, ETA, cost of this conversation's Workflows too)
   if ((D.popen || {}).convs || (D.popen || {}).conv || (D.popen || {}).barres) await loadCards($).catch(() => undefined)
   // the graph's one line and « À toi de cliquer » at the top are always drawn: the session files are read whatever the folds
@@ -518,6 +530,7 @@ function panelView(now) {
   return {
     unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: every, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
+    ci: ciNow(D.ciCache, now, pc.encours),
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
     syn, filter: f,

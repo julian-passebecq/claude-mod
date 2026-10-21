@@ -51,6 +51,10 @@ export const PANEL_DEFAULTS = {
     // agent's dot on a Workflow line (grey ■ done, □ pending); macro_dots = dots on one Workflow line (then +N)
     macro_cells: 10, macro_cells_narrow: 6, ctx_warn_pct: 62.5, dot_live: '●', macro_dots: 12,
   },
+  // EN COURS (lib/core/activity.mjs): busy_min = a main thread counts as working while its transcript was written within
+  // these minutes and its last assistant message did not end the turn; ci_stale_min = past it the ci mod's pipelines cache
+  // is « CI : non lu depuis N min » (grey) instead of a 0; ci_max = pipelines listed in « En ce moment »
+  encours: { busy_min: 2, ci_stale_min: 15, ci_max: 8 },
   fichiers: {
     // a file clicked in the tree is named to Claude as context of the next prompt, exactly as data-goblin's filetree
     // does (« The user has this file selected in the file tree ... »); off: the selection stays visual only
@@ -153,6 +157,44 @@ export const PANEL_DEFAULTS = {
     now_head: 'En ce moment',
     now_main: 'fil principal',
     now_path_sep: ' › ',
+    // the EN COURS block (Julian, 21 Oct: « how do I know no work is in process? 0 workflow, 0 agent, 0 sub-agent, 0 CI »):
+    // line 1 the conversations whose main thread works, line 2 every count, zeros shown in grey (○), the others green (●),
+    // amber when stalled, red when failed; all zero: one green line
+    encours_conv_one: '{n} conversation travaille',
+    encours_conv_many: '{n} conversations travaillent',
+    encours_conv_zero: '{n} conversation',
+    encours_conv_short: '{n} conv.',
+    encours_main_all: '(fil principal)',
+    encours_main_some: '({n} fil principal)',
+    encours_eta: 'fin ~{time}',
+    encours_wf_n: '{n} workflow',
+    encours_wf_n_many: '{n} workflows',
+    encours_agent_n: '{n} agent',
+    encours_agent_n_many: '{n} agents',
+    encours_sub_n: '{n} sous-agent',
+    encours_sub_n_many: '{n} sous-agents',
+    encours_sub_short: '{n} s-ag.',
+    encours_ci_n: '{n} CI',
+    encours_ci_stale: 'CI : non lu depuis {age}',
+    encours_ci_unread: 'CI : non lu',
+    encours_ci_stale_short: 'CI ?',
+    encours_blocked_conv: '{n} bloquée',
+    encours_blocked_conv_many: '{n} bloquées',
+    encours_idle: '✓ Rien ne tourne · tout est au repos',
+    encours_idle_short: '✓ Rien ne tourne',
+    encours_idle_last: 'dernier fini il y a {age} ({name})',
+    encours_bullet_on: '●',
+    encours_bullet_off: '○',
+    // « En ce moment »: a running pipeline « repo · branch  job · 12 min »
+    now_ci: '{repo} · {branch}',
+    now_ci_nobranch: '{repo}',
+    now_ci_queued: 'en file',
+    // a conversation row's activity in words (Julian, 21 Oct)
+    row_main: 'travaille · fil principal',
+    row_agents: 'travaille · {n} {agents}',
+    row_wf: 'travaille · {n} wf',
+    row_working: 'travaille',
+    row_idle: 'au repos depuis {age}',
     // the grey type word after a node's title (bullets above)
     type_conv: 'conv',
     type_sub: 'sous-conv',

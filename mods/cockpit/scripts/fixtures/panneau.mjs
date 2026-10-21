@@ -6,6 +6,7 @@ import { synthesis, barsOf, contexteOf } from '../../lib/panel.mjs'
 import { usageCard } from '../../hooks/nav.mjs'
 import { convFactory, convFactories } from '../../lib/panel_conv.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
+import { ciNow } from '../../lib/core/activity.mjs'
 import { debitModel } from '../../lib/debit.mjs'
 
 export const NOW = Date.parse('2026-10-16T16:30:00Z')
@@ -28,11 +29,12 @@ const SUBS = [
 ]
 export const SCAN = {
   sessions: [
-    { cli: 'lead', sid: 'local_lead', app_title: 'Lane alpha · tableau de bord', cwd: 'C:/code/proj-one', live: true, model: 'claude-opus-5-5', app_effort: 'medium', ctx: 120000, subs: SUBS, recent: [], models: V(600000) },
+    { cli: 'lead', sid: 'local_lead', app_title: 'Lane alpha · tableau de bord', cwd: 'C:/code/proj-one', live: true, mtime: (NOW - 20000) / 1000, stop: 'tool_use', model: 'claude-opus-5-5', app_effort: 'medium', ctx: 120000, subs: SUBS, recent: [], models: V(600000) },
     // b was spawned by a PM that is not in the list: « ↖ lancée par PM BETA »; k4 by this conversation: nested under it
     { cli: 'b', sid: 'local_b', parent: 'local_pm', app_title: 'Lane beta', live: false, awaiting: true, cwd: 'C:/code/proj-two', needs_action: 'Choisir la version' },
-    // another conversation working, with its own Workflow: it unfolds under its row by default
-    { cli: 'd', sid: 'local_d', app_title: 'Lane delta', cwd: 'C:/code/proj-one', live: true, model: 'claude-sonnet-5-5', app_effort: 'low', ctx: 60000, recent: [], models: V(200000),
+    // this conversation's main thread works (written 20 s ago, a tool call pending); Lane delta's ended its turn and only
+    // its Workflow works. Another conversation working, with its own Workflow: it unfolds under its row by default
+    { cli: 'd', sid: 'local_d', app_title: 'Lane delta', cwd: 'C:/code/proj-one', live: true, mtime: (NOW - 90000) / 1000, stop: 'end_turn', model: 'claude-sonnet-5-5', app_effort: 'low', ctx: 60000, recent: [], models: V(200000),
       subs: [{ id: 'd1', type: 'coder', desc: 'write the docs', model: 'claude-sonnet-5-5', effort: 'low', status: 'running', workflow: 'wf_2', ts: iso(12), last_ts: iso(0), models: V(90000) },
         { id: 'd2', type: 'tester', desc: 'run the tests', model: 'claude-haiku-5-5', effort: 'low', status: 'done', workflow: 'wf_2', ts: iso(15), last_ts: iso(13), models: V(10000) }] },
     { cli: 'pm', sid: 'local_pm', app_title: 'PM BETA', cwd: 'C:/code/proj-two', recent: [] },
@@ -51,6 +53,30 @@ const BG = { id: 'a5', type: 'coder', desc: 'p44-migration', model: 'claude-opus
 export const SCAN_BUSY = {
   sessions: SCAN.sessions.map((x) => (x.cli === 'lead' ? { ...x, subs: [...SUBS, BG] } : x.cli === 'k4' ? { ...x, live: true } : x)),
   detail: { ...SCAN.detail, subs: [...SUBS, BG] },
+}
+
+// « main » (Julian, 21 Oct 17:36: « 1 conv · 0 wf · 0 ag. » while a turn ran for 28 s): this conversation's main thread
+// works (its transcript written 28 s ago, the last message a tool call), nothing else runs: no Workflow, no agent
+const DONE = (x, minAgo = 14) => ({ ...x, status: x.status === 'running' ? 'done' : x.status, last_ts: x.status === 'running' ? iso(minAgo) : x.last_ts })
+const quiet = (x, minAgo) => ({ ...x, live: false, mtime: (NOW - minAgo * 60000) / 1000, stop: 'end_turn', subs: (x.subs || []).map((a) => DONE(a, minAgo)) })
+export const SCAN_MAIN = {
+  sessions: SCAN.sessions.map((x) => (x.cli === 'lead' ? { ...x, live: true, mtime: (NOW - 28000) / 1000, stop: 'tool_use', subs: SUBS.map((a) => DONE(a)) } : quiet(x, 12))),
+  detail: { ...SCAN.detail, subs: SUBS.map((a) => DONE(a)) },
+}
+// « idle »: nothing runs anywhere, every conversation ended its turn 12 min ago or more, the CI cache is fresh with no
+// pipeline: the green « ✓ Rien ne tourne » line
+export const SCAN_IDLE = {
+  sessions: SCAN.sessions.map((x) => quiet({ ...x, awaiting: false, needs_action: '' }, x.cli === 'lead' ? 12 : 40)),
+  detail: { ...SCAN.detail, subs: SUBS.map((a) => DONE(a)) },
+}
+const RUNS_DONE = () => RUNS.map((r) => ({ ...r, live: false, status: 'done', end: NOW - 14 * 60000, agents: r.agents.map((a) => ({ ...a, status: a.status === 'running' || a.status === 'waiting' ? 'done' : a.status, end: a.end || NOW - 14 * 60000 })) }))
+
+// the ci mod's pipelines cache (~/.claude/ci-pipelines-cache.json), invented: fresh with nothing running, fresh with one
+// pipeline running, and 40 min old (« CI : non lu depuis 40 min »)
+export const CI_CACHE = {
+  idle: { generated: new Date(NOW - 60000).toISOString(), apps: [{ app: 'proj-one', runs: [{ app: 'proj-one', backend: 'gh', status: 'success', created: iso(90), branch: 'main', duration_s: 300 }] }] },
+  busy: { generated: new Date(NOW - 60000).toISOString(), apps: [{ app: 'proj-one', runs: [{ app: 'proj-one', backend: 'gh', who: 'claude', status: 'running', created: iso(6), branch: 'claude/panel', jobs: [{ name: 'lint', status: 'success' }, { name: 'tests', status: 'running' }] }] }] },
+  stale: { generated: new Date(NOW - 40 * 60000).toISOString(), apps: [] },
 }
 
 // the app's session files as lib/core/sessions.mjs graphRow returns them (invented)
@@ -117,7 +143,11 @@ export function panneauView(columns, o = {}) {
   // and Workflow, Quotas / Débit / Graphe one line each; o.open / o.closed unfold the details (micro)
   const open = o.open || { conv: true, convs: true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
-  const scan = o.busy ? SCAN_BUSY : SCAN
+  // o.scene: 'busy' (o.busy), 'main' (only a main thread works), 'idle' (nothing runs); o.ci: a key of CI_CACHE or a cache
+  const scene = o.scene || (o.busy ? 'busy' : '')
+  const scan = scene === 'busy' ? SCAN_BUSY : scene === 'main' ? SCAN_MAIN : scene === 'idle' ? SCAN_IDLE : SCAN
+  const runs = scene === 'main' || scene === 'idle' ? RUNS_DONE() : RUNS
+  const ciCache = typeof o.ci === 'object' && o.ci ? o.ci : CI_CACHE[o.ci || (scene === 'busy' ? 'busy' : 'idle')]
   const syn = synthesis(o.data || CLASSEMENT, scan, null, filter, {}, NOW)
   // EN COURS counts every conversation of the window, not only the top N listed (as hooks/register.mjs passes it)
   const every = { ...syn, rows: syn.every || syn.rows }
@@ -126,15 +156,16 @@ export function panneauView(columns, o = {}) {
   const panel = {
     open, closed: o.closed || {}, act: ACT,
     files: { head: 'proj-one · main', rows: [{ id: 'C:/code/proj-one/src', label: '▾ src', git: 'M', color: '#e5c07b', selected: false }, { id: 'C:/code/proj-one/src/panel.ts', label: '  · panel.ts', git: '?', selected: true }], more: 3, selected: 'src/panel.ts', attach: true, busy: false },
-    factory: convFactory(scan, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, scan, null, { period: 'today' }, {}, NOW).tpsById.lead }),
+    factory: convFactory(scan, 'lead', FCFG, {}, NOW, o.closed || {}, { runs, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, scan, null, { period: 'today' }, {}, NOW).tpsById.lead }),
     syn, synAll: every, filter,
     bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
-    graphe: grapheModel({ rows: GRAPH_ROWS, scan, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
+    ci: ciNow(ciCache, NOW, {}),
+    graphe: grapheModel({ rows: GRAPH_ROWS, scan, workflows: runs, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
   // every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
-  const under = convFactories({ scan, runs: RUNS, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
+  const under = convFactories({ scan, runs, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
     tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
   panel.unfold = under.unfold
   panel.tree = under.tree

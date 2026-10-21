@@ -271,8 +271,8 @@ for (const columns of [45, 60, 75]) {
     assert.doesNotMatch(body.split('\n').filter((l) => !/▕.*▏/.test(l)).join('\n'), BOX, body)
     // macro: no card, no table, no stats, no « Workflows actifs » (the tree under each conversation says it)
     assert.doesNotMatch(body, /Workflows actifs|Cache hit|Ce qui contribue|Journal de la session|Modèle Temps|Fenêtre|Phases|Session 5 h/)
-    // À toi de cliquer: one amber line at the very top, EN COURS right under it (Julian, 20 Oct)
-    assert.match(body, /^◆ À toi de cliquer : \[Lane beta\][^\n]*\nEN COURS {2}\[2 conv\] · 2 (?:workflows|wf) · 2 (?:agents en cours|ag\.)/)
+    // the EN COURS block at the very top (Julian, 21 Oct: « make it more visible »), À toi de cliquer right under it
+    assert.match(body, /^EN COURS\n● \[2 conversations travaillent\][^\n]*\n● (?:\[2 (?:workflows|wf)\]|2 wf)[^\n]*\n\n◆ À toi de cliquer : \[Lane beta\]/)
     // folded by default: no card, no journal, no duplicate « Opus 5.5 · medium · travaille » line
     assert.doesNotMatch(body, /journal \(|Opus 5\.5 · medium|Contexte \d/)
     // the quotas, the débit and the graph: one line each
@@ -404,7 +404,7 @@ test('EN COURS counts every conversation of the scan: a 16th conversation, past 
   assert.equal(P.syn.every.findIndex((r) => r.id === 'd'), 15)
   const n = enCours({ syn: P.synAll, factory: P.factory, factories: P.convFactories, self: 'lead' })
   assert.deepEqual([n.convs, n.workflows, n.agents], [2, 2, 2])
-  assert.match(renderText(drawCockpit(el, view), 75), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours \[voir ›\]\n/)
+  assert.match(renderText(drawCockpit(el, view), 75), /^EN COURS\n● \[2 conversations travaillent\] \(1 fil principal\) · fin ~\d\d:\d\d\n● \[2 workflows\] · ● \[2 agents\] · ○ 0 sous-agent · ○ 0 CI \[voir ›\]\n/)
   // the rows shown only (no synAll): its factory, built for an active conversation of the scan, still counts it
   assert.deepEqual(enCours({ syn: P.syn, factory: P.factory, factories: P.convFactories, self: 'lead' }).workflows, 2)
 })
@@ -412,24 +412,26 @@ test('EN COURS counts every conversation of the scan: a 16th conversation, past 
 test('EN COURS: conversations, Workflows, running agents by model, blocked ones, counted from the fixtures', () => {
   const view = panneauView(75)
   const P = view.panel
-  assert.deepEqual(enCours({ syn: P.syn, factory: P.factory, factories: P.convFactories, self: 'lead' }),
-    { convs: 2, workflows: 2, agents: 2, fams: [['opus', 1], ['sonnet', 1]], blocked: 0 })
+  const n0 = enCours({ syn: P.syn, factory: P.factory, factories: P.convFactories, self: 'lead' })
+  assert.deepEqual({ ...n0, eta: Boolean(n0.eta) },
+    { convs: 2, main: 1, workflows: 2, agents: 2, subagents: 0, fams: [['opus', 1], ['sonnet', 1]], blocked: 0, stalledWf: 0, stalledSub: 0, failed: 0, eta: true })
   // a blocked row, a stalled Workflow: blocked, not running; a row that only works: one conversation
   const stuck = convFactory(STALL_SCAN(70), 'w', {}, {}, NOW, {}, { runs: STALL_RUN(70) })
   const syn = { rows: [{ id: 'x', mark: 'blocked' }, { id: 'y', mark: 'working' }, { id: 'w', mark: 'working' }, { id: 'z', mark: 'done' }] }
-  assert.deepEqual(enCours({ syn, factory: null, factories: { w: stuck }, self: 'me' }), { convs: 1, workflows: 1, agents: 1, fams: [['opus', 1]], blocked: 2 })
-  assert.deepEqual(enCours({}), { convs: 0, workflows: 0, agents: 0, fams: [], blocked: 0 })
-  // « N agents en cours » as on every row (Julian, 20 Oct); the models go first, « 2 ag. » only when the width forces it
-  // « voir › » at the right (Julian, 21 Oct) takes its room from the models first
-  assert.match(panneauText(90), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours \(1 opus, 1 sonnet\) \[voir ›\]\n/)
-  assert.match(panneauText(75), /\nEN COURS {2}\[2 conv\] · 2 workflows · 2 agents en cours \[voir ›\]\n/)
-  assert.match(panneauText(60), /\nEN COURS {2}\[2 conv\] · 2 wf · 2 agents en cours \[voir ›\]\n/)
-  assert.match(panneauText(45), /\nEN COURS {2}\[2 conv\] · 2 wf · 2 ag\. \[voir ›\]\n/)
+  const n1 = enCours({ syn, factory: null, factories: { w: stuck }, self: 'me' })
+  assert.deepEqual([n1.convs, n1.workflows, n1.agents, n1.subagents, n1.blocked, n1.stalledWf], [1, 1, 1, 0, 2, 1])
+  assert.deepEqual(enCours({}), { convs: 0, main: 0, workflows: 0, agents: 0, subagents: 0, fams: [], blocked: 0, stalledWf: 0, stalledSub: 0, failed: 0, eta: '' })
+  // every count shown, zeros in grey ○ (Julian, 21 Oct: « 0 workflow, 0 agent, 0 sub-agent, 0 CI »); short of room the
+  // words get short, then the « · », then the buttons: the CI count stays
+  assert.match(panneauText(75), /^EN COURS\n● \[2 conversations travaillent\] \(1 fil principal\) · fin ~\d\d:\d\d\n● \[2 workflows\] · ● \[2 agents\] · ○ 0 sous-agent · ○ 0 CI \[voir ›\]\n/)
+  assert.match(panneauText(60), /^EN COURS\n● \[2 conversations travaillent\] \(1 fil principal\)\n● \[2 wf\] · ● \[2 agents\] · ○ 0 sous-agent · ○ 0 CI \[voir ›\]\n/)
+  assert.match(panneauText(45), /^EN COURS\n● \[2 conversations travaillent\]\n● \[2 wf\] ● \[2 ag\.\] ○ 0 s-ag\. ○ 0 CI \[voir ›\]\n/)
+  for (const cols of [45, 60, 75]) for (const l of panneauText(cols, { busy: true }).split('\n').slice(0, 3)) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   const blockedSyn = { ...P.syn, rows: [...P.syn.rows.slice(0, 1).map((r) => ({ ...r, mark: 'blocked' })), ...P.syn.rows.slice(1)] }
   const t = renderText(drawCockpit(el, { ...view, panel: { ...P, syn: blockedSyn, synAll: blockedSyn } }), 75)
-  assert.match(t, /\nEN COURS {2}\[1 conv\] · 2 workflows · 2 agents en cours · \[1 bloqué\] \[voir ›\]\n/) // the models make room for it
+  assert.match(t, /^EN COURS\n● \[1 conversation travaille\] · fin ~\d\d:\d\d · \[1 bloquée\]\n/)
   const idle = renderText(drawCockpit(el, { ...view, panel: { ...P, factory: null, syn: { ...P.syn, rows: [] }, synAll: null, convFactories: {} } }), 75)
-  assert.match(idle, /\nEN COURS {2}rien ne tourne\n/)
+  assert.match(idle, /^EN COURS\n✓ Rien ne tourne · tout est au repos\n/)
   // the numbers filter CONVERSATIONS: en cours, t'attend
   const filtered = []
   const v2 = panneauView(75)
@@ -745,23 +747,65 @@ test('EN COURS › « En ce moment »: every running agent, its path, model and 
     ['background', 'coder · p44-migration', 'opus', 'Lane alpha · tableau de bord'],
     ['agent', 'coder: cockpit-claude-style', 'opus', 'Lane alpha · tableau de bord › package-wave › Wave B'],
     ['agent', 'coder · write the docs', 'sonnet', 'Lane delta › wf_2'],
+    // the main threads at work: this conversation's (a tool call pending) and Package four's; Lane delta ended its turn
+    ['main', 'fil principal', 'opus', 'Lane alpha · tableau de bord'],
     ['main', 'fil principal', 'opus', 'Package four'],
   ])
   const toggled = []
   view.panel.act = { ...view.panel.act, ptoggle: (id) => toggled.push(id) }
   find(drawCockpit(el, view), 'pec-more').props.onPress()
   assert.deepEqual(toggled, ['encours'])
+  // a non-zero count opens « En ce moment » too
+  find(drawCockpit(el, view), 'pec-ci').props.onPress()
+  assert.deepEqual(toggled, ['encours', 'encours'])
   for (const cols of [45, 75]) {
     const t = panneauText(cols, { busy: true, open: { conv: true, convs: true, encours: true } })
-    assert.match(t, /\nEN COURS {2}\[3 conv\][^\n]*\[voir ⌄\]\n {2}En ce moment \(4\)\n {2}◦ coder · p44-migration opus · 1 h 10\n {4}Lane alpha · tableau de bord\n {2}• coder: cockpit-cla[^\n]* opus · 20 min\n {4}Lane alpha[^\n]* › package-wave › Wave B\n/, t)
+    assert.match(t, /^EN COURS\n● \[3 conv[^\n]*\n[^\n]*● (?:\[1 CI\]|1 CI) \[voir ⌄\]\n {2}En ce moment \(6\)\n {2}◦ coder · p44-migration opus · 1 h 10\n {4}Lane alpha · tableau de bord\n {2}• coder: cockpit-cla[^\n]* opus · 20 min\n {4}Lane alpha[^\n]* › package-wave › Wave B\n/, t)
+    // the running pipeline: repo · branch, its running job, its time
+    assert.match(t, /\n {2}◆ proj-one · claude\/panel tests · 6 min\n/, t)
     for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   }
   // folded by default
   assert.doesNotMatch(panneauText(75, { busy: true }), /En ce moment/)
-  // nothing runs: « rien ne tourne · dernier fini il y a 40 min (verify · old check) »
+  // nothing runs: « ✓ Rien ne tourne · tout est au repos · dernier fini il y a 40 min (verify · old check) »
   const idle = { sessions: [{ cli: 'q', app_title: 'Quiet', live: false, model: 'claude-opus-5-5', recent: [], models: {}, subs: [{ id: 'dn', type: 'verify', desc: 'old check', model: 'claude-sonnet-5-5', status: 'done', ts: new Date(NOW - 50 * 60000).toISOString(), last_ts: new Date(NOW - 40 * 60000).toISOString(), models: {} }] }] }
   const qf = convFactory(idle, 'q', {}, {}, NOW, {}, {})
   const P = view.panel
-  const text = renderText(drawCockpit(el, { ...view, panel: { ...P, factory: qf, syn: { ...P.syn, rows: [] }, synAll: null, convFactories: {}, self: 'q' } }), 75)
-  assert.match(text, /\nEN COURS {2}rien ne tourne · dernier fini il y a 40 min \(verify · old check\)\n/)
+  const quietCi = { ...P.ci, list: [], running: 0, failed: 0 }
+  const text = renderText(drawCockpit(el, { ...view, columns: 90, panel: { ...P, ci: quietCi, factory: qf, syn: { ...P.syn, rows: [] }, synAll: null, convFactories: {}, self: 'q' } }), 90)
+  assert.match(text, /^EN COURS\n✓ Rien ne tourne · tout est au repos · dernier fini il y a 40 min \(verify · old check\)\n\n/)
+})
+
+test('EN COURS: a main thread with a turn in progress counts, with nothing else running (Julian, 21 Oct 17:36)', () => {
+  // « 1 conv · 0 wf · 0 ag. » while a turn ran for 28 s: now said in words, every zero shown
+  const t = panneauText(75, { scene: 'main' })
+  assert.match(t, /^EN COURS\n● \[1 conversation travaille\] \(fil principal\)\n○ 0 workflow · ○ 0 agent · ○ 0 sous-agent · ○ 0 CI \[voir ›\]\n/, t)
+  const view = panneauView(75, { scene: 'main' })
+  const n = enCours({ syn: view.panel.synAll, factory: view.panel.factory, factories: view.panel.convFactories, self: 'lead' })
+  assert.deepEqual([n.convs, n.main, n.workflows, n.agents, n.subagents], [1, 1, 0, 0, 0])
+  assert.equal(view.panel.factory.lead.mainBusy, true)
+  // the tree says it in words: this conversation « travaille · fil principal », the others « au repos depuis 12 min »
+  assert.match(t, /travaille · fil principal/)
+  assert.match(t, /au repos depuis 12 min/)
+  // the same transcript 3 min later, or with its turn ended: the main thread is idle
+  const late = convFactory({ sessions: [{ cli: 'x', mtime: (NOW - 180000) / 1000, stop: 'tool_use', live: true, recent: [], models: {} }] }, 'x', {}, {}, NOW, {}, {})
+  const ended = convFactory({ sessions: [{ cli: 'x', mtime: (NOW - 20000) / 1000, stop: 'end_turn', live: true, recent: [], models: {} }] }, 'x', {}, {}, NOW, {}, {})
+  assert.deepEqual([late.lead.mainBusy, ended.lead.mainBusy], [false, false])
+})
+
+test('EN COURS: everything at zero is one green line; a stale CI cache says « CI : non lu depuis N min », not 0', () => {
+  const t = panneauText(75, { scene: 'idle' })
+  assert.match(t, /^EN COURS\n✓ Rien ne tourne · tout est au repos · dernier fini il y a 12 min \(wf_2\)\n\n/, t)
+  assert.doesNotMatch(t.split('\n\n')[0], /○ 0/)
+  // the CI cache 40 min old: the green line stays, the CI is said unread in grey under it
+  const stale = panneauText(75, { scene: 'idle', ci: 'stale' })
+  assert.match(stale, /^EN COURS\n✓ Rien ne tourne[^\n]*\nCI : non lu depuis 40 min\n\n/, stale)
+  // with work running, the stale CI takes the place of « 0 CI »
+  const busy = panneauText(90, { scene: 'main', ci: 'stale' })
+  assert.match(busy, /\n○ 0 workflow · ○ 0 agent · ○ 0 sous-agent · CI : non lu depuis 40 min \[voir ›\]\n/, busy)
+  assert.doesNotMatch(busy.split('\n\n')[0], /0 CI/)
+  // no cache at all: « CI : non lu »
+  const none = panneauView(75, { scene: 'idle' })
+  none.panel.ci = null
+  assert.match(renderText(drawCockpit(el, none), 75), /^EN COURS\n✓ Rien ne tourne[^\n]*\nCI : non lu\n/)
 })

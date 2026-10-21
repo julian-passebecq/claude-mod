@@ -9,9 +9,10 @@
 //   then the session log: the last log_max events (agent started / finished, PR opened / merged), timestamped.
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel.test.mjs). Input: factory's scan (lib/factory/scanner),
 // optionally factory's Workflow screen runs (phases, ETA, cost), nav's usageCard and the context (lib/panel.mjs).
-import { panelConfig, fill, kTok, contexteOf, activeClis, unfoldPlan, convKey, lastProgress, liveness, liveState, durText } from './panel.mjs'
+import { panelConfig, fill, kTok, contexteOf, activeClis, unfoldPlan, convKey, lastProgress, liveness, liveState, durText, minText } from './panel.mjs'
 import { titleOf, short, tokensOf, hhmm, billByModel, sumCost, family } from './factory/hooks/logic.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
+import { mainThreadBusy, toMs } from './core/activity.mjs'
 
 const msOf = (v) => (!v ? 0 : typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : Date.parse(v) || 0)
 const clip = (t, n) => {
@@ -107,9 +108,17 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   // « au repos » next to a phase running for 1h10m)
   const st = liveState(sessionState(me, fcfg || {}).state, liveness({ ...me, subs }, extra.runs || [], self, nowMs, cfg))
   const leadLabel = { working: L.lead_working, stalled: L.lead_stalled }
+  // the main thread (« fil principal »): a turn in progress (lib/core/activity.mjs); a scan row with no transcript time
+  // (invented fixtures) falls back on the scan's own live flag. The last prompt of the detail tells a new turn from an ended one
+  const prompts = ((d.turns || []).filter((t) => t && t.kind === 'prompt'))
+  const lastPrompt = prompts.length ? prompts[prompts.length - 1].ts : null
+  const timed = toMs(me.mtime) || toMs(me.last_ts)
+  const mainBusy = timed ? mainThreadBusy({ ...me, last_prompt_ts: lastPrompt }, nowMs, c.encours) : Boolean(me.live)
+  const lastAt = Math.max(timed, toMs(me.last_activity))
   const lead = {
     title: titleOf(me), model: modelName(me.app_model || me.model), effort: me.app_effort || me.effort || '?',
     state: leadLabel[st] || LEAD_STATES[st] || st, stateId: st, live: st === 'working', tone: st === 'working' ? 'ok' : st === 'stalled' ? 'warn' : undefined,
+    mainBusy, lastAt: lastAt || null, idleMs: lastAt ? Math.max(0, nowMs - lastAt) : null,
   }
   // stats: tokens and cost of the lead with its sub-agents, cache hit, the sub-agents' share of the cost
   const maps = [me.models || {}, ...subs.map((x) => x.models || {})]
@@ -238,7 +247,11 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     // « détails › » on the metrics line (context card, stats, Ce qui contribue / Sankey, journal): folded by default
     compactable, compact: compactable && closed[dk] !== false, detailsKey: dk, detailsOpen: closed[dk] === false,
     journalKey: jk, journalOpen: closed[jk] === false,
-    live: { workflows: liveCards.filter((k) => k.kind === 'workflow').length, agents: runningAgents.length, fams, stalled: liveCards.some((k) => k.stalled) },
+    // agents = every running agent; wfAgents those of a Workflow, bgAgents the Agent-tool ones outside (« sous-agents »)
+    live: { workflows: liveCards.filter((k) => k.kind === 'workflow').length, agents: runningAgents.length, fams, stalled: liveCards.some((k) => k.stalled),
+      wfAgents: liveCards.filter((k) => k.kind === 'workflow').reduce((a, k) => a + k.running, 0), bgAgents: liveCards.filter((k) => k.kind !== 'workflow').reduce((a, k) => a + k.running, 0),
+      stalledWf: liveCards.filter((k) => k.kind === 'workflow' && k.stalled).length, stalledBg: liveCards.some((k) => k.kind !== 'workflow' && k.stalled),
+      failed: liveCards.some((k) => k.failed), eta: liveCards.map((k) => k.eta).filter(Boolean).sort().pop() || '' },
   }
 }
 
@@ -249,11 +262,13 @@ const familyOf = (m) => String(m || '?').toLowerCase().replace(/^claude-/, '').s
 export const famList = (fams) => Object.entries(fams || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 
 /**
- * The « EN COURS » line at the very top of the Panneau: how many conversations run, how many Workflows, how many agents
- * on which models, how many conversations are blocked. in: { syn (synthesis(), Claude's list), factory (this
- * conversation's convFactory), factories ({ [cli]: convFactory }), self }. A conversation counts as blocked when its
- * row is « bloquée » or « bloquée ? » or one of its running Workflows stopped writing; else as running when its row
- * works or it has a live Workflow / agent. -> { convs, workflows, agents, fams: [[family, n]], blocked }.
+ * The « EN COURS » block at the very top of the Panneau (Julian, 20-21 Oct: « how do I know no work is in process? 0
+ * workflow, 0 agent, 0 sub-agent, 0 CI »). in: { syn (synthesis(), Claude's list), factory (this conversation's
+ * convFactory), factories ({ [cli]: convFactory }), self }. A conversation counts as blocked when its row is « bloquée »
+ * or « bloquée ? » or one of its running Workflows stopped writing; else as working when its main thread has a turn in
+ * progress (lead.mainBusy, « fil principal ») or a Workflow / agent of it runs (a row with no factory: its mark).
+ * -> { convs, main (of them, the ones whose main thread works), workflows, agents (agents of a Workflow), subagents
+ * (Agent-tool agents outside one), fams: [[family, n]], blocked, stalledWf, stalledSub, failed, eta ('HH:MM', the latest) }.
  */
 export function enCours({ syn, factory, factories, self } = {}) {
   const rows = (syn && syn.rows ? syn.rows : []).filter((r) => r.id !== 'codex')
@@ -261,27 +276,53 @@ export function enCours({ syn, factory, factories, self } = {}) {
   const fmOf = (cli) => (cli === self ? factory : (factories || {})[cli]) || null
   const add = (cli, mark, fm) => {
     if (seen.has(cli)) return
-    const live = fm && fm.available && fm.live ? fm.live : null
+    const ok = Boolean(fm && fm.available)
+    const live = ok && fm.live ? fm.live : null
     const blocked = mark === 'blocked' || mark === 'stalled' || Boolean(live && live.stalled)
-    const running = !blocked && (mark === 'working' || Boolean(live && (live.workflows || live.agents)))
-    seen.set(cli, { blocked, running, live })
+    const main = ok ? Boolean(fm.lead && fm.lead.mainBusy) : mark === 'working'
+    const running = !blocked && (main || Boolean(live && (live.workflows || live.agents)))
+    seen.set(cli, { blocked, running, main: running && main, live })
   }
   for (const r of rows) add(r.id, r.mark, fmOf(r.id))
   // a conversation of the scan with no row in the window (nothing spent yet) still counts by its factory
-  for (const [cli, fm] of Object.entries(factories || {})) if (fm && fm.available) add(cli, ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[fm.lead && fm.lead.stateId] || '', fm)
-  if (self && factory && factory.available && !seen.has(self)) add(self, ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[factory.lead.stateId] || '', factory)
-  const out = { convs: 0, workflows: 0, agents: 0, fams: [], blocked: 0 }
+  const markOfLead = (fm) => ({ working: 'working', blocked: 'blocked', stalled: 'stalled' })[fm.lead && fm.lead.stateId] || ''
+  for (const [cli, fm] of Object.entries(factories || {})) if (fm && fm.available) add(cli, markOfLead(fm), fm)
+  if (self && factory && factory.available && !seen.has(self)) add(self, markOfLead(factory), factory)
+  const out = { convs: 0, main: 0, workflows: 0, agents: 0, subagents: 0, fams: [], blocked: 0, stalledWf: 0, stalledSub: 0, failed: 0, eta: '' }
   const fams = {}
   for (const x of seen.values()) {
     if (x.blocked) out.blocked++
     else if (x.running) out.convs++
+    if (x.main) out.main++
     if (!x.live) continue
     out.workflows += x.live.workflows || 0
-    out.agents += x.live.agents || 0
+    out.agents += x.live.wfAgents ?? x.live.agents ?? 0
+    out.subagents += x.live.bgAgents || 0
+    out.stalledWf += x.live.stalledWf || 0
+    if (x.live.stalledBg) out.stalledSub++
+    if (x.live.failed) out.failed++
+    if (x.live.eta && x.live.eta > out.eta) out.eta = x.live.eta
     for (const [f, n] of Object.entries(x.live.fams || {})) fams[f] = (fams[f] || 0) + n
   }
   out.fams = famList(fams)
   return out
+}
+
+/**
+ * A conversation row's activity in words (Julian, 21 Oct): « travaille · fil principal » (its main thread has a turn in
+ * progress), « travaille · 2 agents », « travaille · 1 wf », else « au repos depuis 12 min ». -> { text, tone, busy } | null.
+ */
+export function convActivity(fm, cfg) {
+  if (!fm || !fm.available || !fm.lead) return null
+  const L = panelConfig(cfg).labels
+  const live = fm.live || {}
+  const n = Number(live.agents) || 0
+  const tone = live.stalled ? 'warn' : 'ok'
+  if (fm.lead.mainBusy) return { text: L.row_main, tone, busy: true }
+  if (n) return { text: fill(L.row_agents, { n, agents: n === 1 ? L.agent_one : L.agent_many }), tone, busy: true }
+  if (live.workflows) return { text: fill(L.row_wf, { n: live.workflows }), tone, busy: true }
+  if (Number.isFinite(fm.lead.idleMs)) return { text: fill(L.row_idle, { age: minText(fm.lead.idleMs) }), tone: 'dim', busy: false }
+  return null
 }
 
 /**
@@ -291,8 +332,9 @@ export function enCours({ syn, factory, factories, self } = {}) {
  * line « fil principal ». in: { factory, factories, self }. -> { list: [{ key, kind: agent | background | main, label,
  * model, ms, tokens, path: [...], stalled }], last: { name, at, ago } | null (the newest finished item) }.
  */
-export function runningNow({ factory, factories, self } = {}, cfg) {
-  const L = panelConfig(cfg).labels
+export function runningNow({ factory, factories, self, ci } = {}, cfg) {
+  const pc = panelConfig(cfg)
+  const L = pc.labels
   const seen = new Set()
   const list = []
   let last = null
@@ -308,11 +350,13 @@ export function runningNow({ factory, factories, self } = {}, cfg) {
       list.push({ key: `${cli}-${k.key}-${a.id}`, kind: k.kind === 'workflow' ? 'agent' : 'background', label: a.label, model: familyOf(a.model), ms: a.ms || 0, tokens: a.tokens || 0,
         path: [conv, ...(k.kind === 'workflow' ? [k.title] : []), ...(named ? [p.title] : [])], stalled: Boolean(k.stalled) })
     }
-    if (!any && fm.lead.stateId === 'working') list.push({ key: `${cli}-main`, kind: 'main', label: L.now_main, model: familyOf(fm.lead.model), ms: 0, tokens: 0, path: [conv], stalled: false })
+    if (fm.lead.mainBusy || (!any && fm.lead.mainBusy === undefined && fm.lead.stateId === 'working')) list.push({ key: `${cli}-main`, kind: 'main', label: L.now_main, model: familyOf(fm.lead.model), ms: 0, tokens: 0, path: [conv], stalled: false })
     if (fm.lastDone && fm.lastDone.at && (!last || fm.lastDone.at > last.at)) last = fm.lastDone
   }
   list.sort((a, b) => b.ms - a.ms)
-  return { list, last }
+  // the running pipelines (lib/core/activity.mjs ciNow), when the cache is fresh: « repo · branch  job · 12 min »
+  const pipes = ci && !ci.stale ? (ci.list || []).slice(0, Math.max(1, Number(pc.encours.ci_max) || 8)) : []
+  return { list, last, ci: pipes, ciMore: ci && !ci.stale ? Math.max(0, (ci.list || []).length - pipes.length) : 0 }
 }
 
 /** The one-line summary of a folded « Cette conversation ». */
