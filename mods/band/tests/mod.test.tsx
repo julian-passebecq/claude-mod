@@ -80,6 +80,12 @@ const PANE = { title: 'Jauge', isFocused: true, bodyColumns: 150, placement: 'do
 
 const COMPACT = { gauge: { style: 'compact' } }
 const at = (columns: number) => ({ ...BAND, bodyColumns: columns })
+// the Jauge's rows of figures (Box jauge-r0, jauge-r1) and the Texts drawn inside one
+const jaugeRows = async (band: any) => ((await band.findAll({ type: 'Box' })) as any[]).filter(b => /^jauge-r\d$/.test(String(b.key)))
+const textsIn = (n: any, out: any[] = []): any[] => {
+  for (const ch of n?.children ?? []) if (ch && typeof ch === 'object') (ch.type === 'Text' && out.push(ch), textsIn(ch, out))
+  return out
+}
 
 const HUBS = { launcher: { preset: 'hubs' } }
 const OWN = { options: { config: 'C:/Users/me/band.json' } } as any
@@ -144,15 +150,17 @@ test('Jauge: 5 h and week from the engine; red only when something waits', async
 })
 
 for (const columns of [50, 75]) {
-  test(`Jauge at ${columns} columns: the figures fit, the buttons go on a row below`, async ($, on) => {
+  test(`Jauge at ${columns} columns: the figures fit (wrapped onto a second row when needed), the buttons go on a row below`, async ($, on) => {
     world(on, { julian: 12, limits: [{ kind: 'five_hour', percentUsed: 24 }, { kind: 'seven_day', percentUsed: 14 }] })
     on('command.list', () => ({ value: FIVE_CMDS }))
     await $.command.run({ command: 'jauge', args: '' } as any)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns, rows: 40 }, props: at(columns) } as any)
-    const texts = (await band.findAll({ type: 'Text' })) as any[]
-    const line1 = texts.filter(t => t.props?.bold).map(t => t.text).join('')
-    expect(/^◆ 12 │ ctx ▰▰▱▱▱ 41 ?%/.test(line1)).toBe(true)
-    expect([...line1].length <= columns).toBe(true)
+    const rows = await jaugeRows(band)
+    const row = (r: number) => (rows[r] ? textsIn(rows[r]).filter(t => t.props?.bold && t.props?.color !== 'error').map(t => (t.children ?? []).join('')).join('') : '')
+    expect(row(0).length > 0).toBe(true)
+    expect(/^◆ 12( │ ctx ▰▰▱▱▱ 41 ?%)?/.test(row(0))).toBe(true)
+    expect(/ctx ▰▰▱▱▱ 41 ?%/.test(row(0) + row(1))).toBe(true)
+    for (const r of [0, 1]) expect([...row(r)].length <= columns).toBe(true)
     expect(((await band.findAll({ type: 'Button' })) as any[]).length).toBe(5)
     await band.unmount()
   })
@@ -402,7 +410,7 @@ test('launcher: the person typing /cockpit close keeps the button in step', asyn
   await again.unmount()
 })
 
-// Hand-off: past 250 K a short orange hint and one RESUME button join the line; the pane keeps the RESUME block.
+// Hand-off: past 250 K a red « relais conseillé » chip and one RESUME button join the line; the pane keeps the RESUME block.
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`hand-off: from 250 K « relais conseillé » and RESUME in the line, RESUME runs /handoff; the pane shows RESUME (${surface})`, async ($, on) => {
     world(on, { tokens: 260000, resume: true })
@@ -411,7 +419,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('command.run', { command: 'handoff' }, ($: any, e: any) => (ran.push(`handoff ${e.args ?? ''}`.trim()), {}))
     await $.command.run({ command: 'jauge', args: '' } as any)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-    expect(await band.find({ type: 'Text', text: ' relais conseillé' })).toBeDefined()
+    const chip = await band.find({ type: 'Text', text: 'relais conseillé' })
+    expect((chip as any).props.color).toBe('error') // one red chip, never cut
+    expect((chip as any).props.wrap).toBeUndefined()
     expect(await band.find({ type: 'Button', text: 'RESUME' })).toBeDefined()
     expect(await band.find({ type: 'Button', text: /Ouvrir RESUME|Préparer RESUME/ })).toBeUndefined()
     expect(ran).toEqual([])
@@ -426,6 +436,36 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await pane.find({ type: 'Text', text: /compactage auto 368 k→17 k$/ })).toBeDefined()
     await pane.unmount()
   })
+}
+
+// Narrow band (Julian, 22 Oct, ~520 px chat column): the figures wrap onto a second row as whole fields, never
+// « 7 c… »; the relay keeps RESUME (a red mark, then the button alone) and drops the words.
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const cols of [40, 50, 60]) {
+    test(`narrow Jauge at ${cols} columns: two rows of whole fields, RESUME kept, no words (${surface})`, async ($, on) => {
+      world(on, { tokens: 260000 })
+      on('command.list', () => ({ value: [...FIVE_CMDS, { name: 'handoff', description: '', source: 'user' }] }))
+      await $.command.run({ command: 'jauge', args: '' } as any)
+      const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: cols + 5, rows: 40 }, props: at(cols) } as any)
+      const rows = await jaugeRows(band)
+      expect(rows.length).toBe(2)
+      const inRows = rows.flatMap(r => textsIn(r))
+      expect(inRows.length > 4).toBe(true)
+      for (const t of inRows) expect(t.props.wrap).toBeUndefined()
+      // every figure is one Box that never shrinks, its Texts never truncated
+      const fields = (await band.findAll({ type: 'Box' })).filter((b: any) => /^j\d-/.test(String(b.key)))
+      expect(fields.length > 2).toBe(true)
+      for (const f of fields as any[]) expect(f.props.flexShrink).toBe(0)
+      expect(await band.find({ type: 'Text', text: /…|\.\./ })).toBeUndefined()
+      // the words only as one red chip when they fit beside RESUME, else a red mark or nothing
+      const chip = (await band.find({ type: 'Text', text: 'relais conseillé' })) as any
+      if (chip) expect([chip.props.color, chip.props.wrap]).toEqual(['error', undefined])
+      if (!chip) expect(await band.find({ type: 'Text', text: /relais/ })).toBeUndefined()
+      expect(await band.find({ type: 'Button', text: 'RESUME' })).toBeDefined()
+      expect(await band.find({ type: 'Text', text: 'ctx ' })).toBeDefined()
+      await band.unmount()
+    })
+  }
 }
 
 test('hand-off: below the threshold nothing shows and nothing runs', async ($, on) => {
@@ -592,3 +632,23 @@ test('activity: a stale ci cache shows a grey « CI ? », never « 0 CI »', asy
   expect(await band.find({ type: 'Text', text: '0 CI' })).toBeUndefined()
   await band.unmount()
 })
+
+// Julian's case (22 Oct, narrow chat column): 7 conv · 1 wf · 3 ag · CI ?, context past the relay. Each width keeps
+// whole fields and the conv count on row 1, RESUME on row 1, and never draws « 7 c… ».
+for (const cols of [40, 50, 60, 80]) {
+  test(`busy Jauge at ${cols} columns: row 1 « ▶ 7 conv · 1 wf · 3 ag », whole fields, RESUME`, async ($, on) => {
+    world(on, { tokens: 260000, extra: ACT({ convs: 7, busy: ['a', 'b', 'c', 'd', 'e', 'f', 'g'], workflows: 1, agents: 3, ci: { available: true, running: 0, queued: 0, failed: 0, age_ms: 40 * 60000, stale: true } }) })
+    on('command.list', () => ({ value: [...FIVE_CMDS, { name: 'handoff', description: '', source: 'user' }] }))
+    const band = await mountWith($, at(cols))
+    const rows = await jaugeRows(band)
+    expect(rows.length).toBe(2)
+    const shown = (r: any) => textsIn(r).map(t => (t.children ?? []).join(''))
+    const r0 = shown(rows[0])
+    expect(r0[0]).toBe('▶ 7 conv')
+    expect(r0.join('')).toMatch(/^▶ 7 conv · 1 wf · 3 ag/)
+    for (const t of [...r0, ...shown(rows[1])]) expect(/…|\.\./.test(t)).toBe(false)
+    expect(shown(rows[1]).join('')).toMatch(/^ctx /)
+    expect(await band.find({ type: 'Button', text: 'RESUME' })).toBeDefined()
+    await band.unmount()
+  })
+}
