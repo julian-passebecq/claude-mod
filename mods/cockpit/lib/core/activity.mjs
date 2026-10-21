@@ -9,10 +9,15 @@
 //     GitLab), each with its repo, branch, running job and elapsed time, and how old the cache is: past ci_stale_min
 //     minutes its zero means « not read », not « nothing runs ».
 //   - restingSince: how long nothing has run (the newest of the finished items).
+// Same thresholds and stop reasons as lib/core/busy.mjs (band's Jauge: 120 s, end_turn / stop_sequence / max_tokens /
+// refusal close a turn, CI stale after 15 min, running = running + queued), which works on raw transcript entries and
+// reads the cache itself; this one works on factory's scan rows (mtime, stop) and lists each pipeline for the cockpit.
 // Pure: no I/O, no node: imports, so a mod's hooks (which may import no built-in module) can use it; the caller reads
 // the cache file.
 
 export const ACTIVITY_DEFAULTS = { busy_min: 2, ci_stale_min: 15 }
+// a final assistant message ends the turn (as lib/core/busy.mjs FINAL_STOPS)
+const FINAL_STOPS = new Set(['end_turn', 'stop_sequence', 'max_tokens', 'refusal'])
 
 /** epoch s / ms / ISO -> ms, or 0. */
 export const toMs = (v) => {
@@ -34,7 +39,7 @@ export function mainThreadBusy(s, now = Date.now(), cfg = {}) {
   const at = toMs(s.mtime) || toMs(s.last_ts)
   if (!at || now - at > lim) return false
   if (s.api_error) return false
-  if (s.stop === 'end_turn') {
+  if (FINAL_STOPS.has(s.stop)) {
     const prompt = toMs(s.last_prompt_ts)
     return Boolean(prompt && prompt > (toMs(s.last_ts) || 0) - 1)
   }
