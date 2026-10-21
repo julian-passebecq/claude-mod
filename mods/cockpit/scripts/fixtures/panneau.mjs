@@ -4,7 +4,8 @@ import { el, renderText } from '../../lib/factory/scanner/textrender.mjs'
 import { drawCockpit } from '../../hooks/view.mjs'
 import { synthesis, barsOf, contexteOf } from '../../lib/panel.mjs'
 import { usageCard } from '../../hooks/nav.mjs'
-import { convFactory, convFactories } from '../../lib/panel_conv.mjs'
+import { convFactory } from '../../lib/panel_conv.mjs'
+import { panelConvs } from '../../lib/panel_list.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
 import { ciNow } from '../../lib/core/activity.mjs'
 import { debitModel } from '../../lib/debit.mjs'
@@ -131,7 +132,7 @@ export const DEBIT = {
 export const CODEX = { generated: NOW, available: true, days: {}, tps: { '2026-10-16|gpt-5-codex|high': [9000, 150000, 6, { 29: 6 }] }, streams: [{ ts: NOW - 20000, model: 'gpt-5-codex', effort: 'high', out: 600, ms: 10000 }] }
 
 const noop = () => {}
-const ACT = { openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
+const ACT = { preset: noop, openConv: noop, gfilter: noop, gcycle: noop, tab: noop, ptoggle: noop, nodeToggle: noop, pfilter: noop, pcycle: noop, filePress: noop, filesClear: noop, filesMore: noop, filesRefresh: noop }
 
 /**
  * The Pane's view model on the Panneau. open: sections unfolded (all but Fichiers by default); closed: folded nodes
@@ -164,9 +165,14 @@ export function panneauView(columns, o = {}) {
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
-  // every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
-  const under = convFactories({ scan, runs, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
-    tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
+  // CONVERSATIONS as hooks/register.mjs builds it (lib/panel_list.mjs): the sessions of GRAPHE with the activity of EN
+  // COURS; every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
+  const x = panelConvs({ syn, graphRows: o.graphRows || GRAPH_ROWS, graphe: panel.graphe, scan, runs, conso: o.data || CLASSEMENT, fcfg: FCFG, self: 'lead', selfFactory: panel.factory,
+    closed: o.closed || {}, tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW), filter: { ...filter, ...(o.filter || {}) } }, {}, NOW)
+  const under = x.under
+  panel.convList = x.list
+  panel.synAll = { ...every, rows: x.pool }
+  panel.filter = { ...filter, ...(o.filter || {}) }
   panel.unfold = under.unfold
   panel.tree = under.tree
   panel.kids = under.kids

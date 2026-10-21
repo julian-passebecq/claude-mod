@@ -165,7 +165,7 @@ export function grapheModel(input, self, cfg, nowMs) {
       key: r.cli, depth, prefix, cont, state: i.state, word: i.word, dot: (c.marks[i.state] || {}).glyph || '·', tone: (c.marks[i.state] || {}).tone,
       title: r.title || r.cli, starred: r.starred, self: r.cli === self, role: L.graphe_roles[i.role], roleId: i.role,
       tokens: i.tok, ctx: i.ctx, peers, from: p && !keep.has(p) ? clip(p.title || p.cli, g.peer_title_max) : (p && p.repo !== r.repo ? clip(p.title || p.cli, g.peer_title_max) : ''),
-      link: i.link,
+      link: i.link, sid: r.sid || '', repo: r.repo, last: i.last || 0, awaiting: Boolean(r.awaiting), model: r.model || '', effort: r.effort || '',
       // for the drawn graph (lib/viz_graph.mjs): the parent's and the peers' keys
       parentKey: p ? p.cli : '', peerKeys: [...new Set(r.peers.map((x) => find(x.target)).filter(Boolean).map((t) => t.cli))],
     }
@@ -179,7 +179,8 @@ export function grapheModel(input, self, cfg, nowMs) {
     out.push(lineOf(r, depth, prefix, below + (ch.length ? '│ ' : '  ')))
     ch.forEach((k, j) => walk(k, depth + 1, below, j === ch.length - 1, out, seen))
   }
-  let budget = Math.max(1, Number(g.max_rows) || 60)
+  // input.maxRows: the CONVERSATIONS list (lib/panel_list.mjs) reads every line, uncut
+  let budget = Math.max(1, Number(input.maxRows) || Number(g.max_rows) || 60)
   let hidden = 0
   const groups = [...groupsBy.entries()].map(([name, list]) => {
     list.sort(order)

@@ -305,6 +305,8 @@ export function enCours({ syn, factory, factories, self } = {}) {
     for (const [f, n] of Object.entries(x.live.fams || {})) fams[f] = (fams[f] || 0) + n
   }
   out.fams = famList(fams)
+  // per conversation: { running, blocked, main }, so the CONVERSATIONS list says the same as this block (lib/panel_list.mjs)
+  Object.defineProperty(out, 'byCli', { value: Object.fromEntries([...seen].map(([k, x]) => [k, { running: x.running && !x.blocked, blocked: x.blocked, main: x.main }])), enumerable: false })
   return out
 }
 

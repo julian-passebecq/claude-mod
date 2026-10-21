@@ -7,7 +7,7 @@
 //   2. CETTE CONVERSATION             a one-root tree: node line (state, title), metrics line (context bar, cost,
 //                                     model·effort, state), its running Workflows as children; micro: the Usage-like
 //                                     card, Terminés N ›, the log (lib/panel_conv.mjs), inside the tree
-//   3. CONVERSATIONS · N actives      the same tree: conversation → sub-conversations (parent) → Workflows → agents
+//   3. CONVERSATIONS · N travaillent  the sessions of GRAPHE (lib/panel_list.mjs) by project: conversation → sub-conversations → Workflows → agents
 //   4. QUOTAS                         one line (5 h, semaine, tok/s); micro: Session 5 h, Semaine, Codex, crédits as Usage rows
 //   4b. DÉBIT                         one line (weighted TPS per model in use); micro: one card per model, last streams (lib/debit.mjs)
 //   5. GRAPHE                         one line (conv, coord, who waits); micro: by project like the sidebar (lib/graphe.mjs)
@@ -74,8 +74,10 @@ export const PANEL_DEFAULTS = {
   bullets: { conv: '●', sub: '↳', workflow: '◇', phase: '▸', agent: '•', background: '◦' },
   convs: {
     // short: the label when the filter row would not fit on one line (a 45-column pane)
-    periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', short: 'auj.', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
-    period: 'today',
+    // the period: the conversations at rest are listed when active within it (working and waiting ones always), the
+    // tokens column counts it. 24 h by default since 22 Oct (« aujourd’hui » at 01:17 listed 2 of 17 conversations)
+    periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: '24h', label: '24 h', hours: 24 }, { id: 'today', label: 'aujourd’hui', short: 'auj.', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
+    period: '24h',
     top: 15,
     basis: 'tokens',
     who: 'claude',
@@ -120,6 +122,22 @@ export const PANEL_DEFAULTS = {
     conv_head: 'CETTE CONVERSATION',
     convs_head: 'CONVERSATIONS',
     convs_active: '{n} actives',
+    // the header's counts, the same as EN COURS (Julian, 22 Oct): « 6 travaillent · 2 t’attendent · 9 au repos »
+    convs_working_one: '{n} travaille',
+    convs_working_many: '{n} travaillent',
+    convs_waiting_one: '{n} t’attend',
+    convs_waiting_many: '{n} t’attendent',
+    convs_idle: '{n} au repos',
+    convs_working_short: '{n} trav.',
+    convs_waiting_short: '{n} att.',
+    convs_idle_short: '{n} repos',
+    // a project group's grey header, like the app's sidebar
+    convs_group: '{name} · {n}',
+    // a saved filter never hides a working conversation: said in one grey line with a reset button
+    convs_filter_note: 'filtre : {list}',
+    convs_filter_reset: 'réinitialiser',
+    // a row with no usage figure yet (the usage mod's scan has not read it)
+    convs_no_tokens: '—',
     convs_filters: 'filtres',
     quotas_head: 'QUOTAS',
     quotas_five: '5 h',

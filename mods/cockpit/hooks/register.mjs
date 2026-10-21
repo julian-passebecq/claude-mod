@@ -29,7 +29,8 @@ import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow } from '../lib/panel.mjs'
-import { convFactory, convFactories } from '../lib/panel_conv.mjs'
+import { convFactory } from '../lib/panel_conv.mjs'
+import { panelConvs } from '../lib/panel_list.mjs'
 import { ciNow } from '../lib/core/activity.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
@@ -393,12 +394,14 @@ async function loadPanelState($) {
   D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...prev }
   D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
   D.pf = { period: '', project: '', state: '', who: pc.convs.who, ...((saved && saved.filter) || {}) }
+  // saves before v4 (22 Oct) always held the period, the default « aujourd’hui » included: the new default (24 h) applies
+  if (!saved || !(saved.v >= 4)) D.pf.period = ''
   D.pg = grapheFilter(saved && saved.graphe, CFG || {})
 }
 
 function savePanelState($) {
   const open = Object.fromEntries(Object.entries(D.popen || {}).filter(([k]) => (D.ptouched || {})[k]))
-  try { void Promise.resolve($.store.set('panel', { v: 3, open, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
+  try { void Promise.resolve($.store.set('panel', { v: 4, open, closed: D.pclosed, filter: D.pf, graphe: D.pg })).catch(() => undefined) } catch { /* not kept */ }
 }
 
 const fopts = () => { const f = panelConfig(CFG || {}).fichiers; return { showHidden: Boolean(f.show_hidden), git: f.git !== false } }
@@ -521,14 +524,23 @@ function panelView(now) {
   try {
     graphe = grapheModel({ rows: D.grapheRaw && D.grapheRaw.rows, scan: D.scan, workflows: runs, conso: D.consoData, fcfg: fcfgW, filter: D.pg, link: depuisConfig(CFG || {}).session_link }, D.self, CFG || {}, now)
   } catch { graphe = null }
-  // each conversation row: its factory (counts, détails), its children unfolded while it runs a Workflow (Julian, 20 Oct)
+  // CONVERSATIONS (Julian, 22 Oct: « I don't see all ongoing conversations »): the sessions of GRAPHE with the activity of
+  // EN COURS and usage's tokens when known (lib/panel_list.mjs); each row its factory (counts, détails), its children
+  // unfolded while it runs a Workflow (Julian, 20 Oct). EN COURS counts over the same pool
   let under = { unfold: new Set(), factories: {}, tree: new Set(), kids: new Set() }
+  let list = null
+  let pool = every
   try {
-    under = convFactories({ scan: D.scan, runs, syn, synAll: every, graphe, self: D.self, selfFactory: factory, closed: D.pclosed, autoWindow: ctxWindow,
-      tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now) }, FCFG || {}, CFG || {}, D.at || now)
+    const x = panelConvs({ syn: claudeAll, graphRows: D.grapheRaw && D.grapheRaw.rows, graphe, scan: D.scan, runs, conso: D.consoData, fcfg: fcfgW, self: D.self, selfFactory: factory,
+      closed: D.pclosed, autoWindow: ctxWindow, tpsById: claudeAll.tpsById || {}, cardOf: (s) => usageCard(null, s, FCFG || {}, now), filter: f, tzMin: (D.consoData && D.consoData.tzMin) || 0 }, CFG || {}, D.at || now)
+    under = x.under
+    list = x.list
+    pool = { ...claudeAll, rows: x.pool }
+    // the « Projet ▾ » filter cycles through the projects of the list (not only those usage has figures for)
+    D.convProjects = [...new Set(x.pool.map((r) => r.project).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   } catch { /* rows stay folded */ }
   return {
-    unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: every, link: depuisConfig(CFG || {}).session_link, ctxWindow,
+    unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: pool, convList: list, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
     ci: ciNow(D.ciCache, now, pc.encours),
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
@@ -627,9 +639,11 @@ function actions($) {
       savePanelState($)
       redraw()
     },
+    // « filtre : … (réinitialiser) » under the CONVERSATIONS header: every filter back to its default
+    preset: () => { D.pf = { period: '', project: '', state: '', who: D.pf.who }; savePanelState($); redraw() },
     pcycle: async (k) => {
       const now = await $.clock.now()
-      const list = k === 'state' ? ['running', 'waiting', 'done'] : synthesis(D.consoData, D.scan, D.codexData, { ...D.pf, project: '', fcfg: FCFG || {} }, CFG || {}, now).projects
+      const list = k === 'state' ? ['running', 'waiting', 'done'] : D.convProjects && D.convProjects.length ? D.convProjects : synthesis(D.consoData, D.scan, D.codexData, { ...D.pf, project: '', fcfg: FCFG || {} }, CFG || {}, now).projects
       D.pf = { ...D.pf, [k]: cycle(list, D.pf[k]) }
       savePanelState($)
       redraw()

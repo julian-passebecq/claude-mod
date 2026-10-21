@@ -129,7 +129,7 @@ for (const columns of [60, 75]) {
     const gamma = all.slice(all.indexOf('[GRAPHE]')).split('\n').filter((l) => l.includes('[Lane gamma ›]'))
     assert.equal(gamma.length, 1, all)
     assert.match(gamma[0], /\[Lane gamma ›\] proj-three/)
-    assert.doesNotMatch(all, /proj-three · 1/)
+    assert.doesNotMatch(all.slice(all.indexOf('[GRAPHE]')), /proj-three · 1/)
   })
 }
 

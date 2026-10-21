@@ -12,7 +12,7 @@
 //                                      │
 //                                      └──── ● name · workflow                 ›
 //                                                1/4 ■●□□ · phase · 1 agent en cours · 20 min · fin ~16:55
-//   CONVERSATIONS · N actives  the same tree: conversation → sub-conversations → Workflows → agents (filtres ›)
+//   CONVERSATIONS · N trav.    the sessions of GRAPHE by project, sub-conversations → Workflows → agents (filtres ›)
 //   QUOTAS                     5 h ▰▰▱ 21 % · reset …  sem ▰▰▰▰ 85 %  852 tok/s  ›   (› the Usage-like bars)
 //   DÉBIT                      opus 59 · sonnet 88 TPS (30 min)  tableau ›   (› one table per model, the last streams)
 //   GRAPHE                     6 conv · 1 coord · rien ne t'attend  ›   (› filters, projects → conversations)
@@ -24,6 +24,7 @@
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok, convKey, markOf, minText, modelShort } from '../lib/panel.mjs'
 import { modelName, enCours, famList, kidsOpen, runningNow, convActivity } from '../lib/panel_conv.mjs'
+import { convList } from '../lib/panel_list.mjs'
 import { activityCounts } from '../lib/core/activity.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
@@ -627,6 +628,7 @@ const countsOf = (m, subs) => ({ wf: m && m.available && m.live ? m.live.workflo
 
 /** The sub-conversations of a conversation in Claude's list (spawnedFrom = its sid). */
 const subsOf = (P, cli) => {
+  if (P.convList) return P.convList.rows.filter((r) => r.parentId === cli && r.id !== cli).length
   const rows = (P.syn && P.syn.rows) || []
   const me = rows.find((r) => r.id === cli)
   return me && me.sid ? rows.filter((r) => r.parent === me.sid && r.id !== cli).length : 0
@@ -775,7 +777,21 @@ function drawConv(u, P, L) {
   const { h, c } = u
   const m = P.factory
   const out = [headLine(u, L.conv_head, '', 'p-sec-conv')]
-  if (!m || !m.available) return h.col([...out, h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })], { key: 'p-conv' })
+  if (!m || !m.available) {
+    // the scan has not read it (yet): its row of the list still says what it does (Julian, 22 Oct), never an empty block
+    const r = P.convList && P.convList.rows.find((x) => x.id === P.self) || (P.selfRow || null)
+    if (!r) return h.col([...out, h.T(P.treeEmpty || L.no_tree, { dim: true, key: 'pt-empty' })], { key: 'p-conv' })
+    const working = r.cat === 'working'
+    const idleMs = Number.isFinite(P.now) && r.last && Number.isFinite(r.last) ? Math.max(0, P.now - r.last) : null
+    const activity = working ? { text: L.row_working, tone: 'ok', busy: true } : idleMs !== null ? { text: fill(L.row_idle, { age: minText(idleMs) }), tone: 'dim', busy: false } : null
+    const one = convNode(u, P, L, {
+      key: 'pself-row', mark: bullet(u, 'conv', working ? 'ok' : (c.marks[r.mark] || c.marks.idle).tone), type: L.type_conv, title: r.label, titleKey: 'pself', open: false,
+      onToggle: () => {}, running: working, idle: !working, model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx),
+      value: r.tokens === null || r.tokens === undefined ? L.convs_no_tokens : fmtTokens(r.tokens), state: r.stateLabel, counts: {}, activity, details: null, children: [],
+    })
+    out.push(...drawTree(u, P, [one], ''))
+    return h.col(out, { key: 'p-conv' })
+  }
   // › / ⌄ folds its children (unfolded while a Workflow / agent runs); « détails › » its card (folded by default)
   const open = kidsOpen(P.closed, 'pself', m)
   const toggle = () => P.act.nodeToggle('pself', open)
@@ -1056,74 +1072,110 @@ function filterRow(u, P, L) {
 }
 
 /**
- * The conversations as a tree (biggest consumer first): each one a node line (state mark, title, ⚠, › / ⌄) and a
- * metrics line (context bar and %, tokens, model · effort, state); the sub-conversations it spawned and its running
- * Workflows hang under it; › unfolds its card inside the tree with « ouvrir ↗ ». A sub-conversation whose parent is not
- * listed sits at the top with « ↖ lancée par … ». The filters and the total are behind « filtres › » (always shown while
- * a filter is set).
+ * The list CONVERSATIONS draws (lib/panel_list.mjs convList): P.convList when the Panneau built it, else one made from
+ * P.syn's rows (a caller with usage rows only), every row fresh, the activity from EN COURS.
+ */
+function listOf(P) {
+  if (P.convList) return P.convList
+  const rows = ((P.syn && P.syn.rows) || []).filter((r) => r.id !== 'codex')
+  const bySid = new Map(rows.filter((r) => r.sid).map((r) => [r.sid, r]))
+  const pool = rows.map((r) => {
+    const p = r.parent ? bySid.get(r.parent) : null
+    return { ...r, group: r.project || '?', parentId: p && p.id !== r.id ? p.id : '', last: Infinity }
+  })
+  const n = enCours({ syn: { rows: pool }, factory: P.factory, factories: P.convFactories, self: P.self })
+  return convList(pool, n, P.filter || {}, P.cfg, 0)
+}
+
+/**
+ * The header's counts: « 6 travaillent · 2 t’attendent · 9 au repos » (the same as EN COURS); short of room « 6 trav. ·
+ * 2 att. · 9 repos », then without the « · »: the numbers stay.
+ */
+function countsText(L, k, room, marks = {}) {
+  const full = [fill(k.working === 1 ? L.convs_working_one : L.convs_working_many, { n: k.working }),
+    fill(k.waiting === 1 ? L.convs_waiting_one : L.convs_waiting_many, { n: k.waiting }), fill(L.convs_idle, { n: k.idle })].join(' · ')
+  const short = [fill(L.convs_working_short, { n: k.working }), fill(L.convs_waiting_short, { n: k.waiting }), fill(L.convs_idle_short, { n: k.idle })]
+  const g = (id, d) => (marks[id] && marks[id].glyph) || d
+  const bare = `${k.working}${g('working', '●')} ${k.waiting}${g('waiting', '◆')} ${k.idle}${g('idle', '○')}`
+  return [full, short.join(' · '), short.join(' ')].find((t) => len(t) + 2 <= room) || bare
+}
+
+/**
+ * The conversations as a tree (Julian, 22 Oct: « I don't see all ongoing conversations »): the sessions of GRAPHE (not
+ * archived) with the activity of EN COURS, grouped by project like the app's sidebar (a grey « proj · 3 » line), the
+ * sub-conversations under their parent (spawnedFrom), working ones first. Every conversation that works or waits, and
+ * the others active within the period (24 h by default). Each one a node line (state mark, title, ⚠, › / ⌄) and a
+ * metrics line (context bar and %, tokens or « — », model · effort, state); its running Workflows hang under it; ›
+ * unfolds its card with « ouvrir ↗ ». A sub-conversation whose parent is not listed stays at the top of its group with
+ * « ↖ lancée par … ». The filters and the total are behind « filtres › »; a filter never hides a working conversation,
+ * it says so in a grey « filtre : … (réinitialiser) » line.
  */
 function drawConvs(u, P, L, width) {
   const { h, c } = u
   const s = P.syn
-  const f = P.filter
-  const active = s && s.rows ? s.rows.filter((r) => r.state === 'running' || r.state === 'waiting').length : 0
-  const fopen = Boolean(P.open.convs_filters) || Boolean(f.project || f.state || f.who === 'codex')
+  const f = P.filter || {}
+  const codex = f.who === 'codex'
+  const list = codex ? null : listOf(P)
+  const fopen = Boolean(P.open.convs_filters) || Boolean(f.project || f.state || codex)
   const fbtn = { el: h.tbtn(`${L.convs_filters} ${fopen ? '⌄' : '›'}`, () => P.act.ptoggle('convs_filters'), 'pconvs-f', { plain: true }), w: len(L.convs_filters) + 4 }
-  const out = [headLine(u, L.convs_head, s && s.hasData ? '· ' + fill(L.convs_active, { n: active }) : '', 'p-sec-convs', fbtn)]
+  const summary = list ? '· ' + countsText(L, list.counts, u.W - len(L.convs_head) - 2 - fbtn.w, c.marks) : s && s.hasData ? '· ' + fill(L.convs_active, { n: s.rows.length }) : ''
+  const out = [headLine(u, L.convs_head, summary, 'p-sec-convs', fbtn)]
   if (fopen) {
     out.push(h.col([filterRow(u, P, L),
       s && s.hasData ? u.line(L.total, s.period.label, `${fmtTokens(s.total.tokens)}${s.total.cost !== null ? ' · ' + fmtUsd(s.total.cost) : ''}`, { key: 'pc-total', dimLeft: true, boldValue: false }) : null,
     ], { key: 'pf-block', marginLeft: 2 }))
   }
-  if (!s || !s.hasData) { out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' })); return h.col(out, { key: 'p-convs' }) }
-  if (!s.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return h.col(out, { key: 'p-convs' }) }
-  const codex = f.who === 'codex'
-  const wide = width >= (Number(c.style.wide_cols) || 60)
-  if (codex) {
-    s.rows.forEach((r) => out.push(u.line(r.label, '', fmtTokens(r.tokens), { key: 'pc-' + r.id, boldValue: false })))
-  } else {
-    // the sub-conversations under their parent (spawnedFrom), in the rows' order; a child whose parent is not listed
-    // sits at the top with « ↖ lancée par <parent> »
-    const bySid = new Map(s.rows.filter((r) => r.sid).map((r) => [r.sid, r]))
-    const parentOf = (r) => (r.parent && r.parent !== r.sid ? bySid.get(r.parent) || null : null)
-    const kids = new Map()
-    const roots = []
-    for (const r of s.rows) {
-      // a loop in the links (should not happen): the row goes to the top
-      let p = parentOf(r)
-      const seen = new Set([r.id])
-      for (let q = p; q; q = parentOf(q)) { if (seen.has(q.id)) { p = null; break } seen.add(q.id) }
-      if (p) { if (!kids.has(p.id)) kids.set(p.id, []); kids.get(p.id).push(r) } else roots.push(r)
-    }
-    const nodeOf = (r, nested = false) => {
-      const self = r.id === P.self
-      const fm = self ? P.factory : (P.convFactories || {})[r.id]
-      // › / ⌄: its children only (sub-conversations, running Workflows / agents, Terminés N ›); unfolded by default while
-      // a Workflow, an agent or a sub-conversation of it runs (convFactories' kids); « détails › »: its card
-      const open = Boolean(P.kids ? P.kids.has(r.id) : P.tree && P.tree.has(r.id))
-      const key = self ? 'pself' : convKey(r.id)
-      const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
-      const subs = (kids.get(r.id) || []).map((x) => nodeOf(x, true))
-      const isSub = nested || Boolean(r.parent && r.parent !== r.sid)
-      const live = Boolean(fm && fm.available && fm.cards.length > 0)
-      const dk = key + ':pdetails'
-      const det = fm && fm.available ? { open: fm.detailsOpen, key: fm.detailsKey } : { open: Boolean(P.closed && P.closed[dk] === false), key: dk }
-      return convNode(u, P, L, {
-        key: 'pc-' + r.id, mark: bullet(u, isSub ? 'sub' : 'conv', (c.marks[r.mark] || c.marks.idle).tone), type: isSub ? L.type_sub : L.type_conv, title: r.label, titleKey: 'pcv-' + r.id, open,
-        running: r.mark === 'working' || r.mark === 'stalled' || live, idle: r.mark === 'done' || r.mark === 'idle' || r.mark === 'archived',
-        onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
-        state: r.mark !== 'idle' && r.mark !== 'stalled' && (L.graphe_states || {})[r.mark] ? L.graphe_states[r.mark] : r.stateLabel, from: r.parent && !parentOf(r) && r.parentTitle ? fill(L.graphe_from, { title: r.parentTitle }) : '',
-        counts: countsOf(fm, subs.length), activity: convActivity(fm, P.cfg),
-        // this conversation's card is under « Cette conversation »: no « détails » on its row here
-        details: self ? null : { ...det, onToggle: () => P.act.nodeToggle(det.key, det.open),
-          lines: (inner) => detailLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short }) },
-        // this conversation's Workflows are under « Cette conversation »
-        children: childrenOf(u, P, L, fm, subs, !self),
-      })
-    }
-    out.push(...drawTree(u, P, roots.map((r) => nodeOf(r)), ''))
+  if (list && list.note) {
+    const btn = `(${L.convs_filter_reset})`
+    out.push(h.row([h.T(clip(fill(L.convs_filter_note, { list: list.note }), Math.max(8, u.W - len(btn) - 2)), { dim: true, wrap: 'truncate-end' }),
+      h.tbtn(btn, () => (P.act.preset || (() => {}))(), 'pconvs-reset', { plain: true, dim: true })], { key: 'pc-note', flexWrap: 'nowrap', gap: 1, alignItems: 'center' }))
   }
-  if (s.others) out.push(u.line(s.others.label, '', `${fmtTokens(s.others.tokens)} · ${fmtUsd(s.others.cost)}`, { key: 'pc-others', dimLeft: true, boldValue: false, dimValue: true }))
+  if (codex) {
+    if (!s || !s.hasData) out.push(h.T(L.no_data, { dim: true, key: 'pc-nodata' }))
+    else if (!s.rows.length) out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' }))
+    else s.rows.forEach((r) => out.push(u.line(r.label, '', fmtTokens(r.tokens), { key: 'pc-' + r.id, boldValue: false })))
+    return h.col(out, { key: 'p-convs' })
+  }
+  if (!list.rows.length) { out.push(h.T(L.no_rows, { dim: true, key: 'pc-none' })); return h.col(out, { key: 'p-convs' }) }
+  const wide = width >= (Number(c.style.wide_cols) || 60)
+  const nodeOf = (t, nested = false) => {
+    const r = t.row
+    const self = r.id === P.self
+    const fm = self ? P.factory : (P.convFactories || {})[r.id]
+    const key = self ? 'pself' : convKey(r.id)
+    // › / ⌄: its children only (sub-conversations, running Workflows / agents, Terminés N ›); unfolded by default while
+    // a Workflow, an agent or a sub-conversation of it works (convFactories' kids); the viewer's fold wins
+    const fold = P.closed ? P.closed[key] : undefined
+    const open = fold !== undefined ? fold === false : Boolean(P.kids ? P.kids.has(r.id) : P.tree && P.tree.has(r.id)) || t.kids.some((k) => k.row.cat !== 'idle')
+    const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
+    const subs = t.kids.map((x) => nodeOf(x, true))
+    const isSub = nested || Boolean(r.parent && r.parent !== r.sid)
+    const live = Boolean(fm && fm.available && fm.cards.length > 0)
+    const dk = key + ':pdetails'
+    const det = fm && fm.available ? { open: fm.detailsOpen, key: fm.detailsKey } : { open: Boolean(P.closed && P.closed[dk] === false), key: dk }
+    const tone = r.cat === 'working' ? 'ok' : (c.marks[r.mark] || c.marks.idle).tone
+    return convNode(u, P, L, {
+      key: 'pc-' + r.id, mark: bullet(u, isSub ? 'sub' : 'conv', tone), type: isSub ? L.type_sub : L.type_conv, title: r.label, titleKey: 'pcv-' + r.id, open,
+      running: r.cat === 'working' || r.mark === 'stalled' || live, idle: r.cat === 'idle',
+      onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx),
+      // no usage figure yet: « — », never a reason to hide the row (Julian, 22 Oct)
+      value: r.tokens === null || r.tokens === undefined ? L.convs_no_tokens : fmtTokens(r.tokens),
+      state: r.mark !== 'idle' && r.mark !== 'stalled' && (L.graphe_states || {})[r.mark] ? L.graphe_states[r.mark] : r.stateLabel,
+      from: !nested && r.parent && r.parentTitle ? fill(L.graphe_from, { title: r.parentTitle }) : '',
+      counts: countsOf(fm, subs.length), activity: convActivity(fm, P.cfg) || (r.cat === 'working' ? { text: L.row_working, tone: 'ok', busy: true } : null),
+      // this conversation's card is under « Cette conversation »: no « détails » on its row here
+      details: self ? null : { ...det, onToggle: () => P.act.nodeToggle(det.key, det.open),
+        lines: (inner) => detailLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short }) },
+      // this conversation's Workflows are under « Cette conversation »
+      children: childrenOf(u, P, L, fm, subs, !self),
+    })
+  }
+  // one grey header per project group, as the app's sidebar; a single group needs none
+  const many = list.groups.length > 1
+  for (const g of list.groups) {
+    if (many) out.push(h.T(clip(fill(L.convs_group, { name: g.name, n: g.count }), u.W), { dim: true, wrap: 'truncate-end', key: 'pcg-' + g.name }))
+    out.push(...drawTree(u, P, g.roots.map((t) => nodeOf(t)), ''))
+  }
   out.push(...drawDayGantt(u, P)) // « Aujourd’hui »: the Gantt of today's Workflows, one track per active conversation
   return h.col(out, { key: 'p-convs' })
 }

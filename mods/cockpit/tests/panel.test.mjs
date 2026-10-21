@@ -247,7 +247,7 @@ const PREVIEW = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', '
 const TREE = (cols) => (cols < 60 ? { m: '├── ', e: '└── ', b: '│   ', n: '    ' } : { m: '├──── ', e: '└──── ', b: '│     ', n: '      ' })
 const q = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // the macro view's headers, in order (Julian, 19 Oct: small one-line headers, no big chips)
-const HEADERS = ['▸ Fichiers', 'CETTE CONVERSATION', 'CONVERSATIONS · 3 actives', '[QUOTAS]', '[DÉBIT]', '[GRAPHE]']
+const HEADERS = ['▸ Fichiers', 'CETTE CONVERSATION', 'CONVERSATIONS · ', '[QUOTAS]', '[DÉBIT]', '[GRAPHE]']
 // box-drawing borders and connectors (Julian, 17 Oct: they look weird and eat the width); since 18 Oct a thin « │ » rule
 // runs down an unfolded detail and since 19 Oct the Workflows hang under their conversation with ├ / └: both allowed
 const BOX = /[╭╮╰╯┬┴┼┃┄█░]/
@@ -289,13 +289,17 @@ for (const columns of [45, 60, 75]) {
       `${g.n}${g.b}${g.e}▸ Wave B phase 0/1`, `${g.n}${g.b}${g.n}${g.e}• coder: cock`, `${g.n}│`, `${g.n}${g.e}✓ [Terminés 1] [›]`)
     assert.match(body, new RegExp(`\n${g.n}│ [^\n]*30 % · [^\n]*1 wf · [^\n]*\[détails ›\]`))
     assert.match(body, new RegExp(`\n${g.n}│ {${g.n.length - 1}}│ 2/4 ■■●□ · [^\n]*40 min`))
-    // Conversations: a spacer under the header, then the roots; a sub-conversation is ↳
-    starts('CONVERSATIONS · 3 actives [filtres ›]', '│', `${g.m}● [Lane alpha · tableau de b`, `│${g.n.slice(1)}│ `, `│${g.n.slice(1)}│`, `│${g.n.slice(1)}${g.e}↳ [Package four]`)
-    seq('│', `${g.m}↳ [Lane beta] sous-conv 1.0M`, '│', `${g.m}● [Lane delta] conv [⌄]`)
-    starts(`${g.m}● [Lane delta] conv [⌄]`, `│${g.n.slice(1)}│ `, `│${g.n.slice(1)}│`, `│${g.n.slice(1)}${g.e}◇ [wf_2] workflow [›]`, `│${g.n.slice(1)}${g.n}│ 1/2 ■● · `,
-      `│${g.n.slice(1)}${g.n}${g.e}• coder · write`, '│', `${g.e}● [Lane gamma] conv 500K`)
-    assert.match(body, /\[wf_2\] workflow \[›\]\n│ +│ 1\/2 ■● · [^\n]*15 min\n/)
-    seq('│', `${g.e}● [Lane gamma] conv 500K`)
+    // Conversations (Julian, 22 Oct): the counts of EN COURS in the header, one grey line per project group (the app's
+    // sidebar), a spacer, then the roots, working ones first; a sub-conversation is ↳ under its parent
+    assert.match(body, columns < 60 ? /^CONVERSATIONS · 2● 1◆ 6○ \[filtres ›\]$/m : /^CONVERSATIONS · 2 (?:travaillent|trav\.) · 1 (?:t’attend|att\.) · 6 (?:au repos|repos) \[filtres ›\]$/m, body)
+    starts('CONVERSATIONS · ', 'proj-one · 6', '│', `${g.m}● [Lane alpha · tableau de b`, `│${g.n.slice(1)}│ `, `│${g.n.slice(1)}│`, `│${g.n.slice(1)}${g.m}↳ [Package two]`)
+    seq(`│${g.n.slice(1)}${g.e}↳ [Package four] ${columns < 60 ? '' : 'sous-conv '}10 % · 200K`, '│', `${g.e}● [Lane delta] conv [⌄]`)
+    starts(`${g.e}● [Lane delta] conv [⌄]`, `${g.n}│ `, `${g.n}│`, `${g.n}${g.e}◇ [wf_2] workflow [›]`, `${g.n}${g.n}│ 1/2 ■● · `,
+      `${g.n}${g.n}${g.e}• coder · write`, 'proj-two · 2', '│', `${g.e}● [PM BETA] conv [⌄]`)
+    assert.match(body, /\[wf_2\] workflow \[›\]\n +│ 1\/2 ■● · [^\n]*15 min\n/)
+    // a sub-conversation waiting on Julian is drawn under its parent, the parent unfolded
+    starts(`${g.e}● [PM BETA] conv [⌄]`, `${g.n}│ `, `${g.n}│`, `${g.n}${g.e}↳ [Lane beta] sous-conv 1.0M`)
+    seq('proj-three · 1', '│', `${g.e}● [Lane gamma] conv 500K`)
   })
 }
 
@@ -311,7 +315,7 @@ test('tree rows: counts on the metrics line; the node line cuts its title; the m
   assert.match(t36, /\n {4}│ {3}│ 2\/4 ■■●□ · 1 ag\. · 40 min\n/)
   // a conversation: ctx, value, its live Workflows, its running agents, its sub-conversations; « détails › » at the right
   assert.match(t75, /└──── ● \[Lane alpha · tableau de bord\] (?:conv )?\[⌄\]\n {6}│ ctx [▰▱|]{10} 30 % · \$9\.50 · 1 wf · 1 agent en cours \[détails ›\]\n/)
-  assert.match(t75, /├──── ● \[Lane alpha · tableau de bord\] (?:conv )?\[⌄\]\n│ {5}│ ctx [▰▱|]{10} 30 % · 3\.6M · 1 wf · 1 agent en cours · 1 sous-conv\n/)
+  assert.match(t75, /├──── ● \[Lane alpha · tableau de bord\] (?:conv )?\[⌄\]\n│ {5}│ ctx [▰▱|]{10} 30 % · 3\.6M · 1 wf · 1 agent en cours · 3 sous-conv\n/)
   // at 45 the counts (what runs) keep their place, the cost goes (« détails › » has it)
   assert.match(t45, /└── ● \[Lane alpha · tableau de bord\] (?:conv )?\[⌄\]\n {4}│ 30 % · 1 wf · 1 ag\. \[détails ›\]\n/)
   assert.match(t36, /└── ● \[Lane alpha · tableau d…\] \[⌄\]\n {4}│ 30 % · \$9\.50 \[détails ›\]\n/) // the title cut
@@ -444,7 +448,7 @@ test('micro: unfolding a conversation shows its children only; « détails › �
   // folded by default for every conversation, the current one included
   const plain = panneauText(75)
   assert.doesNotMatch(plain, /Cache hit|Ce qui contribue|Contexte \d|journal \(/)
-  assert.equal((plain.match(/\[détails ›\]/g) || []).length, 2, plain) // this conversation and Lane delta (running)
+  assert.equal((plain.match(/\[détails ›\]/g) || []).length, 3, plain) // this conversation, Lane delta (running), PM BETA (its sub-conversation waits)
   const self = panneauText(75, { closed: { pdetails: false } })
   for (const k of ['Contexte 120K / 400K · relais 250K 30 %', 'Coût', 'Cache hit', 'Sous-agents', 'Modèles : Opus 100 %', 'Ce qui contribue', '[journal (6) ›]', '[détails ⌄]']) assert.ok(self.includes(k), k + '\n' + self)
   // no « Opus 5.5 · medium · travaille » line under the row: the metrics line says it
@@ -467,14 +471,14 @@ test('micro: unfolding a conversation shows its children only; « détails › �
   assert.match(panneauText(75, { closed: { 'pfw-finished': false } }), /└──── ✓ \[Terminés 1\] \[⌄\]\n {12}└──── ◦ explore-fast · find the te[^\n]* ✓ · 2 min · il y a 48 min\n/)
   // another conversation: its children (its Workflow), « détails › » adds « ouvrir ↗ » and its card; the Workflow drawn once
   const d = panneauText(75, { closed: { 'cv:d:pdetails': false } })
-  assert.match(d, /├──── ● \[Lane delta\] conv \[⌄\]\n│ {5}│ ctx [^\n]*\[détails ⌄\]\n│ {5}│ \[ouvrir ↗\]\n│ {5}│ Contexte 60K[^\n]*\n(?:│ {5}│[^\n]*\n)+│ {5}└──── ◇ \[wf_2\] workflow \[›\]\n/)
+  assert.match(d, /└──── ● \[Lane delta\] conv \[⌄\]\n {6}│ ctx [^\n]*\[détails ⌄\]\n {6}│ \[ouvrir ↗\]\n {6}│ Contexte 60K[^\n]*\n(?: {6}│[^\n]*\n)+ {6}└──── ◇ \[wf_2\] workflow \[›\]\n/)
   assert.equal(d.split('\n').filter((l) => l.includes('[wf_2')).length, 1, d)
   // an idle conversation is ONE line, its bullet grey; unfolded, its metrics line (its state said), « détails › »
   assert.match(plain, /\n└──── ● \[Lane gamma\] conv 500K\n/)
-  assert.match(panneauText(75, { closed: { [convKey('c')]: false } }), /└──── ● \[Lane gamma\] conv \[⌄\]\n {8}500K · terminée \[détails ›\]\n/)
-  assert.match(panneauText(75, { closed: { [convKey('c')]: false, 'cv:c:pdetails': false } }), /500K · terminée \[détails ⌄\]\n {8}fabrique non lue/)
+  assert.match(panneauText(75, { closed: { [convKey('c')]: false } }), /└──── ● \[Lane gamma\] conv \[⌄\]\n {8}500K · opus·med · terminée \[détails ›\]\n/)
+  assert.match(panneauText(75, { closed: { [convKey('c')]: false, 'cv:c:pdetails': false } }), /500K · opus·med · terminée \[détails ⌄\]\n {8}\[ouvrir ↗\]\n {8}fabrique non lue/)
   const b = panneauText(75, { closed: { [convKey('b')]: false } })
-  assert.match(b, /├──── ↳ \[Lane beta\] sous-conv \[⌄\]\n│ {7}1\.0M · t’attend · ↖ lancée par PM BETA \[détails ›\]\n│\n├──── ● \[Lane delta\]/)
+  assert.match(b, /└──── ● \[PM BETA\] conv \[⌄\]\n(?: {6}│[^\n]*\n)+ {6}└──── ↳ \[Lane beta\] sous-conv \[⌄\]\n {14}1\.0M · opus·med · t’attend \[détails ›\]\n/)
 })
 
 test('micro: Quotas unfold to the Usage-like bars, Débit to its tables, Graphe to its tree; filters behind « filtres › »', () => {
@@ -490,7 +494,7 @@ test('micro: Quotas unfold to the Usage-like bars, Débit to its tables, Graphe 
   assert.equal(g.split('\n').filter((l) => l.includes('Choisir la version')).length, 1, g)
   assert.doesNotMatch(panneauText(75), /\[aujourd’hui ▾\]/)
   const f = panneauText(75, { open: { conv: true, convs: true, convs_filters: true } })
-  assert.match(f, /CONVERSATIONS · 3 actives \[filtres ⌄\]\n {2}\[aujourd’hui ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n {2}Total aujourd’hui/)
+  assert.match(f, /CONVERSATIONS · [^\n]* \[filtres ⌄\]\n {2}\[aujourd’hui ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n {2}Total aujourd’hui/)
   assert.match(panneauText(45, { open: { conv: true, convs: true, convs_filters: true } }), /\n {2}\[auj\. ▾\] \[Projet ▾\] \[État ▾\] \[Claude ▾\]\n/)
 })
 
@@ -503,7 +507,7 @@ test('colours: one state colour per line, numbers bold only when alarming (ctx a
   // a conversation at 70 % of 400 K (amber, bold) and one past the 250 K hand-off (red, bold, ⚠)
   const base = view.panel.syn.rows[2]
   const syn = { ...view.panel.syn, rows: [{ ...base, id: 'w', ctx: 280000 }, { ...base, id: 'x', ctx: 300000 }] }
-  const tree = drawCockpit(el, { ...view, panel: { ...view.panel, syn } })
+  const tree = drawCockpit(el, { ...view, panel: { ...view.panel, syn, convList: null } })
   assert.deepEqual(pick(tree, 'pc-w-m').find((x) => x[0] === '70 %'), ['70 %', true])
   assert.ok(pick(tree, 'pc-x-m').some((x) => x[0] === '75 %' && x[1]) && pick(tree, 'pc-x-n').some((x) => x[0] === '⚠'), JSON.stringify(pick(tree, 'pc-x-n')))
   // a stalled Workflow: amber ⚠ and « à l'arrêt 1 h 10 » in bold

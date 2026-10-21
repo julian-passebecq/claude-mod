@@ -138,7 +138,7 @@ export function drawDayGantt(u, P) {
   const L = g.labels
   const s = P.syn
   if (!Number.isFinite(P.now) || !s || !s.rows || (P.filter && P.filter.who === 'codex')) return []
-  const convs = s.rows.filter((r) => r.id !== 'codex').map((r) => {
+  const convs = ((P.convList && P.convList.rows) || s.rows).filter((r) => r.id !== 'codex').map((r) => {
     const fm = r.id === P.self ? P.factory : (P.convFactories || {})[r.id]
     const cards = fm && fm.available ? [...(fm.cards || []), ...((fm.finished && fm.finished.cards) || [])] : []
     return { key: r.id, label: r.label, active: r.state === 'running' || r.state === 'waiting', cards }
