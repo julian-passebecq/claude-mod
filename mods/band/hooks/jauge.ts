@@ -1,5 +1,6 @@
 // band mod: the two-line Jauge (gauge.style "two_lines", the default), pure (no $, no I/O; node --test runs it).
-//   line 1:  ◆ 2 │ ctx ▰▰▱▱▱ 41 % │ 5 h ▱▱▱▱▱ 0 % · sem ▰▰▰▰▱ 74 % │ 4.4k tok/s  (◆ N hidden at 0)
+//   line 1:  ▶ 1 conv · 0 wf · 0 ag · 0 CI │ ◆ 2 │ ctx ▰▰▱▱▱ 41 % │ 5 h ▱▱▱▱▱ 0 % · sem ▰▰▰▰▱ 74 % │ 4.4k tok/s  (◆ N hidden at 0)
+//            the activity status (actFields) reads « ✓ au repos » in green when nothing runs
 //   line 2, grey:  5 h 24 % · sem 14 % · Codex 30 % │ 3 agents · 5 conv actives │ 434 tok/s tout · 120 ce projet · 50 cette conv │ CPU 12 % · GPU 3 %
 //   buttons:       Cockpit · Veille · À toi · Registres · Référence · ▾
 // Context, 5 h and week carry a ▰▱ mini bar and a traffic light (jauge.levels); the waiting count is amber. Nothing wraps: each line is fitted to the band's width (bodyColumns)
@@ -91,6 +92,12 @@ export const DEF_JAUGE_LABELS: Record<string, string> = {
   gpu: 'GPU {n} %',
   more: '▾',
   less: '▴',
+  act_conv: '▶ {n} conv',
+  act_wf: '{n} wf',
+  act_ag: '{n} ag',
+  act_ci: '{n} CI',
+  act_ci_stale: 'CI ?',
+  act_idle: '✓ au repos',
 }
 
 export const DEF_JAUGE_SHORT: Record<string, string> = {
@@ -110,10 +117,16 @@ export const DEF_JAUGE_SHORT: Record<string, string> = {
   tps_conv: '{n} ici',
   cpu: 'CPU {n}%',
   gpu: 'GPU {n}%',
+  act_conv: '▶ {n} conv',
+  act_wf: '{n} wf',
+  act_ag: '{n} ag',
+  act_ci: '{n} CI',
+  act_ci_stale: 'CI ?',
+  act_idle: '✓ au repos',
 }
 
 export const DEF_JAUGE: JaugeCfg = {
-  line1: ['waiting', 'todo', '|', 'context'],
+  line1: ['activity', '|', 'waiting', 'todo', '|', 'context'],
   line2: ['five', 'week', 'codex_week', '|', 'agents', 'convs', '|', 'tps_all', 'tps_project', 'tps_conv', '|', 'cpu', 'gpu'],
   drop_order: ['gpu', 'tps_project', 'convs', 'cpu', 'codex_week', 'five', 'tps_all', 'agents', 'todo'],
   sep: ' │ ',
@@ -175,6 +188,42 @@ export type JaugeFacts = {
   tps: Record<string, number | undefined>
   cpu?: number
   gpu?: number
+  /** what runs (lib/core/busy.mjs counts, see actFields); undefined leaves the « activity » field out */
+  act?: ActFacts
+}
+
+/**
+ * The activity status at the start of the line: busy main threads, Workflows, agents, CI. tone of wf / ag: ok, warn
+ * (one stalled), bad (one failed). ci undefined = off; stale = the ci cache is too old (or missing) to say 0.
+ */
+export type ActFacts = {
+  convs: number
+  workflows: number
+  agents: number
+  wfTone?: Level
+  agTone?: Level
+  ci?: { running: number; failed: number; stale: boolean }
+}
+
+/**
+ * « ▶ 1 conv · 0 wf · 0 ag · 0 CI » (zeros grey, non-zero green, amber stalled, red failed), or when nothing runs one
+ * green « ✓ au repos » (plus a grey « CI ? » when the CI cannot be read). Fields act_conv, act_wf, act_ag, act_ci.
+ */
+export const actFields = (a: ActFacts | undefined, L: Record<string, string>): Field[] => {
+  if (!a) return []
+  const n = (x: number) => Math.max(0, Math.round(Number(x) || 0))
+  const ci = a.ci
+  const ciRun = ci && !ci.stale ? n(ci.running) : 0
+  const ciField: Field | undefined = !ci
+    ? undefined
+    : ci.stale
+      ? { id: 'act_ci', text: L.act_ci_stale ?? 'CI ?', tone: 'dim' }
+      : { id: 'act_ci', text: fill(L.act_ci, { n: ciRun }), tone: ci.failed ? 'bad' : ciRun ? 'ok' : 'dim' }
+  if (!n(a.convs) && !n(a.workflows) && !n(a.agents) && !ciRun) {
+    return [{ id: 'act_idle', text: L.act_idle ?? '✓ au repos', tone: 'ok' }, ...(ciField && (ci!.stale || ci!.failed) ? [ciField] : [])]
+  }
+  const one = (id: string, v: number, tone?: Level): Field => ({ id, text: fill(L[id], { n: n(v) }), tone: n(v) ? (tone ?? 'ok') : 'dim' })
+  return [one('act_conv', a.convs), one('act_wf', a.workflows, a.wfTone), one('act_ag', a.agents, a.agTone), ...(ciField ? [ciField] : [])]
 }
 
 /** Every field's text with the labels given (full or short); undefined when its figure is missing. */
@@ -246,6 +295,10 @@ export const buildLine = (ids: string[], f: JaugeFacts, L: Record<string, string
       continue
     }
     if (drop.has(id)) continue
+    if (id === 'activity') {
+      out[out.length - 1].push(...actFields(f.act, L))
+      continue
+    }
     const x = fieldText(id, f, L, c)
     if (x) out[out.length - 1].push(x)
   }

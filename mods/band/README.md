@@ -7,9 +7,15 @@ Read-only band above the prompt, and `/jauge` for the detail pane. UI in French.
 One line fitted to the band's width, then the five buttons (Usage · Règles · Réf · Cockpit · Exporter):
 
 ```
-◆ 2 │ ctx ▰▰▱▱▱ 19 % │ 5 h ▱▱▱▱▱ 0 % │ sem ▰▰▰▰▱ 74 % │ 4.4k tok/s
+▶ 1 conv · 0 wf · 0 ag · 0 CI │ ◆ 2 │ ctx ▰▰▱▱▱ 19 % │ 5 h ▱▱▱▱▱ 0 % │ sem ▰▰▰▰▱ 74 % │ 4.4k tok/s
+✓ au repos │ ctx ▰▱▱▱▱ 19 % │ 5 h ▱▱▱▱▱ 0 % │ sem ▰▰▱▱▱ 41 % │ 380 tok/s
 ```
 
+- Activity status first (field `activity`, Julian 21 Oct: « how do I know no work is in process? »), for the whole PC, counted by `lib/core/busy.mjs` in the scanner:
+  - `conv`: conversations whose **main thread** has a turn in progress (last user/assistant entry not a final answer, written within `jauge.activity.busy_s`, 120 s); this conversation also counts while the engine says it is working (`isWorking`).
+  - `wf` / `ag`: Workflows and agents (Workflow agents, Agent-tool agents foreground or background) that wrote within `sections.running_s`; this conversation's own « en cours » data raises them and colours them (amber stalled, red failed).
+  - `CI`: running or queued pipelines in the ci mod's cache (`jauge.activity.ci_cache`, `~/.claude/ci-pipelines-cache.json`, GitHub Actions + GitLab), red when a run failed within `ci_stale_min`. A cache older than `ci_stale_min` (15) minutes, or missing, shows a grey `CI ?`, never `0 CI`. `ci_cache: ""` turns CI off.
+  - Zeros grey, non-zero green. Nothing runs: one green `✓ au repos` instead (with `CI ?` when the CI cannot be read). Never dropped when narrow.
 - `◆ N`: conversations waiting on you (Veille alerts marked julian), amber, hidden at 0.
 - Context, 5 h and semaine carry a mini bar: `▰▱` (5 cells, `jauge.bar_cells`) in the terminal, a thin Svg bar on the desktop.
 - Traffic light on the bar and the % (the label words stay grey), thresholds in `jauge.levels`:
@@ -44,7 +50,7 @@ Source: `scanner/encours.mjs`, a thin wrapper over `lib/core/running.mjs` (this 
 
 ## Preview
 
-`node mods/band/scripts/preview.mjs 60 90` prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle and a running conversation at each width given (default 80), with each row's width. Invented fixtures.
+`node mods/band/scripts/preview.mjs 60 90` prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle (`✓ au repos`), a busy-with-stale-CI (`CI ?`) and a running conversation at each width given (default 80), with each row's width. Invented fixtures.
 
 ## Tests
 

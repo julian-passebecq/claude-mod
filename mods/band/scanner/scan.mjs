@@ -13,6 +13,7 @@ import { classifyPath, emptyMeta, ownUsage, parseLines, prune } from '../hooks/p
 import { writeHealth } from './health.mjs'
 import { readVeille } from '../lib/core/veille.mjs'
 import { readQuotas } from '../lib/core/usage.mjs'
+import { BUSY_DEFAULTS, busyCounts, feedTurn, readCi } from '../lib/core/busy.mjs'
 import { sampleMachine } from './machine.mjs'
 
 const CHUNK = 8 * 1024 * 1024
@@ -228,7 +229,7 @@ export function scan(req, lib) {
             carry = text
             continue
           }
-          parseLines(text.slice(0, cut + 1), kind, st.st, meta, cache.events, keepFrom, extract)
+          parseLines(text.slice(0, cut + 1), kind, st.st, meta, cache.events, keepFrom, extract, feedTurn)
           carry = text.slice(cut + 1)
         }
         st.off = off - Buffer.byteLength(carry, 'utf8')
@@ -253,7 +254,7 @@ export function scan(req, lib) {
     writeFileSync(req.cache_file + '.tmp', JSON.stringify(cache))
     renameSync(req.cache_file + '.tmp', req.cache_file)
   } catch {}
-  return buildView(cache.events, cache.sessions, cfg, {
+  const view = buildView(cache.events, cache.sessions, cfg, {
     now,
     session: req.session,
     cwd: cwdRepo,
@@ -261,6 +262,26 @@ export function scan(req, lib) {
     ms: Date.now() - t0,
     ...(lib ? { price: lib.price, lib: lib.name } : {}),
   })
+  return { ...view, activity: activityOf(cache, cfg, now, {}, req.session) }
+}
+
+/**
+ * What runs on the PC (lib/core/busy.mjs, the one count): main threads with a turn in progress, Workflows and agents
+ * that wrote within sections.running_s, CI from the ci mod's cache (jauge.activity.ci_cache, "" = off; older than
+ * ci_stale_min = stale, never a 0). deps.readCi for tests.
+ */
+export function activityOf(cache, cfg, now, deps = {}, session = '') {
+  const a = { ...BUSY_DEFAULTS, ...(cfg?.jauge?.activity ?? {}) }
+  const titled = {}
+  for (const [id, m] of Object.entries(cache.sessions ?? {})) titled[id] = { turn: m.turn, title: m.title || '' }
+  const c = busyCounts({ sessions: titled, events: cache.events ?? [], now, busyS: a.busy_s, runningS: cfg?.sections?.running_s ?? a.running_s })
+  const out = { convs: c.convs, busy: c.busy, thisBusy: Boolean(session && c.busy.includes(session)), workflows: c.workflows, agents: c.agents, lastDone: c.lastDone }
+  if (a.ci_cache !== '' && a.ci_cache !== false) {
+    try {
+      out.ci = (deps.readCi || readCi)(expandHome(a.ci_cache, homedir()), now, a.ci_stale_min)
+    } catch { /* no ci figures */ }
+  }
+  return out
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

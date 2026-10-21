@@ -35,6 +35,8 @@ export type SessionMeta = {
   samples: [number, number][]
   /** the last PR/MR the app linked to this conversation (transcript entry type "pr-link") */
   pr?: { number: number; url?: string }
+  /** main thread's turn (lib/core/busy.mjs feedTurn): last user/assistant entry (ms) and whether a turn is open */
+  turn?: { last: number; open: boolean }
 }
 
 export type CountMode = 'fresh' | 'all'
@@ -97,6 +99,21 @@ export type View = {
   lib: string
   /** « À toi : N » and « attend Julian : N », counted once by lib/core/veille.mjs (readVeille) in the scanner */
   waiting?: { aToi: number; julian: number; available: boolean; aToiAvailable: boolean }
+  /** what runs on the PC (lib/core/busy.mjs, scanner): busy main threads, Workflows, agents, CI from the ci mod's cache */
+  activity?: Activity
+}
+
+export type Activity = {
+  convs: number
+  /** session ids whose main thread has a turn in progress */
+  busy: string[]
+  /** this conversation's main thread is one of them */
+  thisBusy?: boolean
+  workflows: number
+  agents: number
+  lastDone?: { s: string; title: string; t: number } | null
+  /** off when jauge.activity.ci_cache is "" */
+  ci?: { available: boolean; running: number; queued: number; failed: number; age_ms: number | null; stale: boolean }
 }
 
 /** This conversation's figures from the engine ($.session.usage / session.measure). */

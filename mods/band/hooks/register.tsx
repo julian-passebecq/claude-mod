@@ -48,7 +48,7 @@ import {
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
 import { barSvg, gaugeModel, gaugeSvg, gaugeText } from './gauge'
 import { cells, fitButtons, fitLine, jaugeCfg } from './jauge'
-import type { Field, JaugeCfg, JaugeFacts } from './jauge'
+import type { ActFacts, Field, JaugeCfg, JaugeFacts } from './jauge'
 import type { Gauge } from './gauge'
 import {
   sectionsCfg,
@@ -62,7 +62,7 @@ import {
   counters,
 } from './sections'
 import type { BandUi, SectionsCfg } from './sections'
-import { ecCfg, enCoursView } from './encours'
+import { ecCfg, enCoursView, levelOf } from './encours'
 import type { EcData, Seg } from './encours'
 
 // The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
@@ -94,7 +94,34 @@ const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number |
 // The two-line Jauge's figures: counters from the scanner (lib/core/veille.mjs), context from the engine, Claude's
 // 5 h / week from the engine's rate limits (else the usage mod's samples), Codex's from its codex.json, PC activity,
 // tok/s of the scopes in jauge.tps_scopes, CPU / GPU from the scanner.
-const jaugeFacts = (c: Config, jc: JaugeCfg, ctx: Ctx | undefined, v: View | null, en: EngineFigures | null): JaugeFacts => {
+/**
+ * The activity status (lib/core/busy.mjs counts from the scanner): this conversation counts as busy also when the
+ * engine says it is working; its own Workflows and agents (scanner/encours.mjs) raise wf / ag and give their colour
+ * (amber stalled, red failed). undefined while the scanner has not answered yet.
+ */
+const actFacts = (c: Config, v: View | null, ec: EcData | null, working: boolean): ActFacts | undefined => {
+  const a = v?.activity
+  if (!a) return undefined
+  const ecc = ecCfg((c as any).jauge)
+  const now = v?.now ?? Date.now()
+  const wfs = ec?.workflows ?? []
+  const lone = ec?.agents ?? []
+  const wfAgents = wfs.flatMap(w => w.agents.filter(x => x.status === 'running' || x.status === 'failed'))
+  const worst = (xs: { status: string; last?: number; stalled?: boolean }[]) => {
+    const ls = xs.map(x => levelOf(x, now, ecc))
+    return ls.includes('bad') ? ('bad' as const) : ls.includes('warn') ? ('warn' as const) : undefined
+  }
+  return {
+    convs: a.convs + (working && !a.thisBusy ? 1 : 0),
+    workflows: Math.max(a.workflows, wfs.length),
+    agents: Math.max(a.agents, wfAgents.filter(x => x.status === 'running').length + lone.filter(x => x.status === 'running').length),
+    wfTone: worst(wfs),
+    agTone: worst([...wfAgents, ...lone]),
+    ...(a.ci ? { ci: { running: a.ci.running, failed: a.ci.failed, stale: a.ci.stale || !a.ci.available } } : {}),
+  }
+}
+
+const jaugeFacts = (c: Config, jc: JaugeCfg, ctx: Ctx | undefined, v: View | null, en: EngineFigures | null, act?: ActFacts): JaugeFacts => {
   const lim = (k: string) => en?.limits?.find(l => l.kind === k && Number.isFinite(l.percentUsed))?.percentUsed
   const tps: Record<string, number | undefined> = {}
   for (const [id, scope] of Object.entries(jc.tps_scopes)) {
@@ -120,6 +147,7 @@ const jaugeFacts = (c: Config, jc: JaugeCfg, ctx: Ctx | undefined, v: View | nul
     tps,
     cpu: v?.machine?.cpu,
     gpu: v?.machine?.gpu,
+    ...(act ? { act } : {}),
   }
 }
 
@@ -656,7 +684,8 @@ export const register: Register = (on, raw) => {
       const jc = jaugeCfg((c as any).jauge)
       const jx = ((c as any).jauge ?? {}) as { buttons_inline?: boolean; others_above_prompt?: string }
       const cols = Math.max(20, Number((e.props as any).bodyColumns) || jc.columns_fallback)
-      const facts = jaugeFacts(c, jc, ctx, v ?? null, en)
+      const ecData = (await read($, encoursAtom)) as EcData | null
+      const facts = jaugeFacts(c, jc, ctx, v ?? null, en, actFacts(c, v ?? null, ecData, Boolean(isWorking)))
       const relayHint = advice.show && c.handoff ? (jc.labels.relay_hint ?? 'relais conseillé') : ''
       const relayBtn = jc.labels.relay_button ?? 'RESUME'
       const stamps = (await read($, stampsAtom)) as Record<string, number>
@@ -717,7 +746,7 @@ export const register: Register = (on, raw) => {
         return st ? [btn, <Text key={`stamp-${launcherKey(b)}`} dimColor wrap="truncate-end">{st}</Text>] : [btn]
       })
       const keepOthers = jx.others_above_prompt === 'show'
-      const ecv = enCoursView((await read($, encoursAtom)) as EcData | null, ecCfg(jx), cols, v?.now)
+      const ecv = enCoursView(ecData, ecCfg(jx), cols, v?.now)
       const segColor = (s: Seg) => (s.tone ? { color: c.colors[s.tone] ?? s.tone } : s.dim ? { dimColor: true } : {})
       const segEl = (s: Seg, key: string) =>
         Svg && s.bar !== undefined ? miniSvg(s.bar, s.tone, key, `${Math.round(s.bar)} %`) : (
