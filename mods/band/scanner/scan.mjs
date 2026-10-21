@@ -65,10 +65,16 @@ export function extrasOf(cfg, now = Date.now(), deps = {}) {
   if (j.usage_dir !== '' && j.usage_dir !== false) {
     try {
       const q = (deps.readQuotas || readQuotas)(j.usage_dir || undefined, now)
+      // fiveProj / weekProj: the % at the window's reset at the current pace (runOut's ratePerH), for the traffic light
+      const proj = (x) => (x && Number.isFinite(x.ratePerH) && x.ratePerH > 0 && Number.isFinite(x.reset) && Number.isFinite(x.at) && x.reset > x.at ? x.pct + (x.ratePerH * (x.reset - x.at)) / 3600000 : undefined)
       const pick = (w) => {
         const o = {}
         if (Number.isFinite(w?.five?.pct)) o.five = w.five.pct
         if (Number.isFinite(w?.week?.pct)) o.week = w.week.pct
+        const p5 = proj(w?.five)
+        const pw = proj(w?.week)
+        if (p5 !== undefined) o.fiveProj = Math.round(p5 * 10) / 10
+        if (pw !== undefined) o.weekProj = Math.round(pw * 10) / 10
         return o
       }
       const cx = pick(q.codex)
