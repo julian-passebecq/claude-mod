@@ -105,8 +105,8 @@ for (const columns of [60, 75]) {
     const OPEN = { conv: true, convs: true, graphe: true }
     const text = panneauText(columns, { open: OPEN, closed: { 'cv:b': false } })
     const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
-    // À toi de cliquer: at the very top of the Panneau, once, not in the graph
-    assert.match(text, /^◆ À toi de cliquer : \[Lane beta\] Choisir la version/)
+    // À toi de cliquer: at the top of the Panneau, right under the EN COURS block, once, not in the graph
+    assert.match(text, /^EN COURS\n[^\n]*\n[^\n]*\n\n◆ À toi de cliquer : \[Lane beta\] Choisir la version/)
     assert.doesNotMatch(g, /À toi de cliquer/)
     for (const k of ['● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
       '★ proj-one · 5', '(ici) ›] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two ›] coord', '○ [Package two · verify ›]', '⇢ PM BETA',

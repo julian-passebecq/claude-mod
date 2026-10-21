@@ -6,6 +6,8 @@
     "open": ["conv", "convs", "barres", "debit", "graphe"],
     "fichiers": { "attach_selection": true, "max_rows": 30, "more_step": 30, "show_hidden": false, "git": true },
     "conv": { "agents_max": 12, "log_max": 6, "contributors": 3, "stall_min": 30, "compact_tokens": 100000, "running_max": 8, "finished_max": 10 },
+    "_encours": "EN COURS at the very top (Julian, 21 Oct: « 0 workflow, 0 agent, 0 sub-agent, 0 CI »): busy_min = a main thread works while its transcript was written within these minutes and its last message did not end the turn; ci_stale_min = past it the ci mod's pipelines cache is « CI : non lu depuis N min » in grey instead of 0; ci_max = pipelines listed in « En ce moment ». Shared definitions in lib/core/activity.mjs.",
+    "encours": { "busy_min": 2, "ci_stale_min": 15, "ci_max": 8 },
     "contexte": { "handoff_tokens": 250000, "window": null, "bar_width": 40 },
     "convs": { "period": "today", "top": 15, "basis": "tokens", "who": "claude", "unfold_max": 0 },
     "_tree": "The tree of CETTE CONVERSATION and CONVERSATIONS (Julian, 20 Oct: « ajoute de l'indentation »): indent = columns per level, the connector « ├──── » and the « │ » rule under it (a number, at least 2), or \"auto\": 6 at style.wide_cols (60) columns and more, 4 under it. The metrics line starts under the title's first letter; a « │ » line separates sibling conversations, none between the agents of one Workflow.",

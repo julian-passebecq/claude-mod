@@ -23,7 +23,8 @@
 // cuts its title, its metrics line drops the ETA, then the model, then the bar; a number is never cut.
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok, convKey, markOf, minText, modelShort } from '../lib/panel.mjs'
-import { modelName, enCours, famList, kidsOpen, runningNow } from '../lib/panel_conv.mjs'
+import { modelName, enCours, famList, kidsOpen, runningNow, convActivity } from '../lib/panel_conv.mjs'
+import { activityCounts } from '../lib/core/activity.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { drawGraphe } from './graphe_view.mjs'
 import { meterSvg } from './svg.mjs'
@@ -55,9 +56,10 @@ export function drawPanel(h, P) {
   const u = ui(h, P, c, width)
   const parts = { fichiers: drawFiles, conv: drawConv, convs: drawConvs, barres: drawBarres, debit: drawDebit, graphe: drawGrapheSection }
   const out = []
+  // EN COURS first (Julian, 21 Oct: « how do I know no work is in process? make it more visible »), then À toi de cliquer
+  out.push(drawEnCours(u, P, L))
   const click = drawClick(u, P, L)
   if (click) out.push(click)
-  out.push(drawEnCours(u, P, L))
   // the one-line sections sit together; a block of rows (Fichiers, the conversations) is followed by an empty line
   const oneLine = new Set(['barres', 'debit', 'graphe'])
   let prev = ''
@@ -106,59 +108,95 @@ function drawClick(u, P, L) {
   return h.col(lines, { key: 'p-click' })
 }
 
-// ---- EN COURS: one line, what runs now (Julian, 20 Oct: « I don't see how many workflows, agents, sub-agents ») -------
+// ---- EN COURS: what runs now, every count shown (Julian, 20-21 Oct: « 0 workflow, 0 agent, 0 sub-agent, 0 CI ») ------
 
 /**
- * « EN COURS  3 conv · 4 workflows · 9 agents (7 opus, 2 sonnet) · 2 bloqués »: the conversations that work (green, a
- * click filters CONVERSATIONS on « en cours »), the live Workflows, the running agents and their models, the blocked
- * conversations (red, a click filters on « t'attend »). Short of room the models go, then the words get short.
- * « voir › » at the right unfolds « En ce moment » (Julian, 21 Oct: « I don't see what is running right now, which
- * agent, which workflow »): every running agent, flat, longest first, its path « Conv › workflow › phase », model and
- * time. Nothing runs: « rien ne tourne · dernier fini il y a 12 min (name) ».
+ * The EN COURS block at the very top of the Panneau:
+ *   EN COURS
+ *   ● 1 conversation travaille (fil principal) · fin ~18:55 · 1 bloquée
+ *   ○ 0 workflow · ○ 0 agent · ○ 0 sous-agent · ○ 0 CI                voir ›
+ * Line 1: the conversations whose main thread has a turn in progress or whose Workflow / agent runs (a click filters
+ * CONVERSATIONS on « en cours »), how many of them by their main thread, the latest ETA, the blocked ones (red, a
+ * click filters on « t'attend »). Line 2: every count, zeros in grey ○, the others green ●, amber when stalled, red when
+ * failed; a non-zero count unfolds « En ce moment »; the CI from the ci mod's cache (P.ci, lib/core/activity.mjs ciNow),
+ * « CI : non lu depuis N min » in grey when the cache is older than encours.ci_stale_min. Everything zero: one green
+ * line « ✓ Rien ne tourne · tout est au repos · dernier fini il y a 12 min (name) ». Short of room the words get short;
+ * a number is never cut.
  */
 function drawEnCours(u, P, L) {
   const { h } = u
   const n = enCours({ syn: P.synAll || P.syn, factory: P.factory, factories: P.convFactories, self: P.self })
-  const now = runningNow({ factory: P.factory, factories: P.convFactories, self: P.self }, P.cfg)
-  const head = item(h, L.encours_head, { bold: true })
-  if (!n.convs && !n.workflows && !n.agents && !n.blocked && !now.list.length) {
-    const last = now.last && Number.isFinite(now.last.ago) ? ' · ' + fill(L.encours_last, { age: minText(now.last.ago), name: now.last.name }) : ''
-    return h.row([head.el, h.T(clip(L.encours_none + last, Math.max(8, u.W - head.w - 2)), { dim: true, wrap: 'truncate-end' })], { key: 'p-encours', gap: 2, flexWrap: 'nowrap', marginBottom: 1 })
+  const ci = P.ci || null
+  const now = runningNow({ factory: P.factory, factories: P.convFactories, self: P.self, ci }, P.cfg)
+  const k = activityCounts({ convs: n.convs, workflows: n.workflows, agents: n.agents, subagents: n.subagents, ci, blocked: n.blocked })
+  const head = h.T(L.encours_head, { bold: true, key: 'p-encours-h' })
+  const ciGrey = k.ciStale ? (Number.isFinite(k.ciAgeMs) ? fill(L.encours_ci_stale, { age: minText(k.ciAgeMs) }) : L.encours_ci_unread) : ''
+  const listed = now.list.length + now.ci.length
+  if (k.idle && !listed) {
+    const last = now.last && Number.isFinite(now.last.ago) ? fill(L.encours_idle_last, { age: minText(now.last.ago), name: now.last.name }) : ''
+    const vs = [[L.encours_idle, last], [L.encours_idle_short, last], [L.encours_idle], [L.encours_idle_short]].map((v) => v.filter(Boolean).join(' · '))
+    const text = vs.find((t) => len(t) <= u.W) || clip(vs[vs.length - 1], u.W)
+    const lines = [head, h.T(text, { tone: 'ok', bold: true, wrap: 'truncate-end', key: 'p-encours-idle' })]
+    if (ciGrey) lines.push(h.T(clip(ciGrey, u.W), { dim: true, wrap: 'truncate-end', key: 'p-encours-ci' }))
+    return h.col(lines, { key: 'p-encours', marginBottom: 1 })
   }
-  const open = Boolean(P.open && P.open.encours)
-  const more = now.list.length ? { el: h.tbtn(`${L.encours_more} ${open ? '⌄' : '›'}`, () => P.act.ptoggle('encours'), 'pec-more', { plain: true, dim: true }), w: len(L.encours_more) + 4 } : null
   const act = P.act || {}
-  const clickable = (text, o, key, onPress) => (onPress && h.tbtn
-    ? { el: h.tbtn(text, onPress, key, { plain: true, ...o }), w: len(text) + 2 }
-    : item(h, text, o, key))
-  const conv = clickable(fill(L.encours_conv, { n: n.convs }), { tone: n.convs ? 'ok' : undefined, bold: n.convs > 0, dim: !n.convs }, 'pec-conv',
-    act.pfilter ? () => act.pfilter('state', 'running') : null)
-  const wf = (short) => item(h, fill(short ? L.encours_wf_short : n.workflows === 1 ? L.encours_wf_one || L.encours_wf : L.encours_wf, { n: n.workflows }), { tone: n.workflows ? 'ok' : undefined, bold: n.workflows > 0, dim: !n.workflows })
-  // « 1 agent en cours » as on every row; « 1 ag. » only when the width forces it (Julian, 20 Oct)
-  const agO = { tone: n.agents ? 'ok' : undefined, bold: n.agents > 0, dim: !n.agents }
-  const ag = item(h, fill(L.tree_agents, { n: n.agents, agents: n.agents === 1 ? L.agent_one : L.agent_many }), agO)
-  const agS = item(h, fill(L.tree_agents_short, { n: n.agents }), agO)
-  const fams = n.fams.length ? item(h, fill(L.encours_fam, { list: n.fams.map(([f, k]) => `${k} ${f}`).join(', ') }), { dim: true }) : null
-  const agFull = fams ? { el: h.row([ag.el, fams.el], { gap: 1, flexWrap: 'nowrap', key: 'pec-ag' }), w: ag.w + fams.w + 1 } : ag
-  const blocked = n.blocked ? clickable(fill(n.blocked === 1 ? L.encours_blocked_one : L.encours_blocked, { n: n.blocked }), { tone: 'bad', bold: true }, 'pec-blocked',
-    act.pfilter ? () => act.pfilter('state', 'waiting') : null) : null
-  const room = u.W - head.w - 2 - (more ? more.w + 1 : 0)
-  const vs = [[conv, wf(false), agFull, blocked], [conv, wf(false), ag, blocked], [conv, wf(true), ag, blocked], [conv, wf(true), agS, blocked]].map((v) => withDots(u, v))
-  const line = h.row([
-    h.row([head.el, fitLine(u, room, vs, 'pec-l')], { gap: 2, flexWrap: 'nowrap', alignItems: 'center', flexShrink: 1, key: 'l' }),
+  const open = Boolean(P.open && P.open.encours)
+  const toggle = listed && act.ptoggle ? () => act.ptoggle('encours') : null
+  const on = L.encours_bullet_on
+  const off = L.encours_bullet_off
+  // one count: its bullet (● green / amber / red, ○ grey at zero) and its words, a plain button when it opens something
+  const count = (key, num, text, o = {}) => {
+    const tone = !num ? undefined : o.bad ? 'bad' : o.warn ? 'warn' : 'ok'
+    const b = item(h, num ? on : off, { tone, dim: !num })
+    const press = num && !o.plain ? o.onPress || toggle : null
+    const t = press && h.tbtn ? { el: h.tbtn(text, press, key, { plain: true, bold: true, tone }), w: len(text) + 2 } : item(h, text, { tone, bold: Boolean(num), dim: !num }, key)
+    return { el: h.row([b.el, t.el], { gap: 1, flexWrap: 'nowrap', key: key + '-r' }), w: b.w + 1 + t.w }
+  }
+  const pl = (num, one, many) => fill(num > 1 ? many || one : one, { n: num })
+  // line 1: the conversations at work
+  const convText = (short) => (short ? fill(L.encours_conv_short, { n: n.convs }) : !n.convs ? fill(L.encours_conv_zero, { n: 0 }) : pl(n.convs, L.encours_conv_one, L.encours_conv_many))
+  const conv = (short) => count('pec-conv', n.convs, convText(short), { onPress: act.pfilter ? () => act.pfilter('state', 'running') : null })
+  const main = n.main ? item(h, n.main === n.convs ? L.encours_main_all : fill(L.encours_main_some, { n: n.main }), { dim: true }) : null
+  const eta = n.eta ? item(h, fill(L.encours_eta, { time: n.eta }), { dim: true }) : null
+  const blockedText = pl(n.blocked, L.encours_blocked_conv, L.encours_blocked_conv_many)
+  const blocked = n.blocked ? (act.pfilter && h.tbtn
+    ? { el: h.tbtn(blockedText, () => act.pfilter('state', 'waiting'), 'pec-blocked', { plain: true, tone: 'bad', bold: true }), w: len(blockedText) + 2 }
+    : item(h, blockedText, { tone: 'bad', bold: true }, 'pec-blocked')) : null
+  const c1 = (v) => v.filter(Boolean)
+  const withMain = (x) => (main ? { el: h.row([x.el, main.el], { gap: 1, flexWrap: 'nowrap', key: 'pec-cm' }), w: x.w + 1 + main.w } : x)
+  const l1 = [c1([withMain(conv(false)), eta, blocked]), c1([withMain(conv(false)), blocked]), c1([conv(false), blocked]), c1([conv(true), blocked])].map((v) => withDots(u, v))
+  // line 2: workflows, agents of a Workflow, sous-agents (Agent tool outside a Workflow), CI
+  const wf = (short, plain) => count('pec-wf', n.workflows, short ? fill(L.encours_wf_short, { n: n.workflows }) : pl(n.workflows, L.encours_wf_n, L.encours_wf_n_many), { warn: n.stalledWf > 0, bad: n.failed > 0, plain })
+  const ag = (short, plain) => count('pec-ag', n.agents, short ? fill(L.tree_agents_short, { n: n.agents }) : pl(n.agents, L.encours_agent_n, L.encours_agent_n_many), { warn: n.stalledWf > 0, plain })
+  const sub = (short, plain) => count('pec-sub', n.subagents, short ? fill(L.encours_sub_short, { n: n.subagents }) : pl(n.subagents, L.encours_sub_n, L.encours_sub_n_many), { warn: n.stalledSub > 0, plain })
+  const ciItem = (short, plain) => (k.ciStale
+    ? item(h, short ? L.encours_ci_stale_short : ciGrey, { dim: true }, 'pec-ci')
+    : count('pec-ci', k.ci, fill(L.encours_ci_n, { n: k.ci }), { bad: Boolean(ci && ci.failed), plain }))
+  const more = listed && toggle ? { el: h.tbtn(`${L.encours_more} ${open ? '⌄' : '›'}`, toggle, 'pec-more', { plain: true, dim: true }), w: len(L.encours_more) + 4 } : null
+  const room2 = u.W - (more ? more.w + 1 : 0)
+  // the narrowest: no « · » between the counts (their bullets separate them), then plain words (« voir › » still opens
+  // « En ce moment »), so the CI count is never the one dropped
+  const l2 = [...[[wf(false), ag(false), sub(false), ciItem(false)], [wf(true), ag(false), sub(false), ciItem(false)], [wf(true), ag(true), sub(true), ciItem(false)], [wf(true), ag(true), sub(true), ciItem(true)]].map((v) => withDots(u, v)),
+    [wf(true), ag(true), sub(true), ciItem(true)], [wf(true, true), ag(true, true), sub(true, true), ciItem(true, true)]]
+  const line2 = h.row([
+    h.row([fitLine(u, room2, l2, 'pec-l2')], { flexShrink: 1, key: 'l' }),
     more ? h.row([more.el], { flexShrink: 0, key: 'r' }) : null,
-  ], { key: 'p-encours-row', justifyContent: 'space-between', flexWrap: 'nowrap', alignItems: 'center' })
-  if (!open || !now.list.length) return h.col([line], { key: 'p-encours', marginBottom: 1 })
-  return h.col([line, h.col(nowLines(u.sub(2), P, L, now.list), { key: 'p-now', marginLeft: 2 })], { key: 'p-encours', marginBottom: 1 })
+  ], { key: 'p-encours-row2', justifyContent: 'space-between', flexWrap: 'nowrap', alignItems: 'center' })
+  const lines = [head, fitLine(u, u.W, l1, 'pec-l1'), line2]
+  if (open && listed) lines.push(h.col(nowLines(u.sub(2), P, L, now), { key: 'p-now', marginLeft: 2 }))
+  return h.col(lines, { key: 'p-encours', marginBottom: 1 })
 }
 
 /**
  * « En ce moment »: one entry per running agent (two lines: bullet, label, model · time at the right; under it, grey,
  * its path « Conv › workflow › phase »), the longest first; a conversation working with no agent: « fil principal ».
  */
-function nowLines(u, P, L, list) {
+function nowLines(u, P, L, now) {
   const { h } = u
-  const out = [h.T(fill('{head} ({n})', { head: L.now_head, n: list.length }), { bold: true, key: 'pn-h' })]
+  const list = now.list
+  const pipes = now.ci || []
+  const out = [h.T(fill('{head} ({n})', { head: L.now_head, n: list.length + pipes.length + (now.ciMore || 0) }), { bold: true, key: 'pn-h' })]
   for (const x of list) {
     const kind = x.kind === 'main' ? 'conv' : x.kind
     const right = withDots(u, [item(h, x.model, { dim: true }), x.ms ? item(h, minText(x.ms), { dim: true, tone: x.stalled ? 'warn' : undefined }) : null])
@@ -171,6 +209,14 @@ function nowLines(u, P, L, list) {
     const path = rest && room >= 8 ? clip(x.path[0], room) + sep + rest : x.path.join(sep)
     out.push(h.T(NBSP + NBSP + clip(path, u.W - 2), { dim: true, wrap: 'truncate-end', key: 'pnp-' + x.key }))
   }
+  // the running pipelines: « ◆ repo · branch   job · 12 min » (red when a job of it already failed)
+  for (const p of pipes) {
+    const title = fill(p.branch ? L.now_ci : L.now_ci_nobranch, { repo: p.repo, branch: p.branch })
+    const right = withDots(u, [p.job ? item(h, p.job, { dim: true }) : null, item(h, p.status === 'queued' ? L.now_ci_queued : minText(p.ms), { dim: true })])
+    out.push(macroRow(u, { key: 'pn-ci-' + p.key, lead: [markItem(u, { glyph: (u.c.bullets || {}).ci || '◆', tone: p.failed ? 'bad' : 'ok' })], title, bold: true,
+      variants: [right, right.slice(-1)], minTitle: 12 }))
+  }
+  if (now.ciMore) out.push(h.T(`+${now.ciMore} CI`, { dim: true, key: 'pn-ci-more' }))
   return out
 }
 
@@ -360,7 +406,10 @@ function convNode(u, P, L, o) {
   if (!o.running && !o.open) {
     // one line: the title, then « 1 sous-conv · 42 % · 507K » at the right
     const nums = [counts.subs ? fill(L.tree_subs, { n: counts.subs }) : '', o.ctx && Number.isFinite(o.ctx.pct) ? `${Math.round(o.ctx.pct)} %` : '', o.value || ''].filter(Boolean).join(' · ')
-    return { key: o.key, children: [], head: (w) => nodeHead(u, { ...head, right: [...warn, ...(nums ? [item(h, nums, { dim: true })] : [])] }, w) }
+    const numsI = nums ? [item(h, nums, { dim: true })] : []
+    // its activity in words (Julian, 21 Oct): « au repos depuis 12 min », dropped before the title is cut
+    const a = o.activity ? [item(h, o.activity.text + (nums ? ' ·' : ''), { dim: o.activity.tone === 'dim', tone: o.activity.tone === 'dim' ? undefined : o.activity.tone })] : []
+    return { key: o.key, children: [], head: (w) => nodeHead(u, { ...head, variants: [[...warn, ...a, ...numsI], [...warn, ...numsI]], minTitle: 20 }, w) }
   }
   const arrow = arrowItem(u, o.open, o.onToggle, o.titleKey + '-x')
   const d = o.details
@@ -373,16 +422,19 @@ function convNode(u, P, L, o) {
       const val = o.value ? item(h, o.value, { dim: true }) : null
       const model = modelShort(o.model, o.effort, P.cfg)
       const m = model ? item(h, model, { dim: true }) : null
-      const st = o.state && !o.running ? item(h, o.state, { dim: true }) : null
+      // its activity in words: « travaille · fil principal » / « travaille · 2 agents » / « au repos depuis 12 min »
+      const av = o.activity ? item(h, o.activity.text, { bold: o.activity.busy, tone: o.activity.tone === 'dim' ? undefined : o.activity.tone, dim: o.activity.tone === 'dim' }) : null
+      const st = av && !o.running ? null : o.state && !o.running ? item(h, o.state, { dim: true }) : null
       const wf = counts.wf ? item(h, fill(L.tree_wf, { n: counts.wf })) : null
       const ag = counts.agents ? item(h, fill(L.tree_agents, { n: counts.agents, agents: counts.agents === 1 ? L.agent_one : L.agent_many })) : null
       const agS = counts.agents ? item(h, fill(L.tree_agents_short, { n: counts.agents })) : null
       const sub = counts.subs ? item(h, fill(L.tree_subs, { n: counts.subs }), { dim: true }) : null
       const vs = cx
         // « 1 agent en cours » keeps its words until the bar went: « 1 ag. » only when the width forces it
-        ? [[cx.full, val, m, wf, ag, sub, st], [cx.full, val, m, wf, ag, sub], [cx.full, val, wf, ag, sub], [cx.full, val, wf, ag], [cx.noBar, val, wf, ag],
+        ? [[cx.full, val, m, wf, ag, sub, st, av], [cx.full, val, wf, ag, sub, av], [cx.noBar, val, wf, ag, av],
+          [cx.full, val, m, wf, ag, sub, st], [cx.full, val, m, wf, ag, sub], [cx.full, val, wf, ag, sub], [cx.full, val, wf, ag], [cx.noBar, val, wf, ag],
           [cx.bare, val, wf, ag], [cx.bare, val, wf, agS], [cx.bare, wf, agS], [cx.bare, val]]
-        : [[val, m, wf, ag, sub, st], [val, m, wf, ag, sub], [val, wf, ag, sub], [val, wf, ag], [val, wf, agS], [wf, agS], [val]]
+        : [[val, m, wf, ag, sub, st, av], [val, wf, ag, sub, av], [val, wf, agS, av], [val, m, wf, ag, sub, st], [val, m, wf, ag, sub], [val, wf, ag, sub], [val, wf, ag], [val, wf, agS], [wf, agS], [val]]
       if (!d) return fitLine(u, w, vs.map((v) => withDots(u, v)), o.key + '-ml', o.from)
       const label = `${L.details} ${d.open ? '⌄' : '›'}`
       const btn = h.tbtn(label, d.onToggle, d.key, { plain: true, dim: true })
@@ -735,7 +787,7 @@ function drawConv(u, P, L) {
     running: mark === 'working' || mark === 'stalled' || m.cards.length > 0, idle: mark === 'done' || mark === 'idle' || mark === 'archived',
     model: m.lead.model, effort: m.lead.effort, ctx: x ? { pct: x.pct, over: x.over, markPct: x.markPct } : null, state: m.lead.state,
     value: s.cost === null || s.cost === undefined ? (s.tokens ? fmtTokens(s.tokens) : '') : fmtUsd(s.cost),
-    counts: countsOf(m, subsOf(P, P.self)),
+    counts: countsOf(m, subsOf(P, P.self)), activity: convActivity(m, P.cfg),
     details: { open: m.detailsOpen, key: m.detailsKey, onToggle: () => P.act.nodeToggle(m.detailsKey, m.detailsOpen), lines: (inner) => detailLines(inner, P, L, m, {}) },
     children: childrenOf(u, P, L, m),
   })
@@ -1061,7 +1113,7 @@ function drawConvs(u, P, L, width) {
         running: r.mark === 'working' || r.mark === 'stalled' || live, idle: r.mark === 'done' || r.mark === 'idle' || r.mark === 'archived',
         onToggle: () => P.act.nodeToggle(key, open), model: r.model, effort: r.effort, ctx: ctxOfRow(u, P, r.ctx), value: fmtTokens(r.tokens),
         state: r.mark !== 'idle' && r.mark !== 'stalled' && (L.graphe_states || {})[r.mark] ? L.graphe_states[r.mark] : r.stateLabel, from: r.parent && !parentOf(r) && r.parentTitle ? fill(L.graphe_from, { title: r.parentTitle }) : '',
-        counts: countsOf(fm, subs.length),
+        counts: countsOf(fm, subs.length), activity: convActivity(fm, P.cfg),
         // this conversation's card is under « Cette conversation »: no « détails » on its row here
         details: self ? null : { ...det, onToggle: () => P.act.nodeToggle(det.key, det.open),
           lines: (inner) => detailLines(inner, P, L, fm, { cli: r.id, link, openLabel: wide ? L.open_conv : L.open_conv_short }) },

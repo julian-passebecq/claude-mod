@@ -3,7 +3,10 @@
 // --panneau: the default view (the Panneau) from invented fixtures (scripts/fixtures/panneau.mjs), nothing read on this PC:
 //   node mods/cockpit/scripts/preview.mjs --panneau --cols 60   (and --cols 45, 75)
 //   --indent <n|auto>: panel.tree.indent, the tree's columns per level (auto: 6, 4 under 60 columns)
-//   --busy: the fixture with 2 running Workflows, 1 background agent and 1 working sub-conversation
+//   --busy: the fixture with 2 running Workflows, 1 background agent, 1 working sub-conversation and 1 CI pipeline
+//   --main: only this conversation's main thread works (a turn in progress, no Workflow, no agent, no CI)
+//   --idle: nothing runs anywhere: EN COURS is the green « ✓ Rien ne tourne » line
+//   --ci idle|busy|stale: the ci mod's pipelines cache (stale: « CI : non lu depuis 40 min »)
 //   --open encours,pdetails: unfold « En ce moment » (a section id) or a node (a fold key), comma-separated
 // Without --conv: the project's most recent lead. The engine's figures ($.session.usage) are not reachable here, so the
 // Usage strip shows the transcripts' part only and the Jauge uses the scan's context of the chosen conversation.
@@ -32,6 +35,10 @@ if (argv.includes('--panneau')) {
   const { panneauText } = await import('./fixtures/panneau.mjs')
   const o = indent === undefined ? {} : { indent: indent === 'auto' ? 'auto' : Number(indent) }
   if (argv.includes('--busy')) o.busy = true
+  if (argv.includes('--main')) o.scene = 'main'
+  if (argv.includes('--idle')) o.scene = 'idle'
+  const ci = opt('--ci', '')
+  if (ci) o.ci = ci
   const sections = ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe', 'encours', 'convs_filters']
   if (unfold.length) {
     o.open = { conv: true, convs: true, ...Object.fromEntries(unfold.filter((k) => sections.includes(k)).map((k) => [k, true])) }
