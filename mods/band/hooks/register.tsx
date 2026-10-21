@@ -62,6 +62,8 @@ import {
   counters,
 } from './sections'
 import type { BandUi, SectionsCfg } from './sections'
+import { ecCfg, enCoursView } from './encours'
+import type { EcData, Seg } from './encours'
 
 // The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
 const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number | undefined): Gauge => {
@@ -128,6 +130,7 @@ const uiAtom = atom({ plugin: 'band', key: 'ui' } as const, { expanded: false, o
 const STORE_KEY = 'sections'
 const stampsAtom = atom({ plugin: 'band', key: 'stamps' } as const, {})
 const STAMPS_KEY = 'stamps'
+const encoursAtom = atom({ plugin: 'band', key: 'encours' } as const, null)
 
 const loadStamps = async ($: EngineInterface) => {
   let stored: unknown
@@ -207,6 +210,9 @@ let scanning = false
 let thresholdAt = 0
 let threshold: number | undefined
 let timer: { cancel: () => void } | undefined
+let ecTimer: { cancel: () => void } | undefined
+let ecBusy = false
+let ecLast = { at: 0, sig: '', live: false, dir: '' }
 
 const loadConfig = async ($: EngineInterface): Promise<Config> => {
   if (cfg) return cfg
@@ -450,6 +456,52 @@ const pressHandoff = async ($: EngineInterface, b: HandoffButton, isWorking: boo
     .catch((err: unknown) => $.ui.toast(`/${hc.command} : ${String(err).slice(0, 160)}`))
 }
 
+// « en cours » rows (jauge.en_cours): scanner/encours.mjs reads only the files of THIS conversation that changed. While
+// nothing runs it is not even started: the conversation's folders are stat-ed every refresh_s and the scanner runs
+// only when one of them changed (a new agent or Workflow) or idle_poll_s went by.
+const refreshEnCours = async ($: EngineInterface, force = false) => {
+  if (ecBusy) return
+  const c = await loadConfig($)
+  const j = ((c as any).jauge ?? {}) as any
+  const ec = j.en_cours ?? {}
+  if (ecCfg(j).rows <= 0 || ec.enabled === false) return
+  ecBusy = true
+  try {
+    const now = await $.clock.now()
+    let sig = ''
+    if (ecLast.dir) {
+      for (const p of [ecLast.dir, `${ecLast.dir}/subagents`, `${ecLast.dir}/subagents/workflows`]) {
+        try {
+          sig += `${(await $.fs.stat(p)).mtimeMs};`
+        } catch {
+          sig += '-;'
+        }
+      }
+    }
+    const idle = Math.max(5, Number(ec.idle_poll_s) || 60) * 1000
+    if (!force && !ecLast.live && ecLast.at && sig === ecLast.sig && now - ecLast.at < idle) return
+    const h = await home($)
+    let session = ''
+    try {
+      session = await $.session.id()
+    } catch {}
+    const req = { projects_root: expandHome(c.projects_root, h), cache_file: expandHome(ec.cache_file || '~/.claude/band/encours-cache.json', h), session, now, cfg: c }
+    const root = $.plugin.root.replace(/\\/g, '/')
+    const r = await $.process.run([c.node, `${root}/scanner/encours.mjs`], { stdin: JSON.stringify(req), timeoutMs: 60000 })
+    let d: any
+    try {
+      d = JSON.parse(r.stdout)
+    } catch {}
+    const data: EcData = { now, workflows: Array.isArray(d?.workflows) ? d.workflows : [], agents: Array.isArray(d?.agents) ? d.agents : [] }
+    const dir = typeof d?.dir === 'string' ? d.dir.replace(/\\/g, '/') : ''
+    ecLast = { at: now, sig: dir === ecLast.dir ? sig : '', live: Boolean(data.workflows!.length || data.agents!.length), dir }
+    await update($, encoursAtom, () => data as any)
+  } catch {
+  } finally {
+    ecBusy = false
+  }
+}
+
 const fileHref = (p: string) => `file:///${encodeURI(p.replace(/\\/g, '/').replace(/^\/+/, ''))}`
 
 const refresh = async ($: EngineInterface) => {
@@ -489,6 +541,7 @@ const refresh = async ($: EngineInterface) => {
     await statusLine($)
     await seeCommands($)
     await seeResume($, c)
+    await refreshEnCours($)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -501,6 +554,9 @@ export const register: Register = (on, raw) => {
   cfg = undefined
   timer?.cancel()
   timer = undefined
+  ecTimer?.cancel()
+  ecTimer = undefined
+  ecLast = { at: 0, sig: '', live: false, dir: '' }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -514,8 +570,11 @@ export const register: Register = (on, raw) => {
     await loadStamps($)
     timer?.cancel()
     timer = $.clock.every(Math.max(5, c.refresh_s) * 1000, () => void refresh($))
+    ecTimer?.cancel()
+    ecTimer = $.clock.every(Math.max(5, Number((c as any).jauge?.en_cours?.refresh_s) || 5) * 1000, () => void refreshEnCours($))
     void seeCommands($)
     void refresh($)
+    void refreshEnCours($, true)
     return started
   })
 
@@ -647,6 +706,34 @@ export const register: Register = (on, raw) => {
         return st ? [btn, <Text key={`stamp-${launcherKey(b)}`} dimColor wrap="truncate-end">{st}</Text>] : [btn]
       })
       const keepOthers = jx.others_above_prompt === 'show'
+      const ecv = enCoursView((await read($, encoursAtom)) as EcData | null, ecCfg(jx), cols, v?.now)
+      const segColor = (s: Seg) => (s.tone ? { color: c.colors[s.tone] ?? s.tone } : s.dim ? { dimColor: true } : {})
+      const cockpitBtn = buttons.find(b => b.command === 'cockpit')
+      const ecEls = ecv.rows.length
+        ? [
+            ...ecv.rows.map(r => (
+              <Box key={r.key} flexDirection="row" flexWrap="nowrap" {...(r.indent ? { marginLeft: r.indent } : {})}>
+                {r.segs.map((s, i) => (
+                  <Text key={`${r.key}-${i}`} {...segColor(s)} wrap="truncate-end">
+                    {s.text}
+                  </Text>
+                ))}
+              </Box>
+            )),
+            ...(ecv.more
+              ? [
+                  <Box key="ec-more" flexDirection="row" flexWrap="nowrap" gap={1}>
+                    <Text dimColor wrap="truncate-end">{`${(ecCfg(jx).labels.more ?? '+{n}').replace('{n}', String(ecv.more))}${cockpitBtn ? ' ·' : ''}`}</Text>
+                    {cockpitBtn ? (
+                      <Button key="ec-cockpit" {...(cockpitBtn.loaded ? {} : { dimColor: true })} onPress={() => press($, cockpitBtn, isWorking)}>
+                        {ecCfg(jx).labels.cockpit}
+                      </Button>
+                    ) : null}
+                  </Box>,
+                ]
+              : []),
+          ]
+        : []
       if (inline) {
         return (
           <Box flexDirection="column">
@@ -658,6 +745,7 @@ export const register: Register = (on, raw) => {
               {buttonEls}
             </Box>
             {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
+            {ecEls}
             {keepOthers ? (theirs ?? null) : null}
           </Box>
         )
@@ -671,6 +759,7 @@ export const register: Register = (on, raw) => {
             {relayEls}
           </Box>
           {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
+          {ecEls}
           <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>
             {buttonEls}
           </Box>

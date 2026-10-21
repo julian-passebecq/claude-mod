@@ -40,6 +40,22 @@
     "tps_scopes": { "tps_all": "all", "tps_project": "project", "tps_conv": "conv" },
     "columns_fallback": 120,
     "button_pad": 4,
+    "_en_cours": "Rows under the Jauge's line (above the buttons) ONLY while something runs in THIS conversation (Julian, 21 Oct): one row per running Workflow (◇ name · ▸ phase i/n · N agents model · elapsed · fin ~HH:MM from past runs of the same Workflow on this PC, at least min_samples), one indented row of its running agents (• type label · model · elapsed; agent_lines rows then +N), one row per Agent-tool agent outside Workflows (◦ background, • foreground). Bullet colour: green running, amber when nothing was written for stall_min, red failed (kept failed_keep_min). en_cours_rows: most rows (0 = off), then « +N de plus · Cockpit › ». scanner/encours.mjs reads only this conversation's changed files; it runs every refresh_s (≥ 5) while something runs, else only when the conversation's folders change or idle_poll_s went by. A Workflow or agent silent for stale_h hours is no longer shown.",
+    "en_cours_rows": 5,
+    "en_cours": {
+      "enabled": true,
+      "refresh_s": 5,
+      "idle_poll_s": 60,
+      "stall_min": 30,
+      "stale_h": 6,
+      "failed_keep_min": 10,
+      "min_samples": 3,
+      "agent_lines": 2,
+      "gap": 4,
+      "indent": 3,
+      "cache_file": "~/.claude/band/encours-cache.json",
+      "labels": { "workflow": "◇", "phase": "▸", "agent": "•", "background": "◦", "bg_word": "agent d'arrière-plan", "fg_word": "agent", "agents": "{n} agents", "agents_one": "1 agent", "eta": "fin ~{time}", "eta_over": "au-delà de l'estimation", "stalled": "rien écrit depuis {min} min", "failed": "échoué", "more_agents": "+{n}", "more": "+{n} de plus", "cockpit": "Cockpit ›", "sep": " · " }
+    },
     "usage_dir": "~/.claude/usage-mod",
     "machine": { "enabled": true, "state_file": "~/.claude/band/machine.json", "gpu_source": "auto", "gpu_every_s": 60, "gpu_timeout_ms": 4000 },
     "labels": {
