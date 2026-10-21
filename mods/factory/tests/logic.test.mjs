@@ -189,6 +189,41 @@ test('scanner: joins app file, de-duplicates streamed blocks by message.id, link
   assert.ok(cache.files[f.main].off > 0)
 })
 
+// Julian, 21 Oct: « Agents 0/1 » with nothing listed while agents ran. Past --live-s (0 here) with no new line, an agent
+// waiting on a long tool call must still be « running »: a Workflow agent whose run has no record, a background agent
+// whose parent call is unknown (meta: background), a foreground agent of the current turn (no tool_result yet)
+test('scanner: agents that wait on a long tool call stay running (Workflow, background without link, foreground)', () => {
+  const f = fixture()
+  const waiting = (id, ts) => asst(id, ts, 50, { isSidechain: true }, [{ type: 'tool_use', id: 'b-' + id, name: 'Bash', input: { command: 'gh pr checks 7 --watch' } }]).replace('"stop_reason":"end_turn"', '"stop_reason":"tool_use"')
+  const dir = join(f.projects, 'C--code-demo', 'cli-1')
+  // (c) a foreground Agent call of the current turn: no tool_result yet
+  appendFileSync(f.main, asst('m5', '2026-10-09T10:07:00Z', 9, {}, [{ type: 'tool_use', id: 'tu5', name: 'Agent', input: { subagent_type: 'tester', description: 'run tests', prompt: 'run' } }]))
+  writeFileSync(join(dir, 'subagents', 'agent-fg1.jsonl'), waiting('f1', '2026-10-09T10:07:01Z'))
+  writeFileSync(join(dir, 'subagents', 'agent-fg1.meta.json'), JSON.stringify({ agentType: 'tester', description: 'run tests', toolUseId: 'tu5' }))
+  // (b) a background agent whose Agent call is not in the transcript read (no toolUseId, no agentId link)
+  writeFileSync(join(dir, 'subagents', 'agent-bg2.jsonl'), waiting('g1', '2026-10-09T10:07:02Z'))
+  writeFileSync(join(dir, 'subagents', 'agent-bg2.meta.json'), JSON.stringify({ agentType: 'coder', description: 'p44-migration', requestShape: 'background' }))
+  // (a) a Workflow agent: its run has no record yet
+  mkdirSync(join(dir, 'subagents', 'workflows', 'wf_abc123-1'), { recursive: true })
+  writeFileSync(join(dir, 'subagents', 'workflows', 'wf_abc123-1', 'agent-w1.jsonl'), waiting('w1', '2026-10-09T10:07:03Z'))
+  let subs = runScan(f).detail.subs
+  const st = (id) => (subs.find((s) => s.id === id) || {}).status
+  assert.equal(st('fg1'), 'running')
+  assert.equal(st('bg2'), 'running')
+  assert.equal(st('w1'), 'running')
+  assert.equal(subs.find((s) => s.id === 'w1').workflow, 'wf_abc123-1')
+  // the run's record written, the foreground call's result back: no longer running
+  mkdirSync(join(dir, 'workflows'), { recursive: true })
+  writeFileSync(join(dir, 'workflows', 'wf_abc123-1.json'), JSON.stringify({ status: 'completed' }))
+  appendFileSync(f.main, line({ type: 'user', timestamp: '2026-10-09T10:09:00Z', toolUseResult: { status: 'completed' }, message: { content: [{ type: 'tool_result', tool_use_id: 'tu5', content: 'ok' }] } }))
+  subs = runScan(f).detail.subs
+  assert.equal(st('w1'), 'stopped')
+  assert.equal(st('fg1'), 'done')
+  assert.equal(st('bg2'), 'running')
+  // an agent that ended its turn is not running, whatever its call
+  assert.equal(st('ag1'), 'done')
+})
+
 test('architects are exempt from the Opus read-only warning; a release review is "before done"', () => {
   const s = { model: 'claude-opus-5-5', subs: [{ type: 'architect', model: 'claude-opus-5-5', explicit_model: 'opus', tools: 9, readonly: 9 }] }
   assert.equal(warnings(s, CFG).length, 0)

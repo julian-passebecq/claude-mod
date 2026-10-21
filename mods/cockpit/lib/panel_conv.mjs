@@ -71,6 +71,8 @@ function phasesOf(key, run, agents, L, closed, max) {
     const sorted = list.slice().sort(order)
     return {
       key: pk, title, count: list.length, done, running, open: closed[pk] === undefined ? def : !closed[pk],
+      // under a folded Workflow a phase shows its running agents only; unfolded by the viewer (›), all of them
+      expanded: closed[pk] === false,
       dots: sorted.slice().sort((a, b) => rank(a.status) - rank(b.status)).map((a) => a.status),
       agents: sorted.slice(0, max), hidden: Math.max(0, sorted.length - max),
     }
@@ -159,8 +161,9 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
     const elapsed = run && run.elapsed ? run.elapsed : starts.length ? (live ? nowMs : Math.max(...ends)) - Math.min(...starts) : 0
     const est = run && run.estimate && run.estimate.enough && live ? run.estimate : null
     const stalled = Boolean(live && lastAt && nowMs - lastAt > lim)
+    const endAt = live ? nowMs : (run && run.end) || (ends.length ? Math.max(...ends) : 0)
     cards.push({
-      key, kind: 'workflow', title: fill(L.workflow, { name: (run && run.name) || names.get(id) || id }), live, elapsed,
+      key, kind: 'workflow', endAt, title: fill(L.workflow, { name: (run && run.name) || names.get(id) || id }), live, elapsed,
       stalled, stalledMs: stalled ? nowMs - lastAt : 0, stalledText: stalled ? fill(L.card_stalled, { age: durText(nowMs - lastAt, true) }) : '',
       count: agents.length, running, tokens: agents.reduce((a, x) => a + x.tokens, 0),
       cost: run && Number.isFinite(run.cost) ? run.cost : agents.reduce((a, x) => a + x.cost, 0),
@@ -185,8 +188,22 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   }
   const liveCards = cards.filter((x) => x.live)
   const doneCards = cards.filter((x) => !x.live)
+  // « Terminés N › » (Julian, 21 Oct): the finished Workflows and the finished agents outside a Workflow, one line each
+  // (name, ✓ / ✕, duration, when), newest first, at most conv.finished_max
+  const items = []
+  for (const k of cards) {
+    if (k.kind === 'workflow') { if (!k.live) items.push({ key: k.key, kind: 'workflow', title: k.title, failed: k.failed, ms: k.elapsed, at: k.endAt || 0, card: k }); continue }
+    for (const p of k.phases) for (const a of p.agents) {
+      if (a.status === 'running') continue
+      items.push({ key: `${k.key}-${a.id}`, kind: 'background', title: a.label, failed: a.status === 'failed', ms: a.ms, at: a.ts ? a.ts + a.ms : 0, model: a.model, tokens: a.tokens })
+    }
+  }
+  items.sort((a, b) => b.at - a.at)
+  for (const x of items) x.ago = x.at ? Math.max(0, nowMs - x.at) : null
+  const fmax = Math.max(1, Number(c.conv.finished_max) || 10)
   const fk = pre + 'pfw-finished'
-  const finished = doneCards.length ? { key: fk, count: doneCards.length, open: closed[fk] === undefined ? Boolean(c.style.finished_open) : !closed[fk], cards: doneCards } : null
+  const finished = items.length ? { key: fk, count: items.length, open: closed[fk] === undefined ? Boolean(c.style.finished_open) : !closed[fk], cards: doneCards,
+    items: items.slice(0, fmax), more: Math.max(0, items.length - fmax) } : null
 
   // the session log: agents started / finished (their own times), PR opened (the scan's « pr » event), PR merged
   // (a gh pr merge / glab mr merge the conversation ran)
@@ -217,6 +234,7 @@ export function convFactory(scan, self, fcfg, cfg, nowMs, closed = {}, extra = {
   return {
     available: true, lead, ctx: extra.contexte || null, stats, share, contributors,
     cards: liveCards, finished, log: log.slice(-Math.max(1, Number(c.conv.log_max) || 6)),
+    lastDone: items.length && items[0].at ? { name: items[0].title, at: items[0].at, ago: items[0].ago } : null,
     // « détails › » on the metrics line (context card, stats, Ce qui contribue / Sankey, journal): folded by default
     compactable, compact: compactable && closed[dk] !== false, detailsKey: dk, detailsOpen: closed[dk] === false,
     journalKey: jk, journalOpen: closed[jk] === false,
@@ -264,6 +282,37 @@ export function enCours({ syn, factory, factories, self } = {}) {
   }
   out.fams = famList(fams)
   return out
+}
+
+/**
+ * « En ce moment » under EN COURS (Julian, 21 Oct: « I don't see what is running right now, which agent, which
+ * workflow »): every running agent of every conversation built, flat, with its path « Conv › workflow › phase », its
+ * model family, elapsed time and tokens, the longest first; a conversation whose main thread works with no agent is one
+ * line « fil principal ». in: { factory, factories, self }. -> { list: [{ key, kind: agent | background | main, label,
+ * model, ms, tokens, path: [...], stalled }], last: { name, at, ago } | null (the newest finished item) }.
+ */
+export function runningNow({ factory, factories, self } = {}, cfg) {
+  const L = panelConfig(cfg).labels
+  const seen = new Set()
+  const list = []
+  let last = null
+  for (const [cli, fm] of [[self, factory], ...Object.entries(factories || {})]) {
+    if (!fm || !fm.available || seen.has(fm)) continue
+    seen.add(fm)
+    const conv = fm.lead.title
+    let any = false
+    for (const k of fm.cards) for (const p of k.phases) for (const a of p.agents) {
+      if (a.status !== 'running') continue
+      any = true
+      const named = k.kind === 'workflow' && p.title !== L.phase_default && p.title !== k.title
+      list.push({ key: `${cli}-${k.key}-${a.id}`, kind: k.kind === 'workflow' ? 'agent' : 'background', label: a.label, model: familyOf(a.model), ms: a.ms || 0, tokens: a.tokens || 0,
+        path: [conv, ...(k.kind === 'workflow' ? [k.title] : []), ...(named ? [p.title] : [])], stalled: Boolean(k.stalled) })
+    }
+    if (!any && fm.lead.stateId === 'working') list.push({ key: `${cli}-main`, kind: 'main', label: L.now_main, model: familyOf(fm.lead.model), ms: 0, tokens: 0, path: [conv], stalled: false })
+    if (fm.lastDone && fm.lastDone.at && (!last || fm.lastDone.at > last.at)) last = fm.lastDone
+  }
+  list.sort((a, b) => b.ms - a.ms)
+  return { list, last }
 }
 
 /** The one-line summary of a folded « Cette conversation ». */

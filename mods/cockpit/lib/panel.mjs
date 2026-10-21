@@ -64,6 +64,10 @@ export const PANEL_DEFAULTS = {
   // level (the connector « ├──── » and the « │ » rule under it, at least 2); "auto": 6 at style.wide_cols columns and
   // more, 4 under it
   tree: { indent: 'auto' },
+  // typed bullets (Julian, 21 Oct: « I don't see what is running, which agent, which workflow; more indentation,
+  // bullets »): the bullet says the level, its colour the state (green running, amber waiting / stalled, red failed, grey
+  // done); the type word after the title is grey (labels.type_*), dropped before the title is cut short
+  bullets: { conv: '●', sub: '↳', workflow: '◇', phase: '▸', agent: '•', background: '◦' },
   convs: {
     // short: the label when the filter row would not fit on one line (a 45-column pane)
     periods: [{ id: '1h', label: '1 h', hours: 1 }, { id: 'today', label: 'aujourd’hui', short: 'auj.', since: 'midnight' }, { id: '7d', label: '7 j', hours: 168 }],
@@ -87,7 +91,9 @@ export const PANEL_DEFAULTS = {
   // contribue »; stall_min = a running Workflow / agent with no journal or transcript write for that long is « à l'arrêt ? »
   // and its conversation « bloquée ? » (written recently: the conversation « travaille »); compact_tokens = a conversation
   // with no Workflow nor agent and fewer tokens draws two lines (model · effort · state, context inline) until « détails »
-  conv: { agents_max: 12, log_max: 6, contributors: 3, stall_min: 30, compact_tokens: 100000 },
+  // running_max = running agents drawn under a Workflow / phase / conversation without unfolding (then « +N »);
+  // finished_max = lines of « Terminés N › » (newest first)
+  conv: { agents_max: 12, log_max: 6, contributors: 3, stall_min: 30, compact_tokens: 100000, running_max: 8, finished_max: 10 },
   // the lead's context bar: the hand-off threshold (tokens; ~/.claude/CLAUDE.md §4: 250 K); window: null = the effective
   // window (CLAUDE_CODE_AUTO_COMPACT_WINDOW when set, else the engine's, else factory's context_window), the same for every
   // conversation; bar_width = cells of the text bar (a surface without Svg)
@@ -141,6 +147,21 @@ export const PANEL_DEFAULTS = {
     encours_blocked: '{n} bloqués',
     encours_blocked_one: '{n} bloqué',
     encours_none: 'rien ne tourne',
+    // « voir › » at the right of EN COURS unfolds « En ce moment »: every running agent, its path, model and time
+    encours_more: 'voir',
+    encours_last: 'dernier fini il y a {age} ({name})',
+    now_head: 'En ce moment',
+    now_main: 'fil principal',
+    now_path_sep: ' › ',
+    // the grey type word after a node's title (bullets above)
+    type_conv: 'conv',
+    type_sub: 'sous-conv',
+    type_workflow: 'workflow',
+    type_phase: 'phase',
+    type_agent: 'agent',
+    type_background: 'agent fond',
+    agents_more: '+{n} {agents} en cours',
+    finished_ago: 'il y a {age}',
     // a conversation's metrics line: its children counted
     tree_wf: '{n} wf',
     tree_agents: '{n} {agents} en cours',

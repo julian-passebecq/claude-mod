@@ -5,7 +5,7 @@
     "order": ["fichiers", "conv", "convs", "barres", "debit", "graphe"],
     "open": ["conv", "convs", "barres", "debit", "graphe"],
     "fichiers": { "attach_selection": true, "max_rows": 30, "more_step": 30, "show_hidden": false, "git": true },
-    "conv": { "agents_max": 12, "log_max": 6, "contributors": 3, "stall_min": 30, "compact_tokens": 100000 },
+    "conv": { "agents_max": 12, "log_max": 6, "contributors": 3, "stall_min": 30, "compact_tokens": 100000, "running_max": 8, "finished_max": 10 },
     "contexte": { "handoff_tokens": 250000, "window": null, "bar_width": 40 },
     "convs": { "period": "today", "top": 15, "basis": "tokens", "who": "claude", "unfold_max": 0 },
     "_tree": "The tree of CETTE CONVERSATION and CONVERSATIONS (Julian, 20 Oct: « ajoute de l'indentation »): indent = columns per level, the connector « ├──── » and the « │ » rule under it (a number, at least 2), or \"auto\": 6 at style.wide_cols (60) columns and more, 4 under it. The metrics line starts under the title's first letter; a « │ » line separates sibling conversations, none between the agents of one Workflow.",

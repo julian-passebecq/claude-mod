@@ -8,7 +8,7 @@ import { tpsHourly } from '../lib/viz_spark.mjs'
 import { graphLayout, overlaps } from '../lib/viz_graph.mjs'
 import { modelFamily, modelColor, modelTone, vizConfig } from '../lib/viz_palette.mjs'
 import { claudeSeries } from '../lib/core/usage.mjs'
-import { sankeySvg } from '../hooks/viz_sankey.mjs'
+import { sankeySvg, sankeyLegend, CHAR_PX } from '../hooks/viz_sankey.mjs'
 import { quotaSvg } from '../hooks/viz_quota.mjs'
 import { sparkSvg, sparkText } from '../hooks/viz_spark.mjs'
 import { graphSvg } from '../hooks/viz_graph.mjs'
@@ -174,4 +174,42 @@ test('the Panneau places the diagrams where the surface draws Svg and keeps the 
   assert.match(text, /Ce qui contribue/)
   assert.match(text, /à ce rythme : 100 % vers \d\d:\d\d/)
   assert.match(text, /Modèle : opus 5\.5 +·+█/)
+})
+
+// Julian, 21 Oct (45-column pane): « f… 11.3M opus 88 % » drawn on top of each other. A label is drawn only where it
+// fits whole before the next column; under 60 columns the picture has no text and a legend sits under it.
+test('Sankey labels never overlap: clipped to their column, none at all in a narrow pane, a legend under it there', () => {
+  const big = { sessions: [{ cli: 'me', models: { 'claude-opus-5-5': v(4000000) }, subs: [
+    { id: 's1', workflow: 'wf_long', models: { 'claude-opus-5-5': v(3000000), 'claude-sonnet-5-5': v(200000) } },
+    { id: 's2', models: { 'claude-haiku-5-5': v(90000) } }] }] }
+  const m = sankeyModel(big, 'me', [{ id: 'wf_long', name: 'a-very-long-workflow-name-for-a-narrow-pane' }])
+  for (const width of [160, 220, 308, 420, 525]) {
+    const svg = sankeySvg(m, { width, height: 84 })
+    const right = Math.min(110, Math.max(70, Math.round(width * 0.26)))
+    const g = sankeyLayout(m, { width, height: 84, right_w: right })
+    const mx = g.models[0].x
+    for (const [, x, text] of svg.matchAll(/<text class="ink" x="([\d.]+)"[^>]*>([^<]*)<\/text>/g)) {
+      const end = Number(x) + [...text.replace(/&[a-z]+;/g, '&')].length * CHAR_PX
+      if (Number(x) < mx) assert.ok(end <= mx, `${width}px: « ${text} » runs into the models' column (${end} > ${mx})`)
+      else assert.ok(end <= g.width, `${width}px: « ${text} » runs out of the picture`)
+    }
+  }
+  assert.doesNotMatch(sankeySvg(m, { width: 308, labels: false }), /<text/)
+  assert.deepEqual(sankeyLegend(m).map((x) => [x.kind, x.label]).slice(0, 2), [['source', 'fil principal'], ['source', 'a-very-long-workflow-name-for-a-narrow-pane']])
+  // the Panneau: at 45 columns the Sankey has no text inside and its legend under it, at 75 the labels are inside
+  const svgEl = { ...el, Svg: (props) => ({ type: 'Svg', props }) }
+  const draw = (cols) => {
+    const view = panneauView(cols, { closed: { pdetails: false } })
+    return drawCockpit(svgEl, { ...view, panel: { ...view.panel, sankey: m } })
+  }
+  const find = (n, key) => { if (!n || typeof n !== 'object') return null; if (n.props && n.props.key === key) return n; for (const c of (n.props && n.props.children) || []) { const f = find(c, key); if (f) return f } return null }
+  const narrow = draw(45)
+  assert.doesNotMatch(find(narrow, 'pl-sankey').props.source, /<text/)
+  for (const i of [0, 1, 2, 3]) assert.ok(find(narrow, 'pl-sk-' + i), 'legend line ' + i)
+  const legend = JSON.stringify(find(narrow, 'pl-sk-0'))
+  assert.match(legend, /fil principal/)
+  assert.match(legend, /"■"/)
+  const wide = draw(75)
+  assert.match(find(wide, 'pl-sankey').props.source, /<text/)
+  assert.equal(find(wide, 'pl-sk-0'), null)
 })
