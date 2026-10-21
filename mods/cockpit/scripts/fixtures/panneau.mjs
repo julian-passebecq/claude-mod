@@ -44,6 +44,15 @@ export const SCAN = {
   },
 }
 
+// « busy » (Julian, 21 Oct: « I don't see what is running right now »): the same evening with a background agent of this
+// conversation still running (◦, outside a Workflow) and its sub-conversation Package four working: 2 running
+// Workflows (package-wave here, wf_2 in Lane delta), 1 background agent, 1 sub-conversation
+const BG = { id: 'a5', type: 'coder', desc: 'p44-migration', model: 'claude-opus-5-5', effort: 'medium', status: 'running', ts: iso(70), last_ts: iso(1), models: V(180000) }
+export const SCAN_BUSY = {
+  sessions: SCAN.sessions.map((x) => (x.cli === 'lead' ? { ...x, subs: [...SUBS, BG] } : x.cli === 'k4' ? { ...x, live: true } : x)),
+  detail: { ...SCAN.detail, subs: [...SUBS, BG] },
+}
+
 // the app's session files as lib/core/sessions.mjs graphRow returns them (invented)
 const G = (o) => ({ sid: 'local_' + o.cli, title: '', cwd: 'C:/code/proj-one', origin: 'C:/code/proj-one', repo: 'proj-one', archived: false, starred: false,
   last_activity: NOW - 5 * 60000, created: NOW - 5 * 3600000, model: 'claude-opus-5-5', effort: 'medium', parent: '', peers: [], awaiting: false, prs: [], branch: '', ...o })
@@ -108,30 +117,31 @@ export function panneauView(columns, o = {}) {
   // and Workflow, Quotas / Débit / Graphe one line each; o.open / o.closed unfold the details (micro)
   const open = o.open || { conv: true, convs: true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
-  const syn = synthesis(o.data || CLASSEMENT, SCAN, null, filter, {}, NOW)
+  const scan = o.busy ? SCAN_BUSY : SCAN
+  const syn = synthesis(o.data || CLASSEMENT, scan, null, filter, {}, NOW)
   // EN COURS counts every conversation of the window, not only the top N listed (as hooks/register.mjs passes it)
   const every = { ...syn, rows: syn.every || syn.rows }
   const usage = { rateLimits: [{ kind: 'five_hour', percentUsed: 21, resetsAt: new Date(NOW + 130 * 60000).toISOString() }, { kind: 'seven_day', percentUsed: 85, resetsAt: new Date(NOW + 50 * 3600000).toISOString() }, { kind: 'spend_limit', percentUsed: 12 }] }
-  const card = usageCard(usage, SCAN.sessions[0], FCFG, NOW)
+  const card = usageCard(usage, scan.sessions[0], FCFG, NOW)
   const panel = {
     open, closed: o.closed || {}, act: ACT,
     files: { head: 'proj-one · main', rows: [{ id: 'C:/code/proj-one/src', label: '▾ src', git: 'M', color: '#e5c07b', selected: false }, { id: 'C:/code/proj-one/src/panel.ts', label: '  · panel.ts', git: '?', selected: true }], more: 3, selected: 'src/panel.ts', attach: true, busy: false },
-    factory: convFactory(SCAN, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, SCAN, null, { period: 'today' }, {}, NOW).tpsById.lead }),
+    factory: convFactory(scan, 'lead', FCFG, {}, NOW, o.closed || {}, { runs: RUNS, card, contexte: contexteOf({ usage: null, ctxTokens: 120000, fwin: 400000 }, {}), tps: synthesis(CLASSEMENT, scan, null, { period: 'today' }, {}, NOW).tpsById.lead }),
     syn, synAll: every, filter,
     bars: barsOf({ usage, quotas: { codex: { week: { pct: 30 } } }, tps: syn.tps, codex: filter.who === 'codex', card }, {}),
-    graphe: grapheModel({ rows: GRAPH_ROWS, scan: SCAN, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
+    graphe: grapheModel({ rows: GRAPH_ROWS, scan, workflows: RUNS, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
   // every conversation row has its factory (counts, détails); a running one (d works) shows its children by default
-  const under = convFactories({ scan: SCAN, runs: RUNS, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
+  const under = convFactories({ scan, runs: RUNS, syn, synAll: every, graphe: panel.graphe, self: 'lead', selfFactory: panel.factory, closed: o.closed || {},
     tpsById: syn.tpsById, cardOf: (s) => usageCard(null, s, FCFG, NOW) }, FCFG, {}, NOW)
   panel.unfold = under.unfold
   panel.tree = under.tree
   panel.kids = under.kids
   panel.convFactories = under.factories
   // o.indent: panel.tree.indent (columns per tree level, or "auto")
-  return { cfg: o.indent === undefined ? {} : { panel: { tree: { indent: o.indent } } }, fcfg: {}, scan: SCAN, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
+  return { cfg: o.indent === undefined ? {} : { panel: { tree: { indent: o.indent } } }, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }
 

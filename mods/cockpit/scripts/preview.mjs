@@ -3,6 +3,8 @@
 // --panneau: the default view (the Panneau) from invented fixtures (scripts/fixtures/panneau.mjs), nothing read on this PC:
 //   node mods/cockpit/scripts/preview.mjs --panneau --cols 60   (and --cols 45, 75)
 //   --indent <n|auto>: panel.tree.indent, the tree's columns per level (auto: 6, 4 under 60 columns)
+//   --busy: the fixture with 2 running Workflows, 1 background agent and 1 working sub-conversation
+//   --open encours,pdetails: unfold « En ce moment » (a section id) or a node (a fold key), comma-separated
 // Without --conv: the project's most recent lead. The engine's figures ($.session.usage) are not reachable here, so the
 // Usage strip shows the transcripts' part only and the Jauge uses the scan's context of the chosen conversation.
 import { execFileSync } from 'node:child_process'
@@ -25,9 +27,17 @@ const project = opt('--project', '')
 const convQ = opt('--conv', '')
 const agentQ = opt('--agent', '')
 const indent = opt('--indent', undefined)
+const unfold = String(opt('--open', '') || '').split(',').filter(Boolean)
 if (argv.includes('--panneau')) {
   const { panneauText } = await import('./fixtures/panneau.mjs')
-  const text = panneauText(cols, indent === undefined ? {} : { indent: indent === 'auto' ? 'auto' : Number(indent) })
+  const o = indent === undefined ? {} : { indent: indent === 'auto' ? 'auto' : Number(indent) }
+  if (argv.includes('--busy')) o.busy = true
+  const sections = ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe', 'encours', 'convs_filters']
+  if (unfold.length) {
+    o.open = { conv: true, convs: true, ...Object.fromEntries(unfold.filter((k) => sections.includes(k)).map((k) => [k, true])) }
+    o.closed = Object.fromEntries(unfold.filter((k) => !sections.includes(k)).map((k) => [k, false]))
+  }
+  const text = panneauText(cols, o)
   console.log(`=========== Panneau (${cols} colonnes, plus large ligne ${widest(text)}) ===========`)
   console.log(text)
   process.exit(0)

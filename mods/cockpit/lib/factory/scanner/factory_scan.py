@@ -166,6 +166,10 @@ def feed(a, d, sub):
                     rid = re.search(r'wf_[0-9a-f]{6,}-[0-9a-f]+', json.dumps(tur) + text_of(b.get('content')) if call['tool'] == 'Workflow' else '')
                     if rid:
                         call['runId'] = rid.group(0)
+                    # after a cache round trip `pending` and `calls` hold separate copies: update the listed one too
+                    for c2 in a['calls']:
+                        if c2 is not call and c2.get('id') == tid:
+                            c2.update(call)
                 if a.get('ask_id') == tid:
                     a['ask_open'] = False
                 if b.get('is_error'):
@@ -363,7 +367,13 @@ def slim(a, keep_detail):
     return o
 
 
-def agent_status(agg, mtime, parent_call, parent_notifs, lone=True):
+def agent_status(agg, mtime, parent_call, parent_notifs, lone=True, bg_meta=False, wf_open=None):
+    """running | done | failed | stopped. Past --live-s with no new line, an agent still counts as running while
+    nothing says it ended and it did not end its turn, up to --bg-stale-h hours after its last line (it waits on a long
+    tool call: CI watch, build, a sub-agent of its own; Julian, 21 Oct: « Agents 0/1 » with nothing listed):
+    a background Agent call with no completion notice; a foreground Agent call of the current turn with no tool_result
+    yet; an agent whose parent call is unknown but whose meta says background; a Workflow agent whose run has no record
+    yet (wf_open: True / False, None = not a Workflow agent)."""
     tid = parent_call.get('id') if parent_call else None
     if tid and tid in parent_notifs:
         s = parent_notifs[tid]
@@ -374,10 +384,17 @@ def agent_status(agg, mtime, parent_call, parent_notifs, lone=True):
         return 'done'
     if NOW - mtime < LIVE_S:
         return 'running'
-    # a background Agent call with no completion notice yet is still running while it waits on a long tool call
-    # (CI watch, build), up to --bg-stale-h hours after its last line
-    if lone and parent_call and parent_call.get('bg') and agg.get('stop') != 'end_turn' and NOW - mtime < BG_STALE_H * 3600:
-        return 'running'
+    waiting = agg.get('stop') != 'end_turn' and not agg.get('api_error') and NOW - mtime < BG_STALE_H * 3600
+    if waiting:
+        if wf_open is not None:
+            if wf_open:
+                return 'running'
+        elif parent_call and parent_call.get('bg'):
+            return 'running'
+        elif parent_call and 'result' not in parent_call:
+            return 'running'  # foreground: its tool_result has not come back
+        elif not parent_call and bg_meta:
+            return 'running'
     if agg.get('api_error'):
         return 'failed'
     return 'done' if agg.get('stop') == 'end_turn' else 'stopped'
@@ -633,7 +650,10 @@ def main():
                 parent = next((c for c in a['calls'] if c.get('agentId') == aid), None)
             wf = os.path.basename(os.path.dirname(sp)) if os.sep + 'workflows' + os.sep in sp else None
             sa = se['agg']
-            status = agent_status(sa, se['mtime'], parent, a['notifs'], lone=wf is None)
+            # a Workflow run is open until its record (<session>/workflows/<runId>.json) is written
+            wf_open = None if wf is None else not os.path.isfile(os.path.join(tp[:-6], 'workflows', wf + '.json'))
+            status = agent_status(sa, se['mtime'], parent, a['notifs'], lone=wf is None,
+                                  bg_meta=meta.get('requestShape') == 'background', wf_open=wf_open)
             subs.append({
                 'id': os.path.basename(sp)[6:-6], 'type': meta.get('agentType') or 'agent', 'workflow': wf,
                 'phase': meta.get('workflowPhase'), 'desc': one_line(meta.get('description') or '', 70),

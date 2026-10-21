@@ -345,19 +345,24 @@ test('Panneau: a Workflow is a tree node under its conversation, unfolds to its 
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  // macro: « └──── ● package-wave · workflow  › », its metrics « 0/1 ● · … » under it, no agent, no phases
-  expect(await has(ui, /^package-wave · workflow$/)).toBe(true)
+  // macro: « └──── ◇ package-wave  workflow  › » (typed bullet, grey type word), its metrics « 0/1 ● · … », and its
+  // running agent always listed under it without unfolding (Julian, 21 Oct); no phases table, no tokens line
+  expect(await has(ui, /^package-wave$/)).toBe(true)
+  expect(await has(ui, /^workflow$/)).toBe(true)
+  expect(await has(ui, /^◇$/)).toBe(true)
   expect(await has(ui, /└────\s*$/)).toBe(true) // 6-column indents at 75 columns (Julian, 20 Oct)
   expect(await has(ui, /^0\/1$/)).toBe(true)
   expect(await has(ui, /^Phases$/)).toBe(false)
-  expect(await has(ui, /^coder · build/)).toBe(false)
+  expect(await has(ui, /^coder · build/)).toBe(true)
+  expect(await has(ui, / tokens /)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
-  // unfolded: its agents as children, one line each (label · model), never « general-purpose »
+  // unfolded: its tokens, cost and time, its agents as children, one line each, never « general-purpose »
+  expect(await has(ui, / tokens /)).toBe(true)
   expect(await has(ui, /^coder · build/)).toBe(true)
   expect(await has(ui, /general-purpose/)).toBe(false)
   expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":false') // opened
   await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
-  expect(await has(ui, /^coder · build/)).toBe(false)
+  expect(await has(ui, / tokens /)).toBe(false)
   expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":true') // closed
 })
 
