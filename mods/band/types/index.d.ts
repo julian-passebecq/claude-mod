@@ -134,9 +134,17 @@ export type HandoffState = {
   text?: string
 }
 
+/** One agent of the « en cours » rows (a Workflow agent, or an Agent-tool agent outside Workflows). */
+export type EnCoursAgent = { id: string; label?: string; type?: string; model?: string; status: string; start?: number; last?: number; stalled?: boolean; shape?: string; phase?: string }
+/** A running (or just failed) Workflow of this conversation. */
+export type EnCoursWorkflow = { id: string; name: string; phases: string[]; phase?: string; phaseIdx?: number; status: string; start?: number; last?: number; stalled?: boolean; agents: EnCoursAgent[]; eta?: number; overrun?: boolean }
+export type EnCours = { now?: number; workflows?: EnCoursWorkflow[]; agents?: EnCoursAgent[] }
+
 declare module 'claude-code' {
   interface PluginState {
     band: {
+      /** what runs in THIS conversation (scanner/encours.mjs): the Jauge's « en cours » rows; null before the first read */
+      encours: EnCours | null
       /** last scanner result */
       view: View | null
       /** this conversation's context and rate-limit figures */

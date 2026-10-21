@@ -2,7 +2,7 @@
   "_doc": "Where scripts/sync-libs.mjs copies shared files, byte for byte. core: mod folder -> files of lib/core copied to mods/<mod>/lib/core/<file>. files: [source, copy] pairs relative to the repo root (lib/core files that keep their old path in a mod, and the older mod -> mod copies). Never edit a copy by hand: change the source, run node scripts/sync-libs.mjs, commit both.",
   "core": {
     "a-faire": ["util.mjs", "veille.mjs", "mods.mjs", "health.mjs"],
-    "band": ["util.mjs", "transcripts.mjs", "prices.json", "veille.mjs", "health.mjs", "usage.mjs"],
+    "band": ["util.mjs", "transcripts.mjs", "prices.json", "veille.mjs", "health.mjs", "usage.mjs", "estimate.mjs", "running.mjs"],
     "ci": ["util.mjs", "estimate.mjs", "gantt.mjs", "runner.mjs"],
     "cockpit": ["util.mjs", "transcripts.mjs", "codex.mjs", "prices.json", "sessions.mjs", "usage.mjs", "veille.mjs", "waiting.mjs", "runner.mjs", "mods.mjs", "health.mjs", "estimate.mjs", "gantt.mjs"],
     "control": ["util.mjs", "mods.mjs"],

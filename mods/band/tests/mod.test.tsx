@@ -17,7 +17,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
 
 // opts.julian / opts.todo: the counters the scanner computed with lib/core/veille.mjs (view.waiting); opts.config: the
 // person's own settings file (userConfig 'config') at C:/Users/me/band.json.
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[] } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown } = {}) {
   const tokens = opts.tokens ?? 164000
   const clock = mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -52,7 +52,12 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     }
     throw new Error('ENOENT')
   })
-  on('process.run', ($: any, e: any) => (runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify(view), stderr: '' } }))
+  // scanner/encours.mjs (the « en cours » rows) answers opts.encours, else nothing runs; runs lists scan.mjs only
+  on('process.run', ($: any, e: any) =>
+    /encours.mjs$/.test(String(e.argv[1]))
+      ? { value: { exitCode: 0, stdout: JSON.stringify(opts.encours ?? { workflows: [], agents: [] }), stderr: '' } }
+      : (runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify(view), stderr: '' } }),
+  )
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: 'C:/code/app/.claude/worktrees/band' }))
   on('session.usage', ($: any, e: any) => ({
@@ -443,4 +448,69 @@ test('hand-off: a /handoff typed by the person is listed in the pane', async ($,
   const pane = await $.ui.mount({ plugin: 'band', component: 'Pane', requestId: 'jauge', surface: 'terminal', viewport: { columns: 160, rows: 120 }, props: PANE } as any)
   expect(await pane.find({ type: 'Text', text: /\/handoff lancé$/ })).toBeDefined()
   await pane.unmount()
+})
+
+// « en cours » rows (Julian, 21 Oct): only while something runs in this conversation, under the line, above the buttons.
+const MIN = 60000
+const runningAgent = (id: string, label: string, extra: Record<string, unknown> = {}) => ({ id, label, type: 'coder', model: 'opus', status: 'running', start: NOW - 47 * MIN, last: NOW - MIN, ...extra })
+const WAVE = {
+  id: 'wf_1', name: 'cockpit-preview-g2', phases: ['Preview release', 'Verify'], phase: 'Preview release', phaseIdx: 0, status: 'running',
+  start: NOW - 47 * MIN, last: NOW - MIN, agents: [runningAgent('a1', 'p43-rag-identity'), runningAgent('a2', 'p44-migration')],
+}
+const BG = { id: 'b1', type: 'auditor', model: 'sonnet', shape: 'background', status: 'running', start: NOW - 3 * MIN, last: NOW }
+const mountBand = async ($: any) => {
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  return $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 200, rows: 40 }, props: at(200) } as any)
+}
+
+test('en cours: nothing runs -> no row, the Jauge stays one line', async ($, on) => {
+  world(on)
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountBand($)
+  expect(await band.find({ type: 'Text', text: /^[◇◦•] $/ })).toBeUndefined()
+  expect(((await band.findAll({ type: 'Button' })) as any[]).length).toBe(5)
+  await band.unmount()
+})
+
+test('en cours: one Workflow with 2 agents (green bullets, grey type words) and a background agent', async ($, on) => {
+  world(on, { encours: { workflows: [WAVE], agents: [BG] } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountBand($)
+  const bullet = (await band.find({ type: 'Text', text: '◇ ' })) as any
+  expect(bullet.props.color).toBe('success')
+  expect(await band.find({ type: 'Text', text: 'cockpit-preview-g2' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: '▸ Preview release 1/2' })).toBeDefined()
+  expect(((await band.find({ type: 'Text', text: '2 agents' })) as any).props.dimColor).toBe(true)
+  expect(await band.find({ type: 'Text', text: 'p43-rag-identity' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'p44-migration' })).toBeDefined()
+  expect(((await band.findAll({ type: 'Text', text: '• ' })) as any[]).length).toBe(2)
+  expect(((await band.find({ type: 'Text', text: '◦ ' })) as any).props.color).toBe('success')
+  expect(((await band.find({ type: 'Text', text: "agent d'arrière-plan" })) as any).props.dimColor).toBe(true)
+  expect(((await band.findAll({ type: 'Button' })) as any[]).length).toBe(5)
+  await band.unmount()
+})
+
+test('en cours: past jauge.en_cours_rows, « +N de plus » and a Cockpit › button that opens the cockpit', OWN, async ($, on) => {
+  const ran: string[] = []
+  world(on, { encours: { workflows: [WAVE], agents: [BG, { ...BG, id: 'b2' }, { ...BG, id: 'b3' }] }, config: { jauge: { en_cours_rows: 3 } } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  on('command.run', { command: 'cockpit' }, ($: any, e: any) => (ran.push('cockpit'), {}))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 200, rows: 40 }, props: at(200) } as any)
+  expect(await band.find({ type: 'Text', text: '+3 de plus ·' })).toBeDefined()
+  expect(((await band.findAll({ type: 'Text', text: '◦ ' })) as any[]).length).toBe(0)
+  await band.press({ key: 'ec-cockpit' })
+  expect(ran.at(-1)).toBe('cockpit')
+  await band.unmount()
+})
+
+test('en cours: a Workflow silent for 30 min is amber, a failed agent red', async ($, on) => {
+  world(on, { encours: { workflows: [{ ...WAVE, stalled: true, last: NOW - 42 * MIN, agents: [runningAgent('a1', 'x'), runningAgent('a2', 'y', { status: 'failed' })] }] } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountBand($)
+  expect(((await band.find({ type: 'Text', text: '◇ ' })) as any).props.color).toBe('warning')
+  expect(await band.find({ type: 'Text', text: 'rien écrit depuis 42 min' })).toBeDefined()
+  const dots = (await band.findAll({ type: 'Text', text: '• ' })) as any[]
+  expect(dots.map(d => d.props.color)).toEqual(['success', 'error'])
+  await band.unmount()
 })
