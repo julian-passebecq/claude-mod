@@ -555,3 +555,40 @@ for (const columns of [60, 90]) {
     await band.unmount()
   })
 }
+
+// Activity status at the start of the line (lib/core/busy.mjs counts from the scanner, view.activity). Invented figures.
+const ACT = (o: Record<string, unknown> = {}) => ({ activity: { convs: 0, busy: [], workflows: 0, agents: 0, lastDone: null, ci: { available: true, running: 0, queued: 0, failed: 0, age_ms: 60000, stale: false }, ...o } })
+const mountWith = async ($: any, props: Record<string, unknown> = {}) => {
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  return $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 200, rows: 40 }, props: { ...at(200), ...props } } as any)
+}
+
+test('activity: nothing runs -> one green « ✓ au repos » first on the line', async ($, on) => {
+  world(on, { extra: ACT() })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountWith($)
+  expect(((await band.find({ type: 'Text', text: '✓ au repos' })) as any).props.color).toBe('success')
+  expect(await band.find({ type: 'Text', text: /conv$/ })).toBeUndefined()
+  await band.unmount()
+})
+
+test('activity: this conversation working -> « ▶ 1 conv » green, zeros grey', async ($, on) => {
+  world(on, { extra: ACT() })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountWith($, { isWorking: true })
+  expect(((await band.find({ type: 'Text', text: '▶ 1 conv' })) as any).props.color).toBe('success')
+  expect(((await band.find({ type: 'Text', text: '0 wf' })) as any).props.dimColor).toBe(true)
+  expect(((await band.find({ type: 'Text', text: '0 ag' })) as any).props.dimColor).toBe(true)
+  expect(((await band.find({ type: 'Text', text: '0 CI' })) as any).props.dimColor).toBe(true)
+  expect(await band.find({ type: 'Text', text: '✓ au repos' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('activity: a stale ci cache shows a grey « CI ? », never « 0 CI »', async ($, on) => {
+  world(on, { extra: ACT({ convs: 1, busy: ['other'], ci: { available: true, running: 0, queued: 0, failed: 0, age_ms: 40 * 60000, stale: true } }) })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  const band = await mountWith($)
+  expect(((await band.find({ type: 'Text', text: 'CI ?' })) as any).props.dimColor).toBe(true)
+  expect(await band.find({ type: 'Text', text: '0 CI' })).toBeUndefined()
+  await band.unmount()
+})

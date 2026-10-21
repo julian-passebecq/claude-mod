@@ -1,5 +1,6 @@
-// band mod: prints the Jauge as text (the terminal's rendering) for an idle and a running conversation, at a given
-// width, so a verifier can see the line, the mini bars, the traffic light and the « en cours » rows without Claude Code.
+// band mod: prints the Jauge as text (the terminal's rendering) for an idle, a running and a stale-CI conversation, at a
+// given width, so a verifier can see the activity status (« ✓ au repos » / « ▶ 1 conv · 0 wf · 0 ag · 0 CI »), the line,
+// the mini bars, the traffic light and the « en cours » rows without Claude Code.
 //   node mods/band/scripts/preview.mjs            80 columns
 //   node mods/band/scripts/preview.mjs 60 90      several widths
 //   node mods/band/scripts/preview.mjs --plain    no ANSI colours
@@ -26,11 +27,14 @@ const MIN = 60000
 const window = 400000
 const base = { relayAt: cfg.context.handoff_tokens, relayPct: (cfg.context.handoff_tokens * 100) / window }
 
-// idle: nothing waits, low context, quiet quotas
-const idle = { facts: { ...base, waiting: 0, ctxPct: 19, five: 0, week: 41, tps: { tps_all: 380 } }, running: null }
+// idle: nothing runs anywhere (« ✓ au repos »), nothing waits, low context, quiet quotas
+const ciFresh = { running: 0, failed: 0, stale: false }
+const idle = { facts: { ...base, waiting: 0, ctxPct: 19, five: 0, week: 41, tps: { tps_all: 380 }, act: { convs: 0, workflows: 0, agents: 0, ci: ciFresh } }, running: null }
+// busy main thread only: a turn running for 28 s, nothing else; the ci cache is 40 min old (« CI ? » grey)
+const staleCi = { facts: { ...base, waiting: 0, ctxPct: 22, five: 4, week: 41, tps: { tps_all: 900 }, act: { convs: 1, workflows: 0, agents: 0, ci: { running: 0, failed: 0, stale: true } } }, running: null }
 // running: two conversations wait, context past 50 %, the week projected over 100 % at reset, a Workflow and an agent
 const running = {
-  facts: { ...base, waiting: 2, ctxPct: 57, five: 64, week: 74, weekProj: 108, tps: { tps_all: 4400 } },
+  facts: { ...base, waiting: 2, ctxPct: 57, five: 64, week: 74, weekProj: 108, tps: { tps_all: 4400 }, act: { convs: 2, workflows: 1, agents: 3, wfTone: 'ok', agTone: 'warn', ci: { running: 1, failed: 0, stale: false } } },
   running: {
     workflows: [
       {
@@ -63,7 +67,7 @@ function rows(data, cols) {
 }
 
 for (const cols of widths) {
-  for (const [name, fx] of [['idle', idle], ['running', running]]) {
+  for (const [name, fx] of [['idle', idle], ['busy, CI stale', staleCi], ['running', running]]) {
     console.log(paint(`── ${name} · ${cols} colonnes ${'─'.repeat(Math.max(0, cols - cells(name) - 16))}`, 'dim'))
     const l = line(fx.facts, cols)
     console.log(`${l.out}${paint(`   (${l.w})`, 'dim')}`)

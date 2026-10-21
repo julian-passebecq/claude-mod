@@ -26,9 +26,11 @@
   },
   "jauge": {
     "_doc": "The Jauge (gauge.style two_lines). line1 (and line2, empty by default: Julian 17 Oct, one line only): field ids in order, '|' starts a new group (groups joined by sep, fields by dot). Fields: waiting (◆ N in amber, hidden at 0: Veille alerts marked julian), todo (N à toi), context (ctx ▰▱ N %, red from the relay = context.handoff_tokens), five / week (Claude 5 h / week: the engine's rate limits, else the usage mod's samples), codex_week / codex_five (Codex, from usage_dir/codex.json), agents (running on the PC, sections.running_s), convs (conversations that wrote within active_s), tps_all / tps_project / tps_conv (tok/s over band_window_s of the scopes in tps_scopes), cpu / gpu (machine). A missing figure leaves its field out. Each line is fitted to the band's width: full labels, else labels_short, else the fields of drop_order left out one by one; the buttons use their short label when the full row is too wide (button_pad = cells a button adds to its label). usage_dir: \"\" turns the quota files off. machine.gpu_source: auto (nvidia-smi, else the Windows 3D counter), nvidia-smi, typeperf, off.",
-    "line1": ["waiting", "|", "context", "|", "five", "|", "week", "|", "tps_all"],
+    "line1": ["activity", "|", "waiting", "|", "context", "|", "five", "|", "week", "|", "tps_all"],
     "line2": [],
     "drop_order": ["tps_all", "five", "week"],
+    "_activity": "Field activity (Julian, 21 Oct: « how do I know no work is in process? »), at the start of line1: « ▶ N conv · N wf · N ag · N CI », counted for the whole PC by lib/core/busy.mjs in the scanner. conv = conversations whose MAIN thread has a turn in progress (last user/assistant entry not a final answer and written within busy_s; this conversation also when the engine says it is working), wf / ag = Workflows and agents (Workflow agents and Agent-tool agents, foreground or background) that wrote within sections.running_s, CI = running or queued pipelines in ci_cache (the ci mod's cache, GitHub Actions + GitLab; \"\" turns CI off). Zeros grey, non-zero green, wf / ag amber when one of this conversation's is stalled and red when one failed, CI red when a run failed within ci_stale_min. A ci cache older than ci_stale_min minutes (or missing) shows a grey « CI ? », never 0. Nothing runs: one green « ✓ au repos » instead (plus « CI ? » when the CI cannot be read). Labels act_conv, act_wf, act_ag, act_ci, act_ci_stale, act_idle.",
+    "activity": { "busy_s": 120, "ci_stale_min": 15, "ci_cache": "~/.claude/ci-pipelines-cache.json" },
     "_buttons_inline": "true: the five buttons sit on the figures' line when both fit the band's width, else on a row below. others_above_prompt: hide (default, Julian 17 Oct: only the Jauge above the prompt) leaves out what other mods draw there (Veille's line, export-eta's « N conversations terminées » banner); show keeps them under the Jauge. When the context passes handoff.threshold_tokens (or auto-compact is near) a short orange hint (labels.relay_hint) and one button (labels.relay_button, runs handoff.command) join the line.",
     "_levels": "Traffic light (Julian, 21 Oct) on the mini bar and the % (label words stay grey). ctx: green under warn_pct, orange from warn_pct, red from the relay (context.handoff_tokens as a % of the effective window). quota (5 h, semaine): green under warn_pct, orange from warn_pct or a projection at reset (usage mod's samples, lib/core/usage.mjs runOut pace) from proj_warn_pct, red from bad_pct or a projection over proj_bad_pct. bar_cells: cells of the ▰▱ bar ({bar} in a label; the desktop draws a thin Svg instead).",
     "levels": {
@@ -86,6 +88,12 @@
       "gpu": "GPU {n} %",
       "more": "▾",
       "less": "▴",
+      "act_conv": "▶ {n} conv",
+      "act_wf": "{n} wf",
+      "act_ag": "{n} ag",
+      "act_ci": "{n} CI",
+      "act_ci_stale": "CI ?",
+      "act_idle": "✓ au repos",
       "relay_hint": "relais conseillé",
       "relay_button": "RESUME"
     },

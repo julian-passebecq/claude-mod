@@ -12,6 +12,8 @@ export type FileState = { lastTs?: number; pendingCompact?: boolean }
 /** One line's usage, in mods/usage's shape: v = [input, output, cache read, cache write 5m, cache write 1h, ...]. */
 export type UsageRecord = { key: string; ts: number; model: string; v: number[] }
 export type Extract = (o: any) => UsageRecord | null
+/** lib/core/busy.mjs feedTurn: folds a main-thread entry into the turn state (passed in by the scanner). */
+export type FeedTurn = (t: { last: number; open: boolean } | undefined, o: any) => { last: number; open: boolean }
 
 /** Which session (and agent, workflow) a transcript path belongs to, from its path under the projects root. */
 export const classifyPath = (rel: string): FileKind | undefined => {
@@ -53,6 +55,7 @@ export const parseLines = (
   events: Ev[],
   keepFrom: number,
   extract: Extract = ownUsage,
+  turn?: FeedTurn,
 ) => {
   let n = 0
   const isMain = !kind.a
@@ -77,6 +80,7 @@ export const parseLines = (
       }
     }
     if (isMain && typeof o.cwd === 'string') meta.cwd = o.cwd
+    if (isMain && turn) meta.turn = turn(meta.turn, o)
     if (o.type === 'custom-title' && typeof o.customTitle === 'string' && isMain) meta.title = o.customTitle
     else if (o.type === 'agent-name' && typeof o.agentName === 'string' && isMain && !meta.title) meta.title = o.agentName
     else if (o.type === 'pr-link' && isMain && o.prNumber !== undefined) meta.pr = { number: Number(o.prNumber), ...(typeof o.prUrl === 'string' ? { url: o.prUrl } : {}) }
