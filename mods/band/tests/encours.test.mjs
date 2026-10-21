@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { ecCfg, enCoursView, rowText } from '../hooks/encours.ts'
+import { ecCfg, enCoursView, levelOf, progressOf, rowText } from '../hooks/encours.ts'
 import { enCours } from '../scanner/encours.mjs'
 import { newRunningState, scriptMeta } from '../lib/core/running.mjs'
 
@@ -28,8 +28,10 @@ test('one Workflow with 2 agents: its row, then one indented row of both agents'
   const v = enCoursView({ workflows: [wf({ eta: NOW + 20 * MIN })] }, cfg(), 160, NOW)
   assert.equal(v.rows.length, 2)
   const head = rowText(v.rows[0])
-  assert.match(head, /^◇ cockpit-preview-g2 · ▸ Preview release 1\/2 · 2 agents opus · 47 min · fin ~\d\d:\d\d$/)
+  assert.match(head, /^◇ cockpit-preview-g2 ▱▱▱▱▱ 0\/2 · ▸ Preview release · 2 agents opus · 47 min · fin ~\d\d:\d\d$/)
   assert.equal(v.rows[0].segs[0].tone, 'ok')
+  const bar = v.rows[0].segs.find((s) => s.bar !== undefined)
+  assert.deepEqual([bar.text, bar.bar, bar.tone], ['▱▱▱▱▱', 0, 'ok']) // the desktop draws it as an Svg
   assert.ok(v.rows[0].segs.some((s) => s.text === '2 agents' && s.dim))
   assert.equal(rowText(v.rows[1]), '   • coder p43-rag-identity · opus · 47 min    • coder p44-migration · opus · 47 min')
   assert.ok(v.rows[1].segs.some((s) => s.text === 'coder ' && s.dim))
@@ -58,13 +60,62 @@ test('row cap: en_cours_rows then « +N de plus »', () => {
   assert.equal(enCoursView({ workflows: [wf()] }, cfg({ en_cours_rows: 0 }), 160, NOW).rows.length, 0)
 })
 
-test('stalled (nothing written for stall_min) is amber, failed is red', () => {
-  const v = enCoursView({ workflows: [wf({ stalled: true, last: NOW - 42 * MIN, agents: [agent('a1', 'x', { stalled: true }), agent('a2', 'y', { status: 'failed' })] })] }, cfg(), 160, NOW)
+test('traffic light: green while it writes, orange after 15 min without a write, red after 30 min or failed', () => {
+  const v = enCoursView({ workflows: [wf({ stalled: true, last: NOW - 22 * MIN, agents: [agent('a1', 'x', { last: NOW - 20 * MIN }), agent('a2', 'y', { status: 'failed' })] })] }, cfg(), 160, NOW)
   assert.equal(v.rows[0].segs[0].tone, 'warn')
-  assert.match(rowText(v.rows[0]), /rien écrit depuis 42 min/)
+  assert.match(rowText(v.rows[0]), /rien écrit depuis 22 min/)
+  assert.equal(v.rows[0].segs.find((s) => s.bar !== undefined).tone, 'warn') // the bar takes the row's colour
   const bullets = v.rows[1].segs.filter((s) => s.tone)
   assert.deepEqual(bullets.map((s) => s.tone), ['warn', 'bad'])
+  const red = enCoursView({ workflows: [wf({ last: NOW - 42 * MIN })] }, cfg(), 160, NOW)
+  assert.equal(red.rows[0].segs[0].tone, 'bad')
+  assert.match(rowText(red.rows[0]), /rien écrit depuis 42 min/)
+  const c = cfg()
+  assert.deepEqual([5, 15, 29, 30].map((m) => levelOf({ status: 'running', last: NOW - m * MIN }, NOW, c)), ['ok', 'warn', 'warn', 'bad'])
+  assert.equal(levelOf({ status: 'failed', last: NOW }, NOW, c), 'bad')
+  // own thresholds
+  assert.equal(levelOf({ status: 'running', last: NOW - 6 * MIN }, NOW, cfg({ en_cours: { warn_min: 5, bad_min: 10 } })), 'warn')
 })
+
+test('progress: phases done/total, else agents done/total', () => {
+  assert.deepEqual(progressOf(wf({ phases: ['A', 'B', 'C', 'D', 'E'], phase: 'D', phaseIdx: 3 })), { done: 3, total: 5 })
+  assert.deepEqual(progressOf(wf({ phases: [], phase: '', phaseIdx: -1, agents: [agent('a', 'x', { status: 'done' }), agent('b', 'y'), agent('c', 'z')] })), { done: 1, total: 3 })
+  assert.equal(progressOf(wf({ phases: [], phase: '', phaseIdx: -1, agents: [] })), undefined)
+  const v = enCoursView({ workflows: [wf({ phases: ['A', 'B', 'C', 'D', 'E'], phase: 'D', phaseIdx: 3 })] }, cfg(), 160, NOW)
+  assert.match(rowText(v.rows[0]), /^◇ cockpit-preview-g2 ▰▰▰▱▱ 3\/5 · ▸ D · /)
+})
+
+// Widths the band really has (Julian's narrow panes): nothing wider than the band, names cut first, the bullet, bar,
+// count, elapsed time and state always kept.
+for (const cols of [60, 90]) {
+  test(`en cours rows fit ${cols} columns; names are cut first`, () => {
+    const long = wf({
+      name: 'datapass-factory-release-wave-g7-long-name', phases: ['Build', 'Preview release candidate', 'Verify'], phase: 'Preview release candidate', phaseIdx: 1,
+      eta: NOW + 20 * MIN, agents: [agent('a1', 'p43-rag-identity-and-access-review'), agent('a2', 'p44-migration'), agent('a3', 'p45-docs', { model: 'sonnet' })],
+    })
+    const failed = wf({ id: 'wf_2', name: 'nightly-audit', status: 'failed', phases: [], phase: '', phaseIdx: -1, agents: [] })
+    const lone = { id: 'b1', type: 'auditor', label: 'confidentiality scan of every mod folder', model: 'sonnet', shape: 'background', status: 'running', start: NOW - 3 * MIN, last: NOW - 16 * MIN }
+    const v = enCoursView({ workflows: [long, failed], agents: [lone] }, cfg({ en_cours_rows: 10 }), cols, NOW)
+    for (const r of v.rows) assert.ok([...rowText(r)].length <= cols, `${cols}: « ${rowText(r)} » (${[...rowText(r)].length})`)
+    const head = rowText(v.rows[0])
+    assert.match(head, /^◇ /)
+    assert.match(head, /▰▱▱ 1\/3|▰▱▱▱▱ 1\/3|▱ 1\/3/)
+    assert.match(head, /47 min/)
+    if (cols === 60) {
+      assert.match(head, /^◇ datapass-[^ ]*… /) // the name is cut before anything else goes
+      assert.ok(!/agents/.test(head), head) // then the agents and models (the ETA comes back when it fits)
+    } else {
+      assert.match(head, /…/)
+      assert.match(head, /2 agents|3 agents/)
+    }
+    const f = v.rows.find((r) => r.key === 'ec-wf-wf_2')
+    assert.match(rowText(f), /nightly-audit.*échoué/)
+    const b = v.rows.find((r) => r.key === 'ec-ag-b1')
+    assert.match(rowText(b), /^◦ /)
+    assert.match(rowText(b), /rien écrit depuis 16 min/)
+    assert.equal(b.segs[0].tone, 'warn')
+  })
+}
 
 test('scriptMeta reads name and phases from the literals only', () => {
   const m = scriptMeta("export const meta = {\n  name: 'demo-wave',\n  description: 'x',\n  phases: [{ title: 'Build' }, { title: 'Verify', detail: 'ci' }],\n}\nconst X = 1\n")

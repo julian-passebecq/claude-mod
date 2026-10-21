@@ -46,7 +46,7 @@ import {
   toggleOpen,
 } from './logic'
 import type { BandPart, Config, Ctx, HandoffButton, LauncherButton, View } from './logic'
-import { gaugeModel, gaugeSvg, gaugeText } from './gauge'
+import { barSvg, gaugeModel, gaugeSvg, gaugeText } from './gauge'
 import { cells, fitButtons, fitLine, jaugeCfg } from './jauge'
 import type { Field, JaugeCfg, JaugeFacts } from './jauge'
 import type { Gauge } from './gauge'
@@ -108,8 +108,11 @@ const jaugeFacts = (c: Config, jc: JaugeCfg, ctx: Ctx | undefined, v: View | nul
     todo: v?.waiting?.aToi,
     ctxPct: pct,
     relayAt: c.context.handoff_tokens,
+    ...(ctx?.window ? { relayPct: (c.context.handoff_tokens * 100) / ctx.window } : {}),
     five: lim('five_hour') ?? v?.claude?.five,
     week: lim('seven_day') ?? en?.week ?? v?.claude?.week,
+    fiveProj: v?.claude?.fiveProj,
+    weekProj: v?.claude?.weekProj,
     codexWeek: v?.codex?.week,
     codexFive: v?.codex?.five,
     agents: v?.pc?.agents,
@@ -665,20 +668,28 @@ export const register: Register = (on, raw) => {
       const inline = jx.buttons_inline !== false && cells(l1full.text) + cells(jc.sep) + relayW + fitted.width + stampW <= cols
       const l1 = inline ? l1full : fitLine(jc.line1, facts, jc, Math.max(10, cols - relayW))
       const l2 = jc.line2.length ? fitLine(jc.line2, facts, jc, cols) : undefined
-      const toneOf = (f: Field) => (f.tone === 'bad' ? { color: c.colors.bad ?? 'error' } : f.tone === 'dim' ? { dimColor: true } : {})
-      const segs: { key: string; text: string; field?: Field }[] = []
+      // Traffic light on the mini bar and the % (ok green, warn orange, bad red); label words grey (Julian, 21 Oct).
+      const toneOf = (t?: Field['tone']) => (t === 'ok' || t === 'warn' || t === 'bad' ? { color: c.colors[t] ?? t } : t === 'dim' ? { dimColor: true } : {})
+      const svgColors = { ok: '#3fb950', warn: '#d29922', bad: '#f85149', track: '#8b949e55', ...((c as any).gauge?.colors ?? {}) } as Record<string, string>
+      const miniSvg = (pct: number, tone: string | undefined, key: string, alt: string) => (
+        <Svg key={key} source={barSvg(pct, svgColors[tone ?? 'ok'] ?? svgColors.ok, 36, svgColors.track)} alt={alt} width={36} height={6} />
+      )
+      const figuresEls: any[] = []
       l1.line.forEach((g, gi) => {
-        if (gi) segs.push({ key: `j1-sep${gi}`, text: l1.sep })
+        if (gi) figuresEls.push(<Text key={`j1-sep${gi}`} bold dimColor wrap="truncate-end">{l1.sep}</Text>)
         g.forEach((f, fi) => {
-          if (fi) segs.push({ key: `j1-dot${gi}-${fi}`, text: l1.dot })
-          segs.push({ key: `j1-${f.id}`, text: f.text, field: f })
+          if (fi) figuresEls.push(<Text key={`j1-dot${gi}-${fi}`} bold dimColor wrap="truncate-end">{l1.dot}</Text>)
+          if (f.value === undefined) {
+            figuresEls.push(<Text key={`j1-${f.id}`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.text}</Text>)
+            return
+          }
+          if (f.label) figuresEls.push(<Text key={`j1-${f.id}-l`} bold dimColor wrap="truncate-end">{f.label}</Text>)
+          if (f.bar !== undefined && f.pct !== undefined) {
+            figuresEls.push(Svg ? miniSvg(f.pct, f.tone, `j1-${f.id}-b`, `${f.label ?? ''}${f.value}`.replace(/\s+/g, ' ').trim()) : <Text key={`j1-${f.id}-b`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.bar}</Text>)
+          }
+          figuresEls.push(<Text key={`j1-${f.id}-v`} bold {...toneOf(f.tone)} wrap="truncate-end">{f.value}</Text>)
         })
       })
-      const figuresEls = segs.map(x => (
-        <Text key={x.key} bold {...(x.field ? toneOf(x.field) : { dimColor: true })} wrap="truncate-end">
-          {x.text}
-        </Text>
-      ))
       let relayEls: any[] = []
       if (relayHint && c.handoff) {
         const lc = await read($, launcherAtom)
@@ -708,16 +719,18 @@ export const register: Register = (on, raw) => {
       const keepOthers = jx.others_above_prompt === 'show'
       const ecv = enCoursView((await read($, encoursAtom)) as EcData | null, ecCfg(jx), cols, v?.now)
       const segColor = (s: Seg) => (s.tone ? { color: c.colors[s.tone] ?? s.tone } : s.dim ? { dimColor: true } : {})
+      const segEl = (s: Seg, key: string) =>
+        Svg && s.bar !== undefined ? miniSvg(s.bar, s.tone, key, `${Math.round(s.bar)} %`) : (
+          <Text key={key} {...segColor(s)} wrap="truncate-end">
+            {s.text}
+          </Text>
+        )
       const cockpitBtn = buttons.find(b => b.command === 'cockpit')
       const ecEls = ecv.rows.length
         ? [
             ...ecv.rows.map(r => (
               <Box key={r.key} flexDirection="row" flexWrap="nowrap" {...(r.indent ? { marginLeft: r.indent } : {})}>
-                {r.segs.map((s, i) => (
-                  <Text key={`${r.key}-${i}`} {...segColor(s)} wrap="truncate-end">
-                    {s.text}
-                  </Text>
-                ))}
+                {r.segs.map((s, i) => segEl(s, `${r.key}-${i}`))}
               </Box>
             )),
             ...(ecv.more

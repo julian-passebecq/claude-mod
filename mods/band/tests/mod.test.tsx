@@ -101,10 +101,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(w.runs[0][1]).toMatch(/scanner\/scan\.mjs$/)
     expect(r.text).toMatch(/ctx 41 % \(164 k\) · compact à 92 % · reste 51 %/)
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: 160, rows: 40 }, props: BAND } as any)
-    expect(await band.find({ type: 'Text', text: "● 0 t'attendent" })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: 'contexte 41 %' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: 'sem 37 %' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: '3,1 k tok/s tout' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /◆|attendent/ })).toBeUndefined() // hidden when nothing waits
+    expect(await band.find({ type: 'Text', text: 'ctx ' })).toBeDefined()
+    const ctxPct = await band.find({ type: 'Text', text: ' 41 %' })
+    expect((ctxPct as any).props.color).toBe('success') // 41 % of a 400 k window, relay at 62.5 %: green
+    expect(await band.find({ type: 'Text', text: ' 37 %' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: '3.1k tok/s' })).toBeDefined()
+    if (surface === 'terminal') {
+      expect(await band.find({ type: 'Text', text: '▰▰▱▱▱' })).toBeDefined()
+      expect(await band.find({ type: 'Svg' })).toBeUndefined()
+    } else {
+      expect(((await band.findAll({ type: 'Svg' })) as any[]).length).toBe(2) // ctx and sem as thin bars
+      expect(await band.find({ type: 'Text', text: /▰|▱/ })).toBeUndefined()
+    }
     expect(await band.find({ type: 'Text', text: /à toi|agents|conv actives|CPU/ })).toBeUndefined()
     const labels = ((await band.findAll({ type: 'Button' })) as any[]).map(b => b.text)
     expect(labels).toEqual(['Usage', 'Règles', 'Réf', 'Cockpit', 'Exporter'])
@@ -124,11 +133,12 @@ test('Jauge: 5 h and week from the engine; red only when something waits', async
   world(on, { julian: 2, todo: 4, extra: { codex: { week: 30 }, machine: { cpu: 12, gpu: 3 } }, limits: [{ kind: 'five_hour', percentUsed: 24 }, { kind: 'seven_day', percentUsed: 14 }] })
   await $.command.run({ command: 'jauge', args: '' } as any)
   const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns: 200, rows: 40 }, props: at(200) } as any)
-  const waiting = await band.find({ type: 'Text', text: "● 2 t'attendent" })
+  const waiting = await band.find({ type: 'Text', text: '◆ 2' })
   expect(waiting).toBeDefined()
-  expect((waiting as any).props.color).toBe('error')
-  expect(await band.find({ type: 'Text', text: '5 h 24 %' })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: 'sem 14 %' })).toBeDefined()
+  expect((waiting as any).props.color).toBe('warning') // a short amber counter
+  expect(await band.find({ type: 'Text', text: '5 h ' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' 24 %' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' 14 %' })).toBeDefined()
   expect(await band.find({ type: 'Text', text: /Codex|CPU|GPU/ })).toBeUndefined()
   await band.unmount()
 })
@@ -141,7 +151,7 @@ for (const columns of [50, 75]) {
     const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns, rows: 40 }, props: at(columns) } as any)
     const texts = (await band.findAll({ type: 'Text' })) as any[]
     const line1 = texts.filter(t => t.props?.bold).map(t => t.text).join('')
-    expect(/^● 12 (t'attendent|attendent) │ (contexte|ctx) 41 %/.test(line1)).toBe(true)
+    expect(/^◆ 12 │ ctx ▰▰▱▱▱ 41 ?%/.test(line1)).toBe(true)
     expect([...line1].length <= columns).toBe(true)
     expect(((await band.findAll({ type: 'Button' })) as any[]).length).toBe(5)
     await band.unmount()
@@ -479,7 +489,9 @@ test('en cours: one Workflow with 2 agents (green bullets, grey type words) and 
   const bullet = (await band.find({ type: 'Text', text: '◇ ' })) as any
   expect(bullet.props.color).toBe('success')
   expect(await band.find({ type: 'Text', text: 'cockpit-preview-g2' })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: '▸ Preview release 1/2' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: '▸ Preview release' })).toBeDefined()
+  expect(((await band.find({ type: 'Text', text: '▱▱▱▱▱' })) as any).props.color).toBe('success') // phases done 0/2
+  expect(((await band.find({ type: 'Text', text: '0/2' })) as any).props.color).toBe('success')
   expect(((await band.find({ type: 'Text', text: '2 agents' })) as any).props.dimColor).toBe(true)
   expect(await band.find({ type: 'Text', text: 'p43-rag-identity' })).toBeDefined()
   expect(await band.find({ type: 'Text', text: 'p44-migration' })).toBeDefined()
@@ -504,13 +516,42 @@ test('en cours: past jauge.en_cours_rows, « +N de plus » and a Cockpit › but
   await band.unmount()
 })
 
-test('en cours: a Workflow silent for 30 min is amber, a failed agent red', async ($, on) => {
-  world(on, { encours: { workflows: [{ ...WAVE, stalled: true, last: NOW - 42 * MIN, agents: [runningAgent('a1', 'x'), runningAgent('a2', 'y', { status: 'failed' })] }] } })
+test('en cours: a Workflow silent for 15-30 min is amber (bar too), a failed agent red', async ($, on) => {
+  world(on, { encours: { workflows: [{ ...WAVE, stalled: true, last: NOW - 22 * MIN, agents: [runningAgent('a1', 'x'), runningAgent('a2', 'y', { status: 'failed' })] }] } })
   on('command.list', () => ({ value: FIVE_CMDS }))
   const band = await mountBand($)
   expect(((await band.find({ type: 'Text', text: '◇ ' })) as any).props.color).toBe('warning')
-  expect(await band.find({ type: 'Text', text: 'rien écrit depuis 42 min' })).toBeDefined()
+  expect(((await band.find({ type: 'Text', text: '▱▱▱▱▱' })) as any).props.color).toBe('warning')
+  expect(await band.find({ type: 'Text', text: 'rien écrit depuis 22 min' })).toBeDefined()
   const dots = (await band.findAll({ type: 'Text', text: '• ' })) as any[]
   expect(dots.map(d => d.props.color)).toEqual(['success', 'error'])
   await band.unmount()
 })
+
+test('en cours: silent for more than 30 min is red; the desktop draws the row\'s bar as a thin Svg', async ($, on) => {
+  world(on, { encours: { workflows: [{ ...WAVE, phase: 'Verify', phaseIdx: 1, stalled: true, last: NOW - 42 * MIN }] } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'desktop', viewport: { columns: 200, rows: 40 }, props: at(200) } as any)
+  expect(((await band.find({ type: 'Text', text: '◇ ' })) as any).props.color).toBe('error')
+  expect(await band.find({ type: 'Text', text: 'rien écrit depuis 42 min' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /▰|▱/ })).toBeUndefined()
+  const svgs = (await band.findAll({ type: 'Svg' })) as any[]
+  expect(svgs.some(x => /#f85149/.test(String(x.props.source)))).toBe(true) // the row's bar in red
+  await band.unmount()
+})
+
+for (const columns of [60, 90]) {
+  test(`en cours at ${columns} columns: every row fits, the name is cut before the rest`, async ($, on) => {
+    const long = { ...WAVE, name: 'datapass-factory-release-wave-g7-long-name', eta: NOW + 20 * MIN }
+    world(on, { encours: { workflows: [long], agents: [{ ...BG, label: 'confidentiality scan of every mod folder' }] } })
+    on('command.list', () => ({ value: FIVE_CMDS }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface: 'terminal', viewport: { columns, rows: 40 }, props: at(columns) } as any)
+    const name = (await band.find({ type: 'Text', text: /^datapass-/ })) as any
+    expect(/…$/.test(name.text)).toBe(true)
+    expect(await band.find({ type: 'Text', text: '47 min' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: '0/2' })).toBeDefined()
+    await band.unmount()
+  })
+}

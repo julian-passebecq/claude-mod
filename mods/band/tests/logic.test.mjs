@@ -42,7 +42,7 @@ import {
 import { classifyPath, emptyMeta, parseLines } from '../hooks/parse.ts'
 import { extrasOf, scan, sharedLib, waitingOf } from '../scanner/scan.mjs'
 import { cpuPct, cpuTimes, parseNvidia, parseTypeperf, readGpu, sampleMachine } from '../scanner/machine.mjs'
-import { cells, fitButtons, fitLine, jaugeCfg } from '../hooks/jauge.ts'
+import { cells, ctxLevel, fitButtons, fitLine, jaugeCfg, miniBar, quotaLevel } from '../hooks/jauge.ts'
 
 const CFG = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
 const NOW = Date.parse('2026-10-16T12:00:00Z')
@@ -544,17 +544,44 @@ const FULL = {
   gpu: 3,
 }
 
-test('Jauge: the shipped default is one line (attendent · contexte · 5 h · sem · tok/s), no second line', () => {
+test('Jauge: the shipped default is one line (◆ N · ctx · 5 h · sem · tok/s) with mini bars, no second line', () => {
   assert.equal(CFG.gauge.style, 'two_lines')
   const jc = jaugeCfg(CFG.jauge)
-  const l1 = fitLine(jc.line1, FULL, jc, 200)
+  const l1 = fitLine(jc.line1, { ...FULL, ctxPct: 19, relayPct: 62.5, five: 0, week: 74, tps: { tps_all: 4400 } }, jc, 200)
   assert.deepEqual(jc.line2, [])
-  assert.equal(l1.text, "● 2 t'attendent │ contexte 41 % │ 5 h 24 % · sem 14 % │ 434 tok/s tout")
+  assert.equal(l1.text, '◆ 2 │ ctx ▰▱▱▱▱ 19 % │ 5 h ▱▱▱▱▱ 0 % │ sem ▰▰▰▰▱ 74 % │ 4.4k tok/s')
   assert.equal(CFG.jauge.others_above_prompt, 'hide')
-  assert.equal(l1.line[0][0].tone, 'bad') // red only when something waits
+  const by = Object.fromEntries(l1.line.flat().map(f => [f.id, f]))
+  assert.equal(by.waiting.tone, 'warn') // a short amber « ◆ N »
+  assert.deepEqual([by.context.label, by.context.bar, by.context.value, by.context.tone], ['ctx ', '▰▱▱▱▱', ' 19 %', 'ok'])
+  assert.deepEqual([by.five.tone, by.week.tone], ['ok', 'warn'])
+  assert.equal(by.week.pct, 74)
+  // hidden when nothing waits
   const none = fitLine(jc.line1, { ...FULL, waiting: 0 }, jc, 200)
-  assert.equal(none.line[0][0].tone, 'dim')
-  assert.ok(!none.line.flat().some(f => f.tone === 'bad'))
+  assert.ok(!none.line.flat().some(f => f.id === 'waiting'))
+  assert.match(none.text, /^ctx /)
+})
+
+test('Jauge traffic light: ctx green < 50, orange 50 to the relay, red from the relay; quotas by % and projection', () => {
+  assert.equal(ctxLevel(49, 62.5), 'ok')
+  assert.equal(ctxLevel(50, 62.5), 'warn')
+  assert.equal(ctxLevel(62.5, 62.5), 'bad')
+  assert.equal(ctxLevel(70, undefined), 'warn')
+  assert.equal(quotaLevel(59, undefined), 'ok')
+  assert.equal(quotaLevel(60, undefined), 'warn')
+  assert.equal(quotaLevel(85, undefined), 'bad')
+  assert.equal(quotaLevel(30, 89), 'ok')
+  assert.equal(quotaLevel(30, 90), 'warn')
+  assert.equal(quotaLevel(30, 100), 'warn')
+  assert.equal(quotaLevel(30, 101), 'bad')
+  assert.equal(miniBar(0), '▱▱▱▱▱')
+  assert.equal(miniBar(74), '▰▰▰▰▱')
+  assert.equal(miniBar(140), '▰▰▰▰▰')
+  // thresholds come from jauge.levels; the projection reaches the field
+  const jc = jaugeCfg({ ...CFG.jauge, levels: { quota: { warn_pct: 20 } } })
+  assert.equal(jc.levels.quota.bad_pct, 85)
+  const l = fitLine(['five', 'week'], { relayAt: 250000, tps: {}, five: 25, week: 10, weekProj: 120 }, jc, 200)
+  assert.deepEqual(l.line.flat().map(f => f.tone), ['warn', 'bad'])
 })
 
 test('Jauge: nothing is wider than the band at 40 and 60 columns (short labels, then drop_order)', () => {
@@ -565,10 +592,10 @@ test('Jauge: nothing is wider than the band at 40 and 60 columns (short labels, 
   }
   const at60 = fitLine(jc.line1, FULL, jc, 60)
   assert.equal(at60.short, true)
-  assert.equal(at60.text, "● 2 attendent │ ctx 41 % │ 5h 24% · sem 14% │ 434 t/s")
+  assert.equal(at60.text, '◆ 2 │ ctx ▰▰▱▱▱ 41% │ 5h ▰▱▱▱▱ 24% │ sem ▰▱▱▱▱ 14% │ 434 t/s')
   const at40 = fitLine(jc.line1, FULL, jc, 40)
   assert.ok(at40.dropped.includes('tps_all'), at40.dropped.join(','))
-  assert.match(at40.text, /^● 2 attendent │ ctx 41 %/) // the counter and the context stay
+  assert.match(at40.text, /^◆ 2 │ ctx ▰▰▱▱▱ 41%/) // the counter and the context stay
   // the five buttons: full labels at 75, Exporter becomes Export when short
   const bs = CFG.launcher.items.map(i => ({ label: i.label, short: i.short }))
   const b75 = fitButtons(bs, jc, 75, 0)
@@ -578,15 +605,19 @@ test('Jauge: nothing is wider than the band at 40 and 60 columns (short labels, 
   assert.deepEqual(b45.labels, ['Usage', 'Règles', 'Réf', 'Cockpit', 'Export'])
 })
 
-test('Jauge: a missing figure leaves its field out; the counters and the context always show', () => {
+test('Jauge: a missing figure leaves its field out; the context always shows', () => {
   const jc = jaugeCfg(CFG.jauge)
   const bare = { relayAt: 250000, tps: {} }
-  assert.equal(fitLine(jc.line1, bare, jc, 200).text, "● 0 t'attendent │ contexte ?")
+  assert.equal(fitLine(jc.line1, bare, jc, 200).text, 'ctx ?')
   assert.equal(fitLine(jc.line2, bare, jc, 200).text, '')
-  assert.equal(fitLine(jc.line1, { ...bare, week: 9 }, jc, 200).text, "● 0 t'attendent │ contexte ? │ sem 9 %")
+  assert.equal(fitLine(jc.line1, { ...bare, week: 9 }, jc, 200).text, 'ctx ? │ sem ▱▱▱▱▱ 9 %')
   // the older two lines come back with own settings
   const two = jaugeCfg({ ...CFG.jauge, line2: ['week', '|', 'cpu'] })
-  assert.equal(fitLine(two.line2, { ...bare, week: 9, cpu: 40 }, two, 200).text, 'sem 9 % │ CPU 40 %')
+  assert.equal(fitLine(two.line2, { ...bare, week: 9, cpu: 40 }, two, 200).text, 'sem ▱▱▱▱▱ 9 % │ CPU 40 %')
+  // a label without {bar} has no bar, the traffic light still colours the %
+  const plain = jaugeCfg({ ...CFG.jauge, labels: { week: 'sem {n} %' } })
+  const w = fitLine(['week'], { ...bare, week: 90 }, plain, 200).line[0][0]
+  assert.deepEqual([w.text, w.label, w.value, w.bar, w.tone], ['sem 90 %', 'sem ', '90 %', undefined, 'bad'])
   // own labels and fields
   const own = jaugeCfg({ ...CFG.jauge, line2: ['codex_five', 'codex_week'], labels: { codex_week: 'GPT sem {n} %' } })
   assert.equal(fitLine(own.line2, { ...bare, codexFive: 8, codexWeek: 31 }, own, 200).text, 'Codex 5 h 8 % · GPT sem 31 %')
@@ -647,6 +678,22 @@ test('scanner extras: Codex and Claude quota windows from the usage folder, mach
     assert.deepEqual(x, { codex: { five: 12, week: 31 }, claude: { five: 20, week: 9 }, machine: { cpu: 7 } })
     assert.deepEqual(extrasOf({ jauge: { usage_dir: '' } }, NOW, deps), { machine: { cpu: 7 } })
     assert.deepEqual(extrasOf({ jauge: { usage_dir: join(dir, 'none') } }, NOW, { sampleMachine: () => ({}) }), {})
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scanner extras: the % projected at reset from the samples\' pace (traffic light of 5 h and semaine)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'band-usage-'))
+  const H = 3600000
+  try {
+    // 5 h: 20 % -> 40 % in one hour, reset in 2 h: 80 % at reset. Week: 50 % -> 60 % in 1 h, reset in 10 h: 160 %.
+    const s = (ago, five, week) => JSON.stringify({ ts: NOW - ago, five_hour: { pct: five, reset: NOW + 2 * H }, seven_day: { pct: week, reset: NOW + 10 * H } })
+    writeFileSync(join(dir, 'samples.jsonl'), [s(H, 20, 50), s(0, 40, 60)].join('\n') + '\n')
+    const x = extrasOf({ jauge: { usage_dir: dir } }, NOW, { sampleMachine: () => ({}) })
+    assert.deepEqual(x.claude, { five: 40, week: 60, fiveProj: 80, weekProj: 160 })
+    assert.equal(quotaLevel(x.claude.five, x.claude.fiveProj), 'ok')
+    assert.equal(quotaLevel(x.claude.week, x.claude.weekProj), 'bad')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
