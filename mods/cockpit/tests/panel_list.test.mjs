@@ -30,7 +30,7 @@ const draw = (b, columns = 75) => {
   const view = panneauView(columns)
   const panel = { ...view.panel, ...(b.open ? { open: b.open } : {}), syn: b.syn, synAll: { ...b.syn, rows: b.pool }, convList: b.list, convFactories: b.under.factories, kids: b.under.kids, tree: b.under.tree,
     factory: b.selfFactory, self: b.self, filter: { ...b.filter, who: 'claude' }, graphe: null, ci: null }
-  return renderText(drawCockpit(el, { ...view, at: NOW, self: b.self, panel }), columns).replace(/\u00a0/g, ' ')
+  return renderText(drawCockpit(el, { ...view, ...(b.cfg ? { cfg: b.cfg } : {}), at: NOW, self: b.self, panel }), columns).replace(/\u00a0/g, ' ')
 }
 
 // a coordinator and its 3 lanes, all working (the « Foundry stack » of the screenshot)
@@ -85,7 +85,7 @@ test('the header counts equal EN COURS: « N travaillent » is the EN COURS figu
   assert.equal(enc[1], '4')
   // the list draws as many working rows as the banner counts
   const m = oneList(b.list, { factories: b.under.factories, self: b.self, selfFactory: b.selfFactory, nowMs: NOW })
-  assert.deepEqual([m.counts.working, m.counts.waiting, m.counts.rest], [4, 1, 1])
+  assert.deepEqual([m.counts.working, m.counts.waiting, m.counts.rest, m.counts.hidden], [4, 1, 0, 1]) // at rest: folded
 })
 
 test('a saved filter never hides a working conversation: « filtre : … (réinitialiser) »', () => {
@@ -151,21 +151,31 @@ test('one list: a child nested under its parent in another project, its project 
   }
 })
 
-test('one list: after the working and waiting ones, the 3 most recent at rest, then « + N au repos › » unfolds the rest', () => {
+test('one list: the working and waiting ones, every one at rest folded into « + N au repos › » (Julian, 22 Oct)', () => {
   const b = build(CROSS())
-  const m = listOf(b)
+  const d = listOf(b)
+  assert.deepEqual(d.lines.filter((x) => x.depth === 0 && x.kind === 'conv').map((x) => x.key), ['coord'])
+  assert.deepEqual(d.lines[d.lines.length - 1], { kind: 'rest', depth: 0, key: 'rest', n: 6, open: false })
+  assert.match(draw(b), /\n○ \[\+ 6 au repos ›\]\n/)
+})
+
+test('one list: panel.list.rest_shown 3 keeps the 3 most recent at rest, then « + N au repos › » unfolds the rest', () => {
+  const b0 = build(CROSS())
+  const three = { panel: { list: { rest_shown: 3 } } }
+  const b = { ...b0, cfg: three }
+  const m = listOf(b, { cfg: three })
   assert.deepEqual(m.lines.filter((x) => x.depth === 0 && x.kind === 'conv').map((x) => x.key), ['coord', 'rest0', 'rest1', 'rest2'])
   assert.deepEqual(m.lines[m.lines.length - 1], { kind: 'rest', depth: 0, key: 'rest', n: 3, open: false })
   assert.equal(m.counts.hidden, 3)
   const t = draw(b)
-  assert.match(t, /\n○ \[Rest 0\] au repos 20 min\n○ \[Rest 1\] au repos 50 min\n○ \[Rest 2\] au repos 1 h\n○ \[\+ 3 au repos ›\]\n/, t)
+  assert.match(t, /\n○ \[Rest 0\] proj-one au repos 20 min\n○ \[Rest 1\] proj-one au repos 50 min\n○ \[Rest 2\] proj-one au repos 1 h\n○ \[\+ 3 au repos ›\]\n/, t)
   assert.doesNotMatch(t, /Rest 3|Rest 5/)
   // unfolded: every one, the current conversation « (ici) » among them; the line folds them back
-  const all = listOf(b, { restOpen: true })
+  const all = listOf(b, { restOpen: true, cfg: three })
   assert.equal(all.lines.filter((x) => x.depth === 0 && x.kind === 'conv').length, 7)
   assert.equal(all.counts.hidden, 0)
   const open = draw({ ...b, open: { convs: true, convs_rest: true } })
-  assert.match(open, /\n○ \[Rest 5\] \(ici\) au repos 3 h\n○ \[moins ⌄\]\n/, open)
+  assert.match(open, /\n○ \[Rest 5\] \(ici\) proj-one au repos 3 h\n○ \[moins ⌄\]\n/, open)
   // panel.list.rest_shown sets how many stay
   assert.equal(listOf(b, { cfg: { panel: { list: { rest_shown: 1 } } } }).counts.hidden, 5)
 })

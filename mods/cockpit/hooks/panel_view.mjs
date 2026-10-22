@@ -221,9 +221,11 @@ function macroRow(u, o) {
   const min = o.minTitle ?? 12
   // o.whole: the first variant is extra (a word): kept only while the title stays whole, else skipped
   const vs = o.whole && o.variants.length > 1 ? o.variants.slice(1) : o.variants
-  const v = (o.whole ? o.variants.find((x) => room(x, o.after || []) >= len(o.title)) : null) || vs.find((x) => room(x) >= Math.min(min, len(o.title))) || vs[vs.length - 1]
-  // the grey type word after the title stays only while the title stays whole: a title is never cut for it
-  const after = o.after && o.after.length && room(v, o.after) >= len(o.title) ? o.after : []
+  const v = (o.whole ? o.variants.find((x) => room(x, (o.after || []).slice(0, 1)) >= len(o.title)) : null) || vs.find((x) => room(x) >= Math.min(min, len(o.title))) || vs[vs.length - 1]
+  // the grey words after the title stay only while the title stays whole: a title is never cut for them; short of
+  // room the last ones go first (a row's project suffix before « (ici) » or « coord »)
+  let after = o.after || []
+  while (after.length && room(v, after) < len(o.title)) after = after.slice(0, -1)
   const r = Math.max(3, room(v, after))
   const text = clip(o.title, r)
   const title = o.onPress
@@ -414,8 +416,9 @@ function lineEls(u, P, L, x, wide) {
   const open = m && m.available ? Boolean(m.detailsOpen) : Boolean(P.closed && P.closed[dk] === false)
   const after = [
     r.coord ? chipItem(u, L.list_coord) : null,
-    x.project ? item(h, x.project, { dim: true }) : null,
     x.self ? item(h, L.graphe_here, { dim: true }) : null,
+    m && m.available && m.finished && m.finished.count ? item(h, fill(L.finished, { n: m.finished.count }), { dim: true }) : null,
+    x.project ? item(h, clip(x.project, Math.max(4, Number((c.list || {}).project_max) || 14)), { dim: true }) : null,
   ].filter(Boolean)
   let right
   if (idle) {
@@ -509,8 +512,8 @@ function ui(h, P, c, width) {
   // each (so a left rule can run along every line). Every column has the same fixed width, for the labels and the values
   // alike, so « Agents » sits over its value (Julian, 18 Oct: headers shifted from their values)
   const blank = (key) => h.T(' ', { key })
-  const grid = (cells, key, per = 3) => {
-    const rows = [blank(key + '-top')]
+  const grid = (cells, key, per = 3, top = true) => {
+    const rows = top ? [blank(key + '-top')] : []
     const cw = Math.max(4, Math.floor(W / per))
     for (let i = 0; i < cells.length; i += per) {
       const part = cells.slice(i, i + per)
@@ -597,7 +600,7 @@ function leadCard(u, P, L, m, noTitle, o = {}) {
     { label: L.stat_subs, value: pct(s.subPct) },
     { label: L.stat_agents, value: `${s.running}/${s.agents}`, tone: s.running ? 'running' : undefined },
     { label: L.stat_tps, value: s.tps === null ? '—' : tpsText(s.tps) },
-  ], 'pl-grid'))
+  ], 'pl-grid', 3, !o.noMeta)) // in the tree (o.noMeta) no blank line: it would be a row with the rule « │ » alone
   if (m.share.length) kids.push(h.T(`${L.models} : ${m.share.map((x) => `${x.family.charAt(0).toUpperCase() + x.family.slice(1)} ${x.pct} %`).join(' · ')}`, { dim: true, wrap: 'truncate-end', key: 'pl-share' }))
   // this conversation's tokens as a Sankey (fil principal / Workflows / agents → models) where the surface draws Svg;
   // « Ce qui contribue » stays the text fallback (lib/viz_sankey.mjs, hooks/viz_sankey.mjs)
@@ -605,9 +608,12 @@ function leadCard(u, P, L, m, noTitle, o = {}) {
   const narrow = (P.columns || 75) < (Number(u.c.style.wide_cols) || 60)
   const sk = m === P.factory && P.sankey && P.sankey.available
     ? h.svg(sankeySvg(P.sankey, { width: vizConfig(P.cfg).px(u.W), height: Math.min(120, 30 + 18 * Math.max(P.sankey.sources.length, P.sankey.models.length)), labels: !narrow }), sankeyAlt(P.sankey, { title: vizConfig(P.cfg).labels.sankey }), 'pl-sankey') : null
+  // folded by default (Julian, 22 Oct, narrow pane: the picture pushed the list down): « Tokens : fils → modèles › »
+  const skOpen = Boolean(P.open && P.open['pl-sankey'])
   if (sk) {
-    kids.push(h.T(vizConfig(P.cfg).labels.sankey, { bold: true, key: 'pl-sankey-h' }), sk)
-    if (narrow) {
+    kids.push(h.row([h.tbtn(`${vizConfig(P.cfg).labels.sankey} ${skOpen ? '⌄' : '›'}`, () => P.act.ptoggle('pl-sankey'), 'pl-sankey-h', { plain: true, bold: true })], { key: 'pl-sankey-row' }))
+    if (skOpen) kids.push(sk)
+    if (skOpen && narrow) {
       sankeyLegend(P.sankey).forEach((x, i) => kids.push(u.line(x.label, '', x.value, {
         leftEl: h.row([h.T('■', { color: x.hex }), h.T(clip(x.label, Math.max(4, u.W - len(x.value) - 4)), { wrap: 'truncate-end', dim: x.kind === 'source' })], { flexWrap: 'nowrap', gap: 1 }),
         boldValue: false, dimValue: x.kind === 'source', key: 'pl-sk-' + i,

@@ -6,19 +6,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { buildFil, filConfig, lastMessage } from '../lib/fil.mjs'
+import { appDir as coreAppDir } from '../lib/core/sessions.mjs'
 
-// The desktop app's session files: %APPDATA%\Claude\claude-code-sessions, or the Microsoft Store build's LocalCache.
+// The desktop app's session files: one finder for every mod (lib/core/sessions.mjs: Claude-Data first since 19 Oct,
+// then %APPDATA%Claudeclaude-code-sessions, then the Microsoft Store build's LocalCache).
 export function appDir(env = process.env) {
-  const a = path.join(env.APPDATA || '', 'Claude', 'claude-code-sessions')
-  if (env.APPDATA && fs.existsSync(a)) return a
-  const pk = path.join(env.LOCALAPPDATA || '', 'Packages')
-  try {
-    for (const d of fs.readdirSync(pk).filter((x) => x.startsWith('Claude_')).sort()) {
-      const p = path.join(pk, d, 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions')
-      if (fs.existsSync(p)) return p
-    }
-  } catch { /* no Packages folder */ }
-  return a
+  return coreAppDir({}, env)
 }
 
 const subdirs = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join(d, e.name)) } catch { return [] } }

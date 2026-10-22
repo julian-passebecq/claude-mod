@@ -206,7 +206,9 @@ export function oneList(list, o = {}) {
     const r = t.row
     const m = fm(r.id)
     lines.push({ kind: 'conv', depth, key: r.id, row: r, m, self: r.id === o.self, hasKids: false,
-      project: parent && r.project && r.project !== '?' && r.project !== parent.project ? r.project : '' })
+      // the project as a short grey suffix (Julian, 22 Oct: no project header on its own line): on a root, and on a child
+      // whose project is not its parent's
+      project: r.project && r.project !== '?' && (!parent || r.project !== parent.project) ? r.project : '' })
     const me = lines[lines.length - 1]
     const before = lines.length
     if (m && m.available) {

@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -361,4 +361,29 @@ test('engineAtLeast: the version gate for APIs newer than the oldest engine', as
   assert.equal(engineAtLeast('2.1.293', '2.1.300'), false)
   assert.equal(engineAtLeast('2.2.0-dev', '2.1.300'), true)
   assert.equal(engineAtLeast('', '2.1.300'), false)
+})
+
+test('scanner: app_dir finds Claude-Data first (marker, else newest), then %APPDATA%, then the Store package', () => {
+  const t = mkdtempSync(join(tmpdir(), 'appdir-py-'))
+  const run = (env) => execFileSync('python', ['-I', '-c', [
+    'import sys', "sys.argv = ['x']", `sys.path.insert(0, ${JSON.stringify(dirname(SCAN))})`, 'import factory_scan as f',
+    `print(f.app_dir(${JSON.stringify(env)}))`].join('\n')], { encoding: 'utf8' }).trim()
+  const env = { APPDATA: join(t, 'Roaming'), LOCALAPPDATA: join(t, 'Local') }
+  const old = join(env.APPDATA, 'Claude', 'claude-code-sessions')
+  const store = join(env.LOCALAPPDATA, 'Packages', 'Claude_test1', 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions')
+  const a = join(env.LOCALAPPDATA, 'Claude-Data', 'claude_aaa', 'claude-code-sessions')
+  const b = join(env.LOCALAPPDATA, 'Claude-Data', 'claude_bbb', 'claude-code-sessions')
+  assert.equal(run(env), old)
+  mkdirSync(store, { recursive: true })
+  assert.equal(run(env), store)
+  mkdirSync(old, { recursive: true })
+  assert.equal(run(env), old)
+  mkdirSync(a, { recursive: true })
+  assert.equal(run(env), a)
+  mkdirSync(b, { recursive: true })
+  utimesSync(a, new Date(2026, 0, 1), new Date(2026, 0, 1))
+  utimesSync(b, new Date(2026, 0, 2), new Date(2026, 0, 2))
+  assert.equal(run(env), b)
+  writeFileSync(join(env.APPDATA, 'Claude', '.user-data-left.claude_aaa'), '')
+  assert.equal(run(env), a)
 })

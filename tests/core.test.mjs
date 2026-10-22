@@ -1,7 +1,7 @@
 // lib/core on invented fixtures only (no real ~/.claude data): node --test tests/core.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,7 +12,7 @@ import { readRunner, runnerLine, runnerLoad } from '../lib/core/runner.mjs'
 import { listMods, loadedState, missingDirs, splitDirs } from '../lib/core/mods.mjs'
 import { claudeWindows, codexWindows, parseSamples, runOut } from '../lib/core/usage.mjs'
 import { deepMerge, expand, fill, oneLine, readJson, toMs, writeAtomic } from '../lib/core/util.mjs'
-import { linkChildren, parseSession, repoOfCwd } from '../lib/core/sessions.mjs'
+import { appDir, linkChildren, parseSession, repoOfCwd } from '../lib/core/sessions.mjs'
 import { age, waitingRows } from '../lib/core/waiting.mjs'
 
 const T = Date.parse('2026-10-16T10:00:00Z')
@@ -215,4 +215,30 @@ test('waiting: the core copy needs no sibling file', () => {
   assert.equal(rows.length, 1)
   assert.equal(rows[0].session.title, 'abcdefgh')
   assert.equal(rows[0].session.repo, 'demo')
+})
+
+test('sessions: appDir finds Claude-Data first (marker, else newest), then %APPDATA%, then the Store package', () => {
+  const t = mkdtempSync(join(tmpdir(), 'appdir-'))
+  try {
+    const env = { APPDATA: join(t, 'Roaming'), LOCALAPPDATA: join(t, 'Local') }
+    const old = join(env.APPDATA, 'Claude', 'claude-code-sessions')
+    const store = join(env.LOCALAPPDATA, 'Packages', 'Claude_test1', 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions')
+    assert.equal(appDir({}, env), old) // nothing at all: the old path
+    mkdirSync(store, { recursive: true })
+    assert.equal(appDir({}, env), store)
+    mkdirSync(old, { recursive: true })
+    assert.equal(appDir({}, env), old)
+    const a = join(env.LOCALAPPDATA, 'Claude-Data', 'claude_aaa', 'claude-code-sessions')
+    const b = join(env.LOCALAPPDATA, 'Claude-Data', 'claude_bbb', 'claude-code-sessions')
+    mkdirSync(join(env.LOCALAPPDATA, 'Claude-Data', 'claude_empty'), { recursive: true }) // a profile without sessions is skipped
+    mkdirSync(a, { recursive: true })
+    assert.equal(appDir({}, env), a)
+    mkdirSync(b, { recursive: true })
+    utimesSync(a, new Date(2026, 0, 1), new Date(2026, 0, 1))
+    utimesSync(b, new Date(2026, 0, 2), new Date(2026, 0, 2))
+    assert.equal(appDir({}, env), b) // several, no marker: the newest
+    writeFileSync(join(env.APPDATA, 'Claude', '.user-data-left.claude_aaa'), '')
+    assert.equal(appDir({}, env), a) // the marker names the profile
+    assert.equal(appDir({ app_dir: join(t, 'set') }, env), join(t, 'set'))
+  } finally { rmSync(t, { recursive: true, force: true }) }
 })

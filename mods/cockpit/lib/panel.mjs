@@ -72,9 +72,10 @@ export const PANEL_DEFAULTS = {
   tree: { indent: 'auto' },
   // the one list (Julian, 22 Oct 01:25: « visibility, indentation, bullets, agents, sub-agents, workflows, progress
   // bars »): indent = columns per level (a grey rule « │ » then spaces); rest_shown = conversations at rest listed after
-  // the working and waiting ones, then « + N au repos › »; bar_cells = cells of the context / progress bar at the right
+  // the working and waiting ones, then « + N au repos › » (0 since 22 Oct, narrow pane: every one folded there);
+  // project_max = cells of the grey project suffix of a row; bar_cells = cells of the context / progress bar at the right
   // of a row; bar_color = its colour on a surface without Svg (a theme key), blue like the Svg's colors.usage
-  list: { indent: 3, rule: '│', rest_shown: 3, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' },
+  list: { indent: 3, rule: '│', rest_shown: 0, project_max: 14, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' },
   // the status banners at the very top: tinted rows (theme keys or raw colours). ok = something runs or nothing does
   // (green tint), warn = a conversation waits for you (amber); fg = the text colour on it ('' keeps the line's own tones)
   banners: { ok_bg: 'diffAddedDimmed', ok_fg: '', warn_bg: 'warning', warn_fg: 'inverseText' },

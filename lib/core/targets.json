@@ -12,7 +12,7 @@
     "machine": ["util.mjs", "runner.mjs"],
     "menage": ["util.mjs", "sessions.mjs", "mods.mjs"],
     "metrics": ["util.mjs", "health.mjs"],
-    "problemes": ["util.mjs", "health.mjs", "veille.mjs"],
+    "problemes": ["util.mjs", "health.mjs", "veille.mjs", "sessions.mjs"],
     "sante": ["util.mjs", "mods.mjs", "health.mjs"],
     "scenarios": ["util.mjs", "usage.mjs"],
     "tests-reels": ["util.mjs"],
@@ -81,6 +81,8 @@
     ["mods/menage/lib/classify.mjs", "mods/registres/lib/menage/lib/classify.mjs"],
     ["mods/menage/scanner/menage_scan.mjs", "mods/registres/lib/menage/scanner/menage_scan.mjs"],
     ["mods/menage/scanner/sizes.ps1", "mods/registres/lib/menage/scanner/sizes.ps1"],
+    ["lib/core/sessions.mjs", "mods/registres/lib/menage/lib/core/sessions.mjs"],
+    ["lib/core/sessions.mjs", "mods/registres/lib/problemes/lib/core/sessions.mjs"],
 
     ["mods/control/hooks/config_draw.tsx", "mods/reference/lib/control/hooks/config_draw.tsx"],
     ["mods/control/hooks/config_view.ts", "mods/reference/lib/control/hooks/config_view.ts"],

@@ -671,11 +671,11 @@ function copyTree(files, dest) {
 
 export const BIN_FILES = [
   'veille/watcher/veille.mjs', 'veille/watcher/fil.mjs', 'veille/lib/fil.mjs', 'veille/watcher/archive.mjs', 'veille/lib/archive.mjs', 'veille/watcher/toast.ps1', 'veille/lib/core.mjs', 'veille/lib/night.mjs', 'veille/lib/modes.mjs', 'veille/lib/mail.mjs', 'veille/veille.config.json',
-  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'veille/lib/core/veille.mjs', 'veille/lib/core/health.mjs', 'veille/lib/export-view.mjs',
+  'veille/.claude-plugin/plugin.json', 'veille/COORDINATEUR.md', 'veille/lib/core/waiting.mjs', 'veille/lib/core/veille.mjs', 'veille/lib/core/health.mjs', 'veille/lib/core/sessions.mjs', 'veille/lib/export-view.mjs',
   'factory/scanner/factory_scan.py', 'factory/factory.config.json',
-  'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/problemes.config.json',
+  'problemes/scanner/problemes_scan.mjs', 'problemes/scanner/health.mjs', 'problemes/lib/core.mjs', 'problemes/lib/core/sessions.mjs', 'problemes/problemes.config.json',
   'veille/watcher/export-batch.mjs',
-  'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs', 'export-eta/lib/core/health.mjs',
+  'export-eta/exporter/export.mjs', 'export-eta/exporter/sessions.mjs', 'export-eta/lib/mask.mjs', 'export-eta/lib/layout.mjs', 'export-eta/lib/core/health.mjs', 'export-eta/lib/core/sessions.mjs',
   'export-eta/lib/render.mjs', 'export-eta/lib/etagit.mjs', 'export-eta/export-eta.config.json',
   'problemes/lib/export.mjs', 'problemes/lib/eta/mask.mjs', 'problemes/lib/eta/etagit.mjs',
 ]

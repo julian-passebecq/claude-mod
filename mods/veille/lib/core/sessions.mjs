@@ -7,13 +7,19 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** The app's session folder: %APPDATA%/Claude/claude-code-sessions, or the Microsoft Store package's LocalCache. */
+/** The app's session folder. Order: cfg.app_dir; %LOCALAPPDATA%/Claude-Data/<profile>/claude-code-sessions (the app
+ *  moved its data there on 19 Oct; with several profiles, the one named by the ".user-data-left.<profile>" marker in
+ *  %APPDATA%/Claude, else the most recently modified); the old %APPDATA%/Claude/claude-code-sessions; the Microsoft
+ *  Store package's LocalCache. Every reader of the session files goes through this. */
 export function appDir(cfg = {}, env = process.env) {
-  if (cfg.app_dir) return cfg.app_dir
+  if (cfg && cfg.app_dir) return cfg.app_dir
   const roaming = env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+  const local = env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+  const data = dataDir(local, roaming)
+  if (data) return data
   const plain = path.join(roaming, 'Claude', 'claude-code-sessions')
   if (fs.existsSync(plain)) return plain
-  const pk = path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Packages')
+  const pk = path.join(local, 'Packages')
   try {
     for (const d of fs.readdirSync(pk).filter((x) => x.startsWith('Claude_')).sort()) {
       const p = path.join(pk, d, 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions')
@@ -21,6 +27,27 @@ export function appDir(cfg = {}, env = process.env) {
     }
   } catch { /* no packages folder */ }
   return plain
+}
+
+/** %LOCALAPPDATA%/Claude-Data/<profile>/claude-code-sessions, or null. Several profiles: the marker's, else the newest. */
+export function dataDir(local, roaming) {
+  const base = path.join(local, 'Claude-Data')
+  let found = []
+  try {
+    found = fs.readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())
+      .map((e) => ({ name: e.name, dir: path.join(base, e.name, 'claude-code-sessions') }))
+      .filter((x) => fs.existsSync(x.dir))
+  } catch { return null }
+  if (!found.length) return null
+  if (found.length === 1) return found[0].dir
+  let marked = []
+  try {
+    marked = fs.readdirSync(path.join(roaming, 'Claude')).filter((n) => n.startsWith('.user-data-left.')).map((n) => n.slice('.user-data-left.'.length))
+  } catch { /* no marker */ }
+  const hit = found.find((x) => marked.includes(x.name))
+  if (hit) return hit.dir
+  const mtime = (p) => { try { return fs.statSync(p).mtimeMs } catch { return 0 } }
+  return found.sort((a, b) => mtime(b.dir) - mtime(a.dir) || a.name.localeCompare(b.name))[0].dir
 }
 
 /** local_*.json files under `dir`, `depth` folders deep. */
