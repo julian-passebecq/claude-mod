@@ -100,45 +100,20 @@ test('filters: archived hidden, 24 h / 7 j / tout, actives seulement, projet', (
   assert.equal(ageText(50 * 3600000), '2 j')
 })
 
-for (const columns of [60, 75]) {
-  test(`graph drawn at ${columns} columns: every part, nothing wider than the pane`, () => {
-    const OPEN = { conv: true, convs: true, graphe: true }
-    const text = panneauText(columns, { open: OPEN, closed: { 'cv:b': false } })
-    const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
-    // À toi de cliquer: at the top of the Panneau, right under the EN COURS block, once, not in the graph
-    assert.match(text, /^EN COURS\n[^\n]*\n[^\n]*\n\n◆ À toi de cliquer : \[Lane beta\] Choisir la version/)
-    assert.doesNotMatch(g, /À toi de cliquer/)
-    for (const k of ['● travaille ◆ attend ✕ bloquée ✓ finie ○ inactive', '[Actives]', '[24 h ▾]', '[Archivées]',
-      '★ proj-one · 5', '(ici) ›] coord 3.6M · ctx 30 % ▰▱▱▱', '● [Package two ›] coord', '○ [Package two · verify ›]', '⇢ PM BETA',
-      'proj-two · 2', '◆ [Lane beta ⌄] 1.0M']) assert.ok(g.includes(k), k + '\n' + g)
-    // one line per conversation: no state word line, the waiting one not repeated in full under À toi de cliquer
-    assert.doesNotMatch(g, /travaille · coordinateur|t’attend · lane|finie · lane/)
-    assert.equal(text.split('\n').filter((l) => l.includes('Choisir la version')).length, 1)
-    // the legend on one line at 60 columns and more, no wrapped « message envoyé »
-    assert.equal(g.split('\n').filter((l) => /travaille|inactive$/.test(l)).length, 1, g)
-    assert.doesNotMatch(g, /message envoyé/)
-    // children are indented under their parent, without box-drawing connectors
-    assert.doesNotMatch(g, /[├└┄]/)
-    const ind = (k) => { const l = g.split('\n').find((x) => x.includes(k)); return l.length - l.trimStart().length }
-    assert.ok(ind('[Package two ›]') > ind('[Lane alpha') && ind('[Package two · verify ›]') > ind('[Package two ›]'), g)
-    assert.doesNotMatch(g, /Archived lane|Lane gamma/)
+test('Graphe unfolded: the diagram only (its alt on a text surface) and the day’s Gantt; the list above is the one list', () => {
+  for (const columns of [45, 60, 75]) {
+    const text = panneauText(columns, { open: { convs: true, graphe: true } })
+    const g = text.slice(text.indexOf('[Graphe]'), text.indexOf('[Fichiers]'))
+    assert.match(g, /^\[Graphe\] · \d+ conv/, g)
+    assert.match(g, /Graphe dessiné : \d+ conversations/, g)
+    assert.match(g, /\[Aujourd’hui ⌄\]/, g)
+    // no second list of the conversations: no legend, no filters, no project groups, no row of a conversation
+    assert.doesNotMatch(g, /● travaille ◆ attend|\[24 h ▾\]|\[Actives\]|proj-one · \d|\[Lane beta|\[Package two/, g)
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
-    assert.ok(panneauText(columns, { open: OPEN, graphe: { period: 'tout', archived: true } }).includes('Archived lane'))
-    // a group of one conversation: no header, one line with the project name in grey
-    const all = panneauText(columns, { open: OPEN, graphe: { period: 'tout' } })
-    const gamma = all.slice(all.indexOf('[GRAPHE]')).split('\n').filter((l) => l.includes('[Lane gamma ›]'))
-    assert.equal(gamma.length, 1, all)
-    assert.match(gamma[0], /\[Lane gamma ›\] proj-three/)
-    assert.doesNotMatch(all.slice(all.indexOf('[GRAPHE]')), /proj-three · 1/)
-  })
-}
-
-test('graph at 45 columns: the legend folds behind « Légende › », nothing wraps', () => {
-  const text = panneauText(45, { open: { conv: true, convs: true, graphe: true } })
-  const g = text.slice(text.indexOf('[GRAPHE]'), text.indexOf('Autres vues'))
-  assert.match(g, /\[Légende ›\]/)
-  assert.match(panneauText(45, { open: { graphe: true, 'pg-legend': true } }), /○ inactive/)
-  assert.ok(widest(text.split('\n').slice(1).join('\n')) <= 45, text)
+  }
+  // à toi de cliquer once, at the top
+  const t = panneauText(75, { open: { convs: true, graphe: true } })
+  assert.equal(t.split('\n').filter((l) => l.includes('Choisir la version')).length, 1, t)
 })
 
 test('state: a coordinator running a Workflow is « travaille », « finie » only after done_min idle with nothing running', () => {
@@ -187,6 +162,6 @@ test('graph bug (19 Oct): conversations active today are listed whatever the app
   // the quiet one (40 h, nothing moving) stays out of 24 h, in « tout »
   assert.ok(line(grapheModel({ rows, scan, fcfg: {}, filter: { period: 'tout' } }, '', {}, NOW), 'old'))
   // drawn: the graph's line says it, its tree lists them
-  const text = panneauText(75, { open: { conv: true, convs: true, graphe: true } })
+  const text = panneauText(75, { open: { convs: true, graphe: true } })
   assert.doesNotMatch(text, /aucune conversation avec ces filtres/)
 })

@@ -9,6 +9,8 @@
 //   convList(...)   what is drawn: working and waiting ones always, the others active within the period (24 h by
 //                   default), grouped by project like the app's sidebar, sub-conversations under their parent, working
 //                   ones first; header counts equal to EN COURS; a filter never hides a working one (« filtre : … »)
+//   oneList(...)   the Panneau's ONE list (22 Oct): conversations nested under their parent whatever the project,
+//                   their running Workflows and agents under them, « + N au repos › » for the rest
 //   panelConvs(...) the whole wiring (rows → factories → EN COURS → list), shared by hooks/register.mjs and the preview
 // Pure: no $, no I/O (node --test mods/cockpit/tests/panel_list.test.mjs).
 import { panelConfig, stateGroup, markOf, liveState, liveness } from './panel.mjs'
@@ -57,7 +59,7 @@ export function convRows(input, cfg, nowMs) {
       tokens: u ? u.tokens : null, cost: u ? u.cost : null, tps: u ? u.tps : null,
       parent: p ? p.sid : (s && s.parent) || '', parentId: p ? p.key : '', parentTitle: p ? p.title : '',
       ctx, model: (s && (s.app_model || s.model)) || l.model || '', effort: (s && (s.app_effort || s.effort)) || l.effort || '',
-      over: ctx >= thr, last: Math.max(l.last || 0, s ? tsMs(s.last_activity) : 0, s ? tsMs(s.mtime) : 0), inScan: Boolean(s), starred: Boolean(l.starred),
+      over: ctx >= thr, last: Math.max(l.last || 0, s ? tsMs(s.last_activity) : 0, s ? tsMs(s.mtime) : 0), inScan: Boolean(s), starred: Boolean(l.starred), coord: l.roleId === 'coord',
     }
   })
 }
@@ -158,4 +160,76 @@ export function panelConvs(input, cfg, nowMs) {
   const n = enCours({ syn: { rows: pool }, factory: selfFactory, factories: under.factories, self })
   const list = convList(pool, n, filter, cfg, nowMs, tzMin)
   return { pool, list, under, n }
+}
+
+const RANK = { working: 0, waiting: 1, idle: 2 }
+
+/**
+ * The Panneau's ONE list (Julian, 22 Oct 01:25: « a lot going on, it's not clear… visibility, indentation, bullets,
+ * agents, sub-agents, workflows, progress bars »), like the app's sidebar: every conversation of convList() as a tree,
+ * children under their PARENT even when in another project (the child's project said on its row), under a conversation
+ * its running Workflows (then their running agents) and its running agents outside a Workflow, then its
+ * sub-conversations. The roots that work or wait (themselves or a descendant) first, then the 3 (list.rest_shown) most
+ * recent at rest, then « + N au repos › » (o.restOpen: all of them). in: list (convList()), o: { factories (clis →
+ * convFactory()), self, selfFactory, cfg, restOpen, nowMs }. -> { lines: [{ kind: conv | workflow | agent | agents_more |
+ * rest, depth, key, … }], counts: { rows, working, waiting, rest, nested, workflows, agents, hidden } }.
+ */
+export function oneList(list, o = {}) {
+  const c = panelConfig(o.cfg)
+  const q = c.list || {}
+  const max = Math.max(1, Number(c.conv.running_max) || 8)
+  const facts = o.factories || {}
+  const fm = (id) => (id === o.self ? o.selfFactory : facts[id]) || null
+  let roots = list && Array.isArray(list.groups) ? list.groups.flatMap((g) => g.roots) : []
+  // this conversation is always a row « (ici) », even before the session files list it
+  const sm = o.selfFactory
+  const has = (ts) => ts.some((t) => t.row.id === o.self || has(t.kids))
+  if (o.self && sm && sm.available && !has(roots)) {
+    const busy = sm.cards.length > 0 || Boolean(sm.lead && sm.lead.mainBusy)
+    const idle = Number.isFinite(sm.lead && sm.lead.idleMs) ? sm.lead.idleMs : 0
+    roots = [{ row: { id: o.self, label: sm.lead.title, project: '', cat: busy ? 'working' : 'idle', mark: busy ? 'working' : 'idle', last: (Number(o.nowMs) || 0) - idle, model: sm.lead.model, effort: sm.lead.effort }, kids: [] }, ...roots]
+  }
+  const best = (t) => Math.min(RANK[t.row.cat] ?? 2, ...t.kids.map(best))
+  const latest = (t) => Math.max(Number.isFinite(t.row.last) ? t.row.last : 0, ...t.kids.map(latest))
+  const ranked = roots.map((t, i) => ({ t, i, b: best(t), l: latest(t) })).sort((a, b) => a.b - b.b || b.l - a.l || a.i - b.i)
+  const active = ranked.filter((x) => x.b < 2).map((x) => x.t)
+  const rest = ranked.filter((x) => x.b >= 2).map((x) => x.t)
+  const keep = Math.max(0, Number.isFinite(Number(q.rest_shown)) ? Number(q.rest_shown) : 3)
+  const shownRest = o.restOpen ? rest : rest.slice(0, keep)
+  const lines = []
+  const agents = (list2, depth, key, background) => {
+    const run = list2.filter((a) => a.status === 'running')
+    for (const a of run.slice(0, max)) lines.push({ kind: 'agent', depth, key: `${key}-${a.id}`, agent: a, background })
+    if (run.length > max) lines.push({ kind: 'agents_more', depth, key: `${key}-more`, n: run.length - max })
+  }
+  const walk = (t, depth, parent) => {
+    const r = t.row
+    const m = fm(r.id)
+    lines.push({ kind: 'conv', depth, key: r.id, row: r, m, self: r.id === o.self, hasKids: false,
+      project: parent && r.project && r.project !== '?' && r.project !== parent.project ? r.project : '' })
+    const me = lines[lines.length - 1]
+    const before = lines.length
+    if (m && m.available) {
+      for (const k of m.cards) {
+        const all = k.phases.flatMap((p) => p.agents)
+        if (k.kind === 'workflow') {
+          lines.push({ kind: 'workflow', depth: depth + 1, key: k.key, card: k, conv: r.id, done: all.filter((a) => a.status === 'done').length, total: all.length || Number(k.count) || 0 })
+          agents(all, depth + 2, k.key, false)
+        } else agents(all, depth + 1, k.key, true)
+      }
+    }
+    for (const kid of t.kids) walk(kid, depth + 1, r)
+    me.hasKids = lines.length > before
+  }
+  for (const t of [...active, ...shownRest]) walk(t, 0, null)
+  const hidden = rest.length - shownRest.length
+  if (rest.length > keep) lines.push({ kind: 'rest', depth: 0, key: 'rest', n: o.restOpen ? rest.length - keep : hidden, open: Boolean(o.restOpen) })
+  const convs = lines.filter((x) => x.kind === 'conv')
+  const cat = (x) => x.row.cat || 'idle'
+  return {
+    lines,
+    counts: { rows: convs.length, working: convs.filter((x) => cat(x) === 'working').length, waiting: convs.filter((x) => cat(x) === 'waiting').length,
+      rest: convs.filter((x) => cat(x) === 'idle').length, nested: convs.filter((x) => x.depth > 0).length, workflows: lines.filter((x) => x.kind === 'workflow').length,
+      agents: lines.filter((x) => x.kind === 'agent').length, hidden },
+  }
 }

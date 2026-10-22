@@ -140,8 +140,8 @@ const ACT = { preset: noop, openConv: noop, gfilter: noop, gcycle: noop, tab: no
  * Temps » table show; { 'pfw-wf_1': true } draws it folded as it opens in the app).
  */
 export function panneauView(columns, o = {}) {
-  // as the Panneau opens (macro view, Julian 19 Oct): Cette conversation and Conversations as one line per conversation
-  // and Workflow, Quotas / Débit / Graphe one line each; o.open / o.closed unfold the details (micro)
+  // as the Panneau opens (one list since 22 Oct): the banners, ONE list of conversations with their running Workflows and
+  // agents, Quotas / Débit / Graphe / Fichiers one folded line each; o.open / o.closed unfold the details
   const open = o.open || { conv: true, convs: true }
   const filter = { period: 'today', project: '', state: '', who: o.who || 'claude' }
   // o.scene: 'busy' (o.busy), 'main' (only a main thread works), 'idle' (nothing runs); o.ci: a key of CI_CACHE or a cache
@@ -178,7 +178,7 @@ export function panneauView(columns, o = {}) {
   panel.kids = under.kids
   panel.convFactories = under.factories
   // o.indent: panel.tree.indent (columns per tree level, or "auto")
-  return { cfg: o.indent === undefined ? {} : { panel: { tree: { indent: o.indent } } }, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
+  return { cfg: o.indent === undefined ? {} : { panel: { list: { indent: o.indent } } }, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }
 

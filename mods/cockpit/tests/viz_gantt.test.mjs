@@ -135,15 +135,16 @@ test('SVG: bars in model colours, hatched stalled, dashed ETA, the now line, a t
   assert.ok(h < 80, 'small: ' + h)
 })
 
-test('Panneau: « Aujourd’hui » under the conversations, folded with its title; a Workflow unfolded shows its Gantt above its agents', () => {
+test('Panneau: « Aujourd’hui » inside Graphe unfolded (not in the default view), folded with its title; a Workflow unfolded shows its Gantt', () => {
   for (const cols of [45, 60, 75]) {
-    const t = panneauText(cols)
-    assert.match(t, /└──(?:──)? ● \[Lane gamma\] (?:conv )?500K\n\[Aujourd’hui ⌄\][^\n]*\nLane alpha[^\n]*▕[^\n]*▏\nLane delta[^\n]*▕[^\n]*▏\n[^\n]*\dh/, t)
+    assert.doesNotMatch(panneauText(cols), /Aujourd’hui/)
+    const t = panneauText(cols, { open: { convs: true, graphe: true } })
+    assert.match(t, /\n {2}\[Aujourd’hui ⌄\][^\n]*\n {2}Lane alpha[^\n]*▕[^\n]*▏\n {2}Lane delta[^\n]*▕[^\n]*▏\n[^\n]*\dh/, t)
     for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   }
-  const folded = panneauText(75, { closed: { pgantt: true } })
-  assert.match(folded, /\[Aujourd’hui ›\][^\n]*\n\n\[QUOTAS\]/)
+  const folded = panneauText(75, { open: { convs: true, graphe: true }, closed: { pgantt: true } })
+  assert.match(folded, /\[Aujourd’hui ›\][^\n]*\n─ \[Fichiers\]/)
+  // a Workflow's title unfolds its tokens, cost and Gantt under its row, behind the rule
   const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
-  const P = ' {6}│ {5}'
-  assert.match(wf, new RegExp(`│ 4 agents[^\\n]*\\n${P}│ Wave A\\n${P}│ sonnet\\s+▕█+[^\\n]*▏\\n${P}│ haiku\\s+▕█+[^\\n]*\\n${P}│ Wave B\\n${P}│ opus\\s+▕\\s+█+▓░+▏\\n${P}│ Merge\\n${P}│ sonnet[^\\n]*\\n${P}│ [^\\n]*\\dh[^\\n]*\\n${P}├──── ▸ Wave A`), wf)
+  assert.match(wf, /│  ◇ \[package-wave\] · workflow[^\n]*\n│  │  4 agents  2\.0M tokens[^\n]*\n│  │  Wave A\n│  │  sonnet\s+▕█+[^\n]*▏\n/, wf)
 })

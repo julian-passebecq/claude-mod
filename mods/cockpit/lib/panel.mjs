@@ -18,7 +18,9 @@ import { tokensOf } from './usage/lib/transcripts.mjs'
 import { sessionState } from './factory/hooks/screens.mjs'
 import { repoOf } from './factory/hooks/logic.mjs'
 
-export const PANEL_SECTIONS = ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe']
+// since 22 Oct (Julian: « a lot going on, not clear »): ONE list of conversations, then Quotas, Débit, Graphe and Fichiers
+// one folded line each at the bottom; « conv » (CETTE CONVERSATION) is gone: the current one is a row « (ici) » of the list
+export const PANEL_SECTIONS = ['convs', 'barres', 'debit', 'graphe', 'fichiers']
 
 export const PANEL_DEFAULTS = {
   enabled: true,
@@ -27,7 +29,7 @@ export const PANEL_DEFAULTS = {
   // Since 19 Oct the Panneau opens on its MACRO view (Julian: « everything quickly, details when I click »): Cette
   // conversation and Conversations are one line per conversation / Workflow; Quotas, Débit and Graphe are one line each,
   // « open » unfolds their detail (micro) under that line
-  open: ['conv', 'convs'],
+  open: ['convs'],
   // the state marks of « Toutes les conversations », the graph and its legend, one set (Julian, 18 Oct: « travaille » and
   // « t'attend » both looked orange): glyph + tone, a tone being a theme colour of the engine (cockpit term_colors:
   // ok = success green, warn = warning amber, bad = error red, dim = inactive grey)
@@ -68,10 +70,18 @@ export const PANEL_DEFAULTS = {
   // level (the connector « ├──── » and the « │ » rule under it, at least 2); "auto": 6 at style.wide_cols columns and
   // more, 4 under it
   tree: { indent: 'auto' },
+  // the one list (Julian, 22 Oct 01:25: « visibility, indentation, bullets, agents, sub-agents, workflows, progress
+  // bars »): indent = columns per level (a grey rule « │ » then spaces); rest_shown = conversations at rest listed after
+  // the working and waiting ones, then « + N au repos › »; bar_cells = cells of the context / progress bar at the right
+  // of a row; bar_color = its colour on a surface without Svg (a theme key), blue like the Svg's colors.usage
+  list: { indent: 3, rule: '│', rest_shown: 3, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' },
+  // the status banners at the very top: tinted rows (theme keys or raw colours). ok = something runs or nothing does
+  // (green tint), warn = a conversation waits for you (amber); fg = the text colour on it ('' keeps the line's own tones)
+  banners: { ok_bg: 'diffAddedDimmed', ok_fg: '', warn_bg: 'warning', warn_fg: 'inverseText' },
   // typed bullets (Julian, 21 Oct: « I don't see what is running, which agent, which workflow; more indentation,
   // bullets »): the bullet says the level, its colour the state (green running, amber waiting / stalled, red failed, grey
   // done); the type word after the title is grey (labels.type_*), dropped before the title is cut short
-  bullets: { conv: '●', sub: '↳', workflow: '◇', phase: '▸', agent: '•', background: '◦' },
+  bullets: { conv: '●', sub: '↳', workflow: '◇', phase: '▸', agent: '●', background: '◦' },
   convs: {
     // short: the label when the filter row would not fit on one line (a 45-column pane)
     // the period: the conversations at rest are listed when active within it (working and waiting ones always), the
@@ -139,15 +149,29 @@ export const PANEL_DEFAULTS = {
     // a row with no usage figure yet (the usage mod's scan has not read it)
     convs_no_tokens: '—',
     convs_filters: 'filtres',
-    quotas_head: 'QUOTAS',
+    // the one list (22 Oct): a row at rest, the fold of the rest, a working row's main thread, the coordinator chip
+    list_idle: 'au repos {age}',
+    list_rest: '+ {n} au repos',
+    list_rest_less: 'moins',
+    list_main: 'fil principal',
+    list_waiting: 't’attend',
+    list_blocked: 'bloquée',
+    list_coord: 'coord',
+    list_wf: '· workflow',
+    // the banners: « ● 1 t’attend : title · reason », « ● 2 t’attendent »
+    banner_wait_one: '{n} t’attend :',
+    banner_wait_many: '{n} t’attendent',
+    // the folded lines at the bottom
+    fold_other: 'autres vues',
+    quotas_head: 'Quotas',
     quotas_five: '5 h',
     quotas_week: 'sem',
-    debit_head: 'DÉBIT',
+    debit_head: 'Débit',
     debit_macro: '{list} TPS ({window})',
     debit_table: 'tableau',
     debit_old: 'anciens ({n})',
     debit_how: 'comment c’est mesuré',
-    graphe_head: 'GRAPHE',
+    graphe_head: 'Graphe',
     graphe_sum_conv: '{n} conv',
     graphe_sum_coord: '{n} coord',
     click_line: 'À toi de cliquer',
