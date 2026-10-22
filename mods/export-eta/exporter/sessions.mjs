@@ -6,22 +6,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { projectOf, stateOf, STATE_LABEL } from '../lib/layout.mjs'
+import { appDir as coreAppDir } from '../lib/core/sessions.mjs'
 
-export function appDir(cfg = {}) {
-  if (cfg.app_dir) return cfg.app_dir
-  const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-  const plain = path.join(roaming, 'Claude', 'claude-code-sessions')
-  if (fs.existsSync(plain)) return plain
-  // Microsoft Store (MSIX) build: the package's LocalCache, which %APPDATA% does not show to outside processes.
-  const pk = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Packages')
-  try {
-    for (const d of fs.readdirSync(pk).filter((x) => x.startsWith('Claude_')).sort()) {
-      const p = path.join(pk, d, 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions')
-      if (fs.existsSync(p)) return p
-    }
-  } catch { /* no packages folder */ }
-  return plain
-}
+// The app's session folder: one finder for every mod (lib/core/sessions.mjs, Claude-Data first since 19 Oct).
+export const appDir = (cfg = {}) => coreAppDir(cfg)
 
 export function projectsDir(cfg = {}) {
   return cfg.projects_dir || path.join(os.homedir(), '.claude', 'projects')

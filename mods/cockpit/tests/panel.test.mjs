@@ -268,15 +268,20 @@ for (const columns of [45, 60, 75]) {
     assert.match(body, /^ ● \[2 conv(?:ersations travaillent|\.)\] · \[2 (?:wf|workflows)\] · \[2 (?:agents|ag\.)\][^\n]*\[voir ›\]\n ◆ 1 t’attend : \[Lane beta\] · Choisir la/, body)
     // 2. ONE list, children under their parent behind the grey rule, this conversation « (ici) » at 60 columns and more
     const at = ['CONVERSATIONS [filtres ›]', '● [Lane alpha · tableau de bord]', '│  ◇ [package-wave] · workflow', '│  │  ● coder: cockpit-cl', '│  ○ [Package two]', '│  │  ○ [Package two · verify] au repos 9 h',
-      '● [Lane delta]', '│  ◇ [wf_2] · workflow', '│  │  ● coder · write the d', '○ [PM BETA]', '│  ◆ [Lane beta] t’attend', '○ [Lane gamma] au repos 30 h',
+      '● [Lane delta]', '│  ◇ [wf_2] · workflow', '│  │  ● coder · write the d', '○ [PM BETA]', '│  ◆ [Lane beta] t’attend', '○ [+ 1 au repos ›]',
       '─ [Quotas] · 5 h 21 % · sem 85 %', '─ [Débit] · opus 56', '─ [Graphe] · 7 conv · 3 coord', '─ [Fichiers] · proj-one · main']
     const idx = at.map((k) => body.indexOf('\n' + k))
     assert.ok(idx.every((i) => i >= 0), at.filter((k, i) => idx[i] < 0).join(' | ') + '\n' + body)
     assert.deepEqual([...idx].sort((a, b) => a - b), idx, body)
-    if (columns >= 60) assert.match(body, /\n● \[Lane alpha · tableau de bord\] coord \(ici\) [▰▱]{5} 30 %\n/, body)
+    if (columns >= 60) assert.match(body, /\n● \[Lane alpha · tableau de bord\] coord \(ici\) (?:Terminés 1 )?[▰▱]{5} 30 %\n/, body)
+    // Julian's narrow pane (22 Oct): one line per conversation, no line with the rule alone, no project header line, the
+    // project a short grey suffix, the conversations at rest folded into « + N au repos › »
+    assert.doesNotMatch(body, /\n│ *\n|\nproj-(?:one|two)\n/, body)
+    assert.match(body, /\n○ \[PM BETA\] coord proj-two au repos 40 min\n/, body)
+    assert.doesNotMatch(body, /Lane gamma/, body)
     // the progress of a Workflow: its bar and done/total; a working conversation: its context bar and %
     assert.match(body, /\n│  ◇ \[package-wave\] · workflow [▰▱]{5} 2\/4\n/)
-    assert.match(body, /\n● \[Lane delta\] [▰▱]{5} 15 %\n/)
+    assert.match(body, /\n● \[Lane delta\] proj-one [▰▱]{5} 15 %\n/)
     // 3. one folded line each, in that order, at the very bottom
     assert.match(body, /\n\n─ \[Quotas\][^\n]*\[›\]\n─ \[Débit\][^\n]*\[›\]\n─ \[Graphe\][^\n]*\[›\]\n─ \[Fichiers\][^\n]*\[›\]$/, body)
   })
@@ -290,7 +295,7 @@ test('one list: one row per conversation, never twice; nested levels step by pan
   assert.deepEqual([col(/\[Lane alpha/), col(/\[package-wave\]/), col(/coder: cockpit/), col(/\[Package two\]/), col(/\[Package two · verify\]/)], [0, 3, 6, 3, 6])
   const t4 = panneauText(75, { indent: 4 })
   assert.match(t4, /\n│   ◇ \[package-wave\] · workflow[^\n]*\n│   │   ● coder: cockpit/, t4)
-  assert.deepEqual(panelConfig({}).list, { indent: 3, rule: '│', rest_shown: 3, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' })
+  assert.deepEqual(panelConfig({}).list, { indent: 3, rule: '│', rest_shown: 0, project_max: 14, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' })
 })
 
 test('details only on a click of the row title: this conversation’s card and journal, another’s « ouvrir ↗ », a Workflow’s tokens and Gantt', () => {
@@ -304,7 +309,9 @@ test('details only on a click of the row title: this conversation’s card and j
   for (const k of ['[journal (6) ⌄]', 'PR #42 ouverte', 'PR #41 mergée']) assert.ok(log.includes(k), k + '\n' + log)
   const d = panneauText(75, { closed: { 'cv:d:pdetails': false } })
   assert.match(d, /\n● \[Lane delta\] [^\n]*\n│  \[ouvrir ↗\]\n│  Contexte 60K[^\n]*\n(?:│[^\n]*\n)+│  ◇ \[wf_2\] · workflow/, d)
-  assert.match(panneauText(75, { closed: { 'cv:c:pdetails': false } }), /\n○ \[Lane gamma\] au repos 30 h\n│  \[ouvrir ↗\]\n│  fabrique non lue/)
+  assert.match(panneauText(75, { open: { convs: true, convs_rest: true }, closed: { 'cv:c:pdetails': false } }), /\n○ \[Lane gamma\] proj-three au repos 30 h\n│  \[ouvrir ↗\]\n│  fabrique non lue/)
+  // no line with the rule « │ » alone inside the details (the stats grid's blank line is gone in the tree)
+  assert.doesNotMatch(self, /\n│ *\n/, self)
   const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
   assert.match(wf, /\n│  ◇ \[package-wave\] · workflow [^\n]*\n│  │  4 agents  2\.0M tokens  \$9\.40  40m 00s  fin vers \d\d:\d\d\n/, wf)
 })
@@ -365,7 +372,7 @@ test('colours: one state colour per row, numbers bold only when alarming (ctx at
   assert.deepEqual([first(st, 'plw-pfw-wf_s').children[0], first(st, 'plw-pfw-wf_s').color], ['◇', 'warning'])
   assert.deepEqual([first(st, 'pla-pfw-wf_s-w1').children[0], first(st, 'pla-pfw-wf_s-w1').color], ['●', 'success'])
   // at rest: grey ○ and grey title; waiting: amber ◆; working: green ●, bold
-  const base2 = drawCockpit(el, view)
+  const base2 = drawCockpit(el, { ...view, panel: { ...view.panel, open: { ...view.panel.open, convs_rest: true } } })
   assert.deepEqual([first(base2, 'plc-h-c').children[0], first(base2, 'plc-h-c').dimColor], ['○', true])
   assert.deepEqual([first(base2, 'plc-h-b').children[0], first(base2, 'plc-h-b').color], ['◆', 'warning'])
   assert.deepEqual([first(base2, 'plc-h-d').children[0], first(base2, 'plc-h-d').color], ['●', 'success'])

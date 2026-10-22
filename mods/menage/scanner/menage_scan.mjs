@@ -15,6 +15,11 @@ import {
   archivable, branchRow, command, deepMerge, expand, fill, fmtAge, fmtBytes, mergeState, norm, parseStatus, parseWorktrees,
   pathKey, pluginDirs, prFor, prIndex, short, slugOf, splitOld, totals, unset, worktreeRow,
 } from '../lib/classify.mjs'
+import { appDir } from '../lib/core/sessions.mjs'
+
+// « auto » (and the old default %APPDATA%/Claude/claude-code-sessions, which the app left on 19 Oct): the app's folder
+// as lib/core/sessions.mjs appDir finds it.
+export const isAuto = (d) => /^(auto|%APPDATA%[\/]Claude[\/]claude-code-sessions[\/]?)$/i.test(String(d || '').trim())
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
@@ -523,7 +528,7 @@ export async function scan({ cfg, dataDir, env }, now = Date.now(), { force = fa
   const rc = cfg.repos || {}
   const roots = (rc.roots || []).filter(r => !unset(r)).map(r => expand(r, env))
   const git = gitRunner((rc.git_timeout_s ?? 30) * 1000)
-  const sessions = unset(cfg.sessions?.dir) ? [] : readSessions(expand(cfg.sessions?.dir || '%APPDATA%/Claude/claude-code-sessions', env))
+  const sessions = unset(cfg.sessions?.dir) ? [] : readSessions(isAuto(cfg.sessions.dir) ? appDir({}, env) : expand(cfg.sessions.dir, env))
   const ctx = { cfg, env, L, git, roots, now, sessions, prs: prIndex(sessions), budget: { left: rc.squash_check_total ?? 600 } }
   const errors = []
   if (!roots.length) errors.push(L.roots_unset || 'repos.roots non réglé')

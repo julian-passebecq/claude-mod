@@ -93,8 +93,8 @@
     ]
   },
   "sessions": {
-    "_doc": "Fichiers de session de l'app Desktop (lecture seule) : une session non archivée, sans activité depuis idle_hours, dont toutes les PR sont mergées ou fermées (au moins une mergée), est « archivable ». Le mod ne l'archive pas : menu de la session dans la barre latérale → Archiver.",
-    "dir": "%APPDATA%/Claude/claude-code-sessions",
+    "_doc": "Fichiers de session de l'app Desktop (lecture seule) : une session non archivée, sans activité depuis idle_hours, dont toutes les PR sont mergées ou fermées (au moins une mergée), est « archivable ». dir « auto » : le dossier que l'app utilise (Claude-Data depuis le 19 oct., sinon %APPDATA%/Claude). Le mod ne l'archive pas : menu de la session dans la barre latérale → Archiver.",
+    "dir": "auto",
     "idle_hours": 12
   },
   "commands": {

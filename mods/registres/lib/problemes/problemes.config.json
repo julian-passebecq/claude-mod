@@ -7,10 +7,10 @@
   "max_problems_per_node": 40,
   "timeline_max": 60,
   "collect": {
-    "_doc": "Collecte automatique, sans tokens : scanner/problemes_scan.mjs collect (lancé par le panneau quand le registre a plus de refresh_min minutes, par ↻, ou par la Veille à chaque tour). Lit seulement les octets ajoutés aux transcripts depuis la dernière fois (curseurs dans data_dir/cursor.json) et les fichiers de session de l'app modifiés depuis. backfill_days : au premier passage, enregistrements plus vieux ignorés. roots : dossiers qui contiennent tes dépôts (le nom d'application = premier dossier en dessous ; sans roots, le nom du dossier du dépôt). max_evidence : exemples gardés par problème et par collecte.",
+    "_doc": "Collecte automatique, sans tokens : scanner/problemes_scan.mjs collect (lancé par le panneau quand le registre a plus de refresh_min minutes, par ↻, ou par la Veille à chaque tour). Lit seulement les octets ajoutés aux transcripts depuis la dernière fois (curseurs dans data_dir/cursor.json) et les fichiers de session de l'app modifiés depuis (sessions « auto » : le dossier que l'app utilise, Claude-Data depuis le 19 oct.). backfill_days : au premier passage, enregistrements plus vieux ignorés. roots : dossiers qui contiennent tes dépôts (le nom d'application = premier dossier en dessous ; sans roots, le nom du dossier du dépôt). max_evidence : exemples gardés par problème et par collecte.",
     "transcripts": "~/.claude/projects",
     "subagents": true,
-    "sessions": ["%APPDATA%/Claude/claude-code-sessions"],
+    "sessions": ["auto"],
     "backfill_days": 14,
     "roots": ["<PROJECTS_ROOT>"],
     "worktree_dirs": [".claude/worktrees", ".worktrees"],

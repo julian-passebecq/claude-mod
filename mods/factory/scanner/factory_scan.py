@@ -40,13 +40,46 @@ def arg(name, default=None):
 
 HOME = os.path.expanduser('~')
 PROJECTS = arg('--projects', os.path.join(HOME, '.claude', 'projects'))
-APP = arg('--app', os.path.join(os.environ.get('APPDATA', ''), 'Claude', 'claude-code-sessions'))
-if not os.path.isdir(APP) and '--app' not in sys.argv:
-    # The Microsoft Store (MSIX) build of the desktop app keeps its data under the package's LocalCache, which a
-    # process outside the package does not see at %APPDATA%: titles, models and spawnedFrom links would all be lost.
-    for _p in sorted(glob.glob(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Packages', 'Claude_*', 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions'))):
-        APP = _p
-        break
+def app_dir(env=None):
+    """The app's session folder, same order as lib/core/sessions.mjs appDir: %LOCALAPPDATA%/Claude-Data/<profile>/
+    claude-code-sessions (since 19 Oct; several profiles: the one named by the ".user-data-left.<profile>" marker in
+    %APPDATA%/Claude, else the newest), the old %APPDATA%/Claude/claude-code-sessions, the Microsoft Store package's
+    LocalCache (which %APPDATA% does not show to outside processes)."""
+    env = os.environ if env is None else env
+    roaming = env.get('APPDATA') or os.path.join(HOME, 'AppData', 'Roaming')
+    local = env.get('LOCALAPPDATA') or os.path.join(HOME, 'AppData', 'Local')
+    base = os.path.join(local, 'Claude-Data')
+    try:
+        found = [(n, os.path.join(base, n, 'claude-code-sessions')) for n in sorted(os.listdir(base))]
+    except OSError:
+        found = []
+    found = [x for x in found if os.path.isdir(x[1])]
+    if len(found) == 1:
+        return found[0][1]
+    if found:
+        try:
+            marked = [n[len('.user-data-left.'):] for n in os.listdir(os.path.join(roaming, 'Claude')) if n.startswith('.user-data-left.')]
+        except OSError:
+            marked = []
+        for n, d in found:
+            if n in marked:
+                return d
+
+        def mtime(p):
+            try:
+                return os.path.getmtime(p)
+            except OSError:
+                return 0
+        return max(found, key=lambda x: mtime(x[1]))[1]
+    plain = os.path.join(roaming, 'Claude', 'claude-code-sessions')
+    if os.path.isdir(plain):
+        return plain
+    for p in sorted(glob.glob(os.path.join(local, 'Packages', 'Claude_*', 'LocalCache', 'Roaming', 'Claude', 'claude-code-sessions'))):
+        return p
+    return plain
+
+
+APP = arg('--app') or app_dir()
 BOARD = arg('--board', os.path.join(HOME, '.claude', 'effort-board'))
 CACHE = arg('--cache', os.path.join(BOARD, 'factory_cache.json'))
 HOURS = float(arg('--hours', '36'))

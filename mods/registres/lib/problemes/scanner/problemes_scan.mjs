@@ -23,6 +23,7 @@ import {
   hitsOfHealth, hitsOfSante,
 } from '../lib/core.mjs'
 import { writeHealth } from './health.mjs'
+import { appDir } from '../lib/core/sessions.mjs'
 import { registerFiles, staleOf } from '../lib/export.mjs'
 import { landInEta, maskOpts } from '../lib/eta/etagit.mjs'
 
@@ -171,7 +172,9 @@ function readNew(t, entry, cfg, since) {
 
 function sessionFiles(cfg, since) {
   const out = []
-  for (const root of (cfg.collect?.sessions ?? []).map(p => expand(p, cfg.env)).filter(isSet)) {
+  const auto = (p) => /^(auto|%APPDATA%[\/]Claude[\/]claude-code-sessions[\/]?)$/i.test(String(p || '').trim())
+  const roots = [...new Set((cfg.collect?.sessions ?? []).map(p => auto(p) ? appDir({}, cfg.env || process.env) : expand(p, cfg.env)).filter(isSet))]
+  for (const root of roots) {
     let a = []
     try { a = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory()) } catch { continue }
     for (const x of a) {

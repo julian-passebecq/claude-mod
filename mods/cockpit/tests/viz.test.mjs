@@ -158,7 +158,7 @@ test('graph layout: boxes per project, layered, no overlapping nodes, active fir
 })
 
 test('the Panneau places the diagrams where the surface draws Svg and keeps the text elsewhere', () => {
-  const view = panneauView(75, { open: { conv: true, convs: true, barres: true, debit: true, graphe: true }, closed: { pdetails: false } })
+  const view = panneauView(75, { open: { conv: true, convs: true, barres: true, debit: true, graphe: true, 'pl-sankey': true }, closed: { pdetails: false } })
   const series = { five: [{ ts: NOW - 2 * H, pct: 0 }, { ts: NOW - 30 * MIN, pct: 1 }], week: [] }
   const panel = { ...view.panel,
     sankey: sankeyModel({ sessions: [{ cli: 'lead', models: { 'claude-opus-5-5': v(1000) }, subs: [{ workflow: 'wf_1', models: { 'claude-sonnet-5-5': v(300) } }] }] }, 'lead', [{ id: 'wf_1', name: 'package-wave' }]),
@@ -199,11 +199,15 @@ test('Sankey labels never overlap: clipped to their column, none at all in a nar
   // the Panneau: at 45 columns the Sankey has no text inside and its legend under it, at 75 the labels are inside
   const svgEl = { ...el, Svg: (props) => ({ type: 'Svg', props }) }
   const draw = (cols) => {
-    const view = panneauView(cols, { closed: { pdetails: false } })
+    const view = panneauView(cols, { open: { convs: true, 'pl-sankey': true }, closed: { pdetails: false } })
     return drawCockpit(svgEl, { ...view, panel: { ...view.panel, sankey: m } })
   }
   const find = (n, key) => { if (!n || typeof n !== 'object') return null; if (n.props && n.props.key === key) return n; for (const c of (n.props && n.props.children) || []) { const f = find(c, key); if (f) return f } return null }
   const narrow = draw(45)
+  // folded by default (Julian, 22 Oct): « Tokens : fils → modèles › » only, the picture under it once unfolded
+  const shut = (() => { const view = panneauView(45, { closed: { pdetails: false } }); return drawCockpit(svgEl, { ...view, panel: { ...view.panel, sankey: m } }) })()
+  assert.equal(find(shut, 'pl-sankey'), null)
+  assert.match(JSON.stringify(find(shut, 'pl-sankey-h')), /Tokens : fils → modèles ›/)
   assert.doesNotMatch(find(narrow, 'pl-sankey').props.source, /<text/)
   for (const i of [0, 1, 2, 3]) assert.ok(find(narrow, 'pl-sk-' + i), 'legend line ' + i)
   const legend = JSON.stringify(find(narrow, 'pl-sk-0'))
