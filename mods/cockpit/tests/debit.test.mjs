@@ -144,12 +144,12 @@ test('the usage scan keeps every stream of the last hour and hourly TPS rows (me
 })
 
 test('preview: Débit is one line after Quotas, its tables one click away, numbers whole at 45, 60 and 75 columns', () => {
-  const OPEN = { conv: true, convs: true, debit: true }
+  const OPEN = { convs: true, debit: true }
   const macro = panneauText(75)
-  assert.ok(macro.indexOf('[DÉBIT]') > macro.indexOf('[QUOTAS]'))
-  assert.ok(macro.indexOf('[DÉBIT]') < macro.indexOf('[GRAPHE]'))
+  assert.ok(macro.indexOf('[Débit]') > macro.indexOf('[Quotas]'))
+  assert.ok(macro.indexOf('[Débit]') < macro.indexOf('[Graphe]'))
   // folded: the 30 min weighted TPS of each model in use, on one line; no table, no footnote
-  assert.match(macro, /\[DÉBIT\] opus 56 · sonnet 88 · haiku 164 TPS \(30 min\) \[›\]/)
+  assert.match(macro, /─ \[Débit\] · opus 56 · sonnet 88 · haiku 164 TPS \(30 min\) \[›\]/)
   assert.doesNotMatch(macro, /Modèle : |Fenêtre|message\.id/)
   const t75 = panneauText(75, { open: OPEN })
   assert.match(t75, /Modèle : opus 5\.5/)

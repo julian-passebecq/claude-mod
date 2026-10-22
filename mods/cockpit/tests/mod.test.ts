@@ -298,32 +298,42 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
 for (const surface of ['terminal', 'desktop'] as const) {
   for (const columns of [60, 75]) {
-    test(`Panneau by default: the macro view (Fichiers folded, this conversation, conversations, Quotas, Débit, Graphe one line each); no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
+    test(`Panneau by default: banners, ONE list of conversations, then Quotas, Débit, Graphe, Fichiers one folded line each; no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
       world(on)
       mock.store(on)
       await $.command.run({ command: 'cockpit', args: '' } as any)
       const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 200 }, props: { ...PANE, bodyColumns: columns } } as any)
-      for (const re of [/^▸ Fichiers$/, /^CETTE CONVERSATION$/, /^CONVERSATIONS$/, /^QUOTAS$/, /^DÉBIT$/, /^GRAPHE$/]) expect(await has(ui, re)).toBe(true)
-      for (const re of [/^Panneau$/, /^Plus ▾$/, /^Mission$/, /^Cockpit$/, /^Registres$/, /^Workflows actifs$/]) expect(await has(ui, re)).toBe(false) // no tab bar, no left menu, no duplicate block
-      expect(await has(ui, /^Autres vues : \/cockpit cartes · mission/)).toBe(true)
-      // Fichiers: folded by default (Julian, 17 Oct); unfolded, the cwd's first level, a folder opens on a click
+      for (const re of [/^CONVERSATIONS$/, /^Quotas$/, /^Débit$/, /^Graphe$/, /^Fichiers$/]) expect(await has(ui, re)).toBe(true)
+      for (const re of [/^CETTE CONVERSATION$/, /^QUOTAS$/, /^GRAPHE$/, /^Panneau$/, /^Plus ▾$/, /^Mission$/, /^Cockpit$/, /^Registres$/, /^Workflows actifs$/]) expect(await has(ui, re)).toBe(false)
+      // « Autres vues » now lives inside Fichiers, folded by default (Julian, 17 Oct); unfolded, the cwd's first level
+      expect(await has(ui, /^Autres vues : \/cockpit cartes · mission/)).toBe(false)
       expect(await has(ui, /▸ src/)).toBe(false)
       await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
       expect(await has(ui, /▸ src/)).toBe(true)
+      expect(await has(ui, /^Autres vues : \/cockpit cartes · mission/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'f-C:/code/eta/src' })
       expect(await has(ui, /· main\.ts/)).toBe(true)
-      // this conversation: its node and metrics lines (title, context %); its card only on « détails », no box drawing
-      expect(await has(ui, /^Galaxy fin/)).toBe(true) // its title, cut first at 60 columns
+      // the amber banner: who waits for you
+      expect(await has(ui, /^◆ 1 t’attend :$/)).toBe(true)
+      expect((await ui.find({ key: 'pgw-g-wait' }))?.text).toBe('Lane waiting')
+      // this conversation: one row, « (ici) », its context %; its details only on a click of its title, no box drawing
+      expect(await has(ui, /^Galaxy fin/)).toBe(true)
+      expect(await has(ui, /^\(ici\)$/)).toBe(true)
       expect(await has(ui, /^10 %$/)).toBe(true)
       expect(await has(ui, /^Cache hit$/)).toBe(false)
       expect(await has(ui, /[╭╮╰╯]/)).toBe(false)
-      await ui.press({ plugin: 'cockpit', key: 'pdetails' }) // « détails › » on its metrics line (its › folds its children)
+      await ui.press({ plugin: 'cockpit', key: 'pcv-lead-cli' })
       expect(await has(ui, /^Contexte$/)).toBe(true)
       expect(await has(ui, /^103K \/ 1\.0M · relais 250K$/)).toBe(true)
       expect(await has(ui, /^Cache hit$/)).toBe(true)
-      // the conversations: invented classement, one line each; Quotas: the engine's 5 h figure on its line, the bars on a click
-      expect(await has(ui, /^COORD eta|^Lane waiting/)).toBe(true) // the sessions of GRAPHE (22 Oct), not usage's figures alone
-      expect(await has(ui, /^21 %$/)).toBe(true)
+      // the child nests under its parent, the waiting lane under its coordinator (a « coord » chip), at rest in grey
+      expect(await has(ui, /^Mosaic Studio/)).toBe(true)
+      expect(await has(ui, /^COORD eta/)).toBe(true)
+      expect(await has(ui, /^coord$/)).toBe(true)
+      expect(await has(ui, /^au repos 10 min$/)).toBe(true)
+      expect(await has(ui, /^│\s+$/)).toBe(true)
+      // Quotas: the engine's 5 h figure on its folded line, the bars on a click
+      expect(await has(ui, /^5 h 21 %$/)).toBe(true)
       expect(await has(ui, /^Session 5 h$/)).toBe(false)
       await ui.press({ plugin: 'cockpit', key: 'p-sec-barres' })
       expect(await has(ui, /^Session 5 h$/)).toBe(true)
@@ -332,33 +342,29 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await $.command.run({ command: 'cockpit', args: 'mission' } as any)
       expect(await has(ui, /^Mission$/)).toBe(true)
       await ui.press({ plugin: 'cockpit', key: 'tab-panneau' })
-      expect(await has(ui, /^GRAPHE$/)).toBe(true)
+      expect(await has(ui, /^Graphe$/)).toBe(true)
       expect(await has(ui, /^Mission$/)).toBe(false)
     })
   }
 }
 
-test('Panneau: a Workflow is a tree node under its conversation, unfolds to its agents; folds are kept in $.store', async ($, on) => {
+test('Panneau: a running Workflow is a « ◇ name · workflow » line under its conversation with its running agent; its details unfold on a click, kept in $.store', async ($, on) => {
   world(on, { self: 'child-cli' })
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 200 }, props: PANE } as any)
-  // macro: « └──── ◇ package-wave  workflow  › » (typed bullet, grey type word), its metrics « 0/1 ● · … », and its
-  // running agent always listed under it without unfolding (Julian, 21 Oct); no phases table, no tokens line
   expect(await has(ui, /^package-wave$/)).toBe(true)
-  expect(await has(ui, /^workflow$/)).toBe(true)
+  expect(await has(ui, /^· workflow$/)).toBe(true)
   expect(await has(ui, /^◇$/)).toBe(true)
-  expect(await has(ui, /└────\s*$/)).toBe(true) // 6-column indents at 75 columns (Julian, 20 Oct)
-  expect(await has(ui, /^0\/1$/)).toBe(true)
+  expect(await has(ui, /^à l’arrêt 1 h 00$/)).toBe(true) // its agent runs for an hour without news: amber
+  expect(await has(ui, /^coder · build$/)).toBe(true) // its running agent, listed without unfolding (Julian, 21 Oct)
+  expect(await has(ui, /^│\s+│\s+$/)).toBe(true) // two levels behind the rule
   expect(await has(ui, /^Phases$/)).toBe(false)
-  expect(await has(ui, /^coder · build/)).toBe(true)
   expect(await has(ui, / tokens /)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
-  // unfolded: its tokens, cost and time, its agents as children, one line each, never « general-purpose »
   expect(await has(ui, / tokens /)).toBe(true)
-  expect(await has(ui, /^coder · build/)).toBe(true)
   expect(await has(ui, /general-purpose/)).toBe(false)
   expect(JSON.stringify(kept.panel)).toContain('"pfw-wf_1":false') // opened
   await ui.press({ plugin: 'cockpit', key: 'pk-pfw-wf_1-t' })
@@ -397,16 +403,16 @@ test('Fichiers: attach_selection false keeps the selection visual only', async (
   expect(w.opened).toContain('cockpit')
 })
 
-test('Panneau: sections unfold and stay unfolded (kept in $.store), filters behind « filtres » cycle, Claude / Codex', async ($, on) => {
+test('Panneau: folded lines unfold and stay unfolded (kept in $.store), filters behind « filtres » cycle, Claude / Codex', async ($, on) => {
   world(on)
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
-  expect(await has(ui, /^▸ Fichiers$/)).toBe(true) // folded by default
+  expect((await ui.find({ key: 'p-sec-fichiers-x' }))?.text).toBe('›') // folded by default
   await ui.press({ plugin: 'cockpit', key: 'p-sec-fichiers' })
-  expect(await has(ui, /^▾ Fichiers$/)).toBe(true)
+  expect((await ui.find({ key: 'p-sec-fichiers-x' }))?.text).not.toBe('›')
   expect(JSON.stringify(kept.panel)).toContain('"fichiers":true')
   expect(JSON.stringify(kept.panel)).toContain('"v":4')
   await ui.press({ plugin: 'cockpit', key: 'p-sec-barres' })
@@ -430,14 +436,14 @@ test('Panneau: sections unfold and stay unfolded (kept in $.store), filters behi
   expect(JSON.stringify(kept.panel)).toContain('"who":"codex"')
 })
 
-test('Panneau: Débit is one line after Quotas (the models in use), its tables and the last streams on a click; its fold is kept', async ($, on) => {
+test('Panneau: Débit is one folded line after Quotas (the models in use), its tables and the last streams on a click; its fold is kept', async ($, on) => {
   world(on)
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
-  expect(await has(ui, /^DÉBIT$/)).toBe(true)
+  expect(await has(ui, /^Débit$/)).toBe(true)
   expect(await has(ui, /^opus 60 TPS \(30 min\)$/)).toBe(true) // the last 30 min, weighted
   expect(await has(ui, /^Modèle : opus 5\.5$/)).toBe(false)
   await ui.press({ plugin: 'cockpit', key: 'p-sec-debit' })
@@ -450,67 +456,55 @@ test('Panneau: Débit is one line after Quotas (the models in use), its tables a
   expect(JSON.stringify(kept.panel)).toContain('"debit":true')
 })
 
-test('Panneau: a save from before v3 (sections kept unfolded) opens on the macro view with Fichiers folded', async ($, on) => {
+test('Panneau: a save from before v3 (sections kept unfolded) opens on the folded lines, Fichiers as the viewer left it', async ($, on) => {
   world(on)
   const kept: Record<string, unknown> = { panel: { v: 2, open: { fichiers: true, conv: true, convs: true, barres: true, debit: true, graphe: true }, closed: {}, filter: {} } }
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 160 }, props: PANE } as any)
-  expect(await has(ui, /^▾ Fichiers$/)).toBe(true) // a v2 save of Fichiers was the viewer's own
-  expect(await has(ui, /^CETTE CONVERSATION$/)).toBe(true)
+  expect(await has(ui, /▸ src/)).toBe(true) // a v2 save of Fichiers was the viewer's own
+  expect(await has(ui, /^CONVERSATIONS$/)).toBe(true)
   expect(await has(ui, /^Session 5 h$/)).toBe(false)
   expect(await has(ui, /^Modèle : opus 5\.5$/)).toBe(false)
 })
 
-test('Panneau: À toi de cliquer at the top; the graph on a click shows the tree, keeps its filters, lists every active conversation', async ($, on) => {
+test('Panneau: « N t’attend » on an amber banner at the top, its title opens the conversation; Graphe unfolded is the diagram only (no second list)', async ($, on) => {
   const w = world(on)
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
-  expect(await has(ui, /^◆ À toi de cliquer :$/)).toBe(true)
-  expect(await has(ui, /^Lane waiting$/)).toBe(true)
-  expect(await has(ui, /^4 conv · 1 coord · 1 t’attend/)).toBe(true) // this conversation has no session file: drawn from the scan
-  expect(await has(ui, /^eta · 4$/)).toBe(false) // the tree only on a click
+  expect(await has(ui, /^◆ 1 t’attend :$/)).toBe(true)
+  expect(await has(ui, /^4 conv · 1 coord · 1 t’attend/)).toBe(true) // Graphe's folded line
+  const rows = async () => (await ui.findAll({ type: 'Button', text: /^Lane waiting$/ })).length
+  expect(await rows()).toBe(2) // the banner and the list
   await ui.press({ plugin: 'cockpit', key: 'p-sec-graphe' })
-  expect(await has(ui, /^eta · 4$/)).toBe(true)
-  expect(await has(ui, /^aucune conversation avec ces filtres$/)).toBe(false)
-  expect(await has(ui, /^◆$/)).toBe(true)
-  expect(await has(ui, /^○$/)).toBe(true)
-  expect(await has(ui, /^coord$/)).toBe(true)
-  expect(await has(ui, /· coordinateur/)).toBe(false)
-  expect(await has(ui, /^travaille$/)).toBe(true) // the legend, one line of marks
-  expect(await has(ui, /^Old lane ›$/)).toBe(false)
-  await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 24 h -> 7 j
-  await ui.press({ plugin: 'cockpit', key: 'pg-f-period' }) // 7 j -> tout
-  expect(await has(ui, /^Old lane ›$/)).toBe(true)
-  expect(JSON.stringify(kept.panel)).toContain('"period":"tout"')
+  expect(await rows()).toBe(2) // the graph adds no list of its own
+  expect(await has(ui, /^eta · 4$/)).toBe(false)
+  expect(await ui.find({ key: 'pg-f-period' })).toBeUndefined()
+  expect(await ui.find({ key: 'pgl-child-cli' })).toBeUndefined()
   await ui.press({ plugin: 'cockpit', key: 'pgw-g-wait' })
   // the link goes to the OS handler asynchronously (openUrl)
   for (let i = 0; i < 20 && !w.argvs.some((a) => a.join(' ').includes('epitaxy')); i++) await new Promise((r) => setTimeout(r, 25))
   expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_g-wait'))).toBe(true)
 })
 
-test('Panneau: a conversation of the graph unfolds under its row with its Workflow card on a click (kept), « ouvrir ↗ » opens it', async ($, on) => {
+test('Panneau: another conversation’s details unfold under its row on a click of its title (kept), « ouvrir ↗ » opens it', async ($, on) => {
   const w = world(on)
   const kept: Record<string, unknown> = {}
   on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
   on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
   await $.command.run({ command: 'cockpit', args: '' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 75, rows: 400 }, props: { ...PANE, scroll: { offset: 0, bodyRows: 400 } } } as any)
-  await ui.press({ plugin: 'cockpit', key: 'p-sec-graphe' })
-  // folded by default (macro), unfolded by a click on its title
-  expect(await has(ui, /^Mosaic Studio V2 private release ›$/)).toBe(true)
-  await ui.press({ plugin: 'cockpit', key: 'pgl-child-cli' })
-  expect(await has(ui, /^Mosaic Studio V2 private release ⌄$/)).toBe(true)
-  expect(await has(ui, /^Opus 5\.5 · medium · /)).toBe(true)
-  expect(await has(ui, /^wf_1 ›$/)).toBe(true)
-  expect(await has(ui, /^│$/)).toBe(true) // the thin rule down its left
-  expect(JSON.stringify(kept.panel)).toContain('"cv:child-cli":false')
-  expect(await has(ui, /^COORD eta ›$/)).toBe(true)
-  await ui.press({ plugin: 'cockpit', key: 'pgo-child-cli' })
+  expect(await has(ui, /^120K \/ 1\.0M · relais 250K$/)).toBe(false)
+  await ui.press({ plugin: 'cockpit', key: 'pcv-child-cli' })
+  expect(await has(ui, /^120K \/ 1\.0M · relais 250K$/)).toBe(true)
+  expect(JSON.stringify(kept.panel)).toContain('cv:child-cli:pdetails')
+  const open = (await ui.findAll({ type: 'Button', text: /ouvrir ↗/ }))[0]
+  expect(open).toBeDefined()
+  await ui.press({ plugin: 'cockpit', key: open.key })
   for (let i = 0; i < 20 && !w.argvs.some((a) => a.join(' ').includes('local_child')); i++) await new Promise((r) => setTimeout(r, 25))
   expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_child'))).toBe(true)
 })

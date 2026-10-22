@@ -46,7 +46,7 @@ export function kit(el, cfg) {
   const btn = (label, onPress, primary, key) => el.Button({ children: [label], variant: primary ? 'primary' : 'secondary', onPress, ...(key ? { key } : {}) })
   // a Button whose label is a styled Text (a section title: bold, heading size where the surface has sizes)
   const tbtn = (label, onPress, key, o = {}) => el.Button({ label, onPress, ...(o.plain ? { plain: true } : {}), ...(key ? { key } : {}),
-    children: [T(label, { bold: o.bold, dim: o.dim, tone: o.tone, size: o.size, wrap: 'truncate-end' })] })
+    children: [T(label, { bold: o.bold, dim: o.dim, tone: o.tone, color: o.color, size: o.size, wrap: 'truncate-end' })] })
   const svg = (source, alt, key) => (el.Svg ? el.Svg({ source, alt, ...(key ? { key } : {}) }) : null)
   // a label on the left, a number on the right (padded so digits line up)
   const lr = (left, right, o = {}) => row([T(left, { bold: o.bold, dim: o.dimLeft, wrap: 'truncate-end' }), T(right, { dim: o.dimRight, tone: o.tone })],
