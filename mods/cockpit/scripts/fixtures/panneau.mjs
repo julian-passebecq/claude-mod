@@ -5,7 +5,8 @@ import { drawCockpit } from '../../hooks/view.mjs'
 import { synthesis, barsOf, contexteOf } from '../../lib/panel.mjs'
 import { usageCard } from '../../hooks/nav.mjs'
 import { convFactory } from '../../lib/panel_conv.mjs'
-import { panelConvs } from '../../lib/panel_list.mjs'
+import { panelConvs, ciBranches, todayOf } from '../../lib/panel_list.mjs'
+import { quotaCurves } from '../../lib/viz_quota.mjs'
 import { grapheModel } from '../../lib/graphe.mjs'
 import { ciNow } from '../../lib/core/activity.mjs'
 import { debitModel } from '../../lib/debit.mjs'
@@ -75,7 +76,8 @@ const RUNS_DONE = () => RUNS.map((r) => ({ ...r, live: false, status: 'done', en
 // the ci mod's pipelines cache (~/.claude/ci-pipelines-cache.json), invented: fresh with nothing running, fresh with one
 // pipeline running, and 40 min old (« CI : non lu depuis 40 min »)
 export const CI_CACHE = {
-  idle: { generated: new Date(NOW - 60000).toISOString(), apps: [{ app: 'proj-one', runs: [{ app: 'proj-one', backend: 'gh', status: 'success', created: iso(90), branch: 'main', duration_s: 300 }] }] },
+  idle: { generated: new Date(NOW - 60000).toISOString(), apps: [{ app: 'proj-one', runs: [{ app: 'proj-one', backend: 'gh', status: 'success', created: iso(90), branch: 'main', duration_s: 300 },
+    { app: 'proj-one', backend: 'gh', status: 'success', created: iso(20), branch: 'claude/panel', duration_s: 240 }] }] },
   busy: { generated: new Date(NOW - 60000).toISOString(), apps: [{ app: 'proj-one', runs: [{ app: 'proj-one', backend: 'gh', who: 'claude', status: 'running', created: iso(6), branch: 'claude/panel', jobs: [{ name: 'lint', status: 'success' }, { name: 'tests', status: 'running' }] }] }] },
   stale: { generated: new Date(NOW - 40 * 60000).toISOString(), apps: [] },
 }
@@ -84,7 +86,7 @@ export const CI_CACHE = {
 const G = (o) => ({ sid: 'local_' + o.cli, title: '', cwd: 'C:/code/proj-one', origin: 'C:/code/proj-one', repo: 'proj-one', archived: false, starred: false,
   last_activity: NOW - 5 * 60000, created: NOW - 5 * 3600000, model: 'claude-opus-5-5', effort: 'medium', parent: '', peers: [], awaiting: false, prs: [], branch: '', ...o })
 export const GRAPH_ROWS = [
-  G({ cli: 'lead', title: 'Lane alpha · tableau de bord', last_activity: NOW - 30000, starred: true }),
+  G({ cli: 'lead', title: 'Lane alpha · tableau de bord', last_activity: NOW - 30000, starred: true, created: NOW - 130 * 60000, branch: 'claude/panel', prs: [{ number: 120, state: 'open' }] }),
   G({ cli: 'k1', title: 'Package one: a rather long lane title that must be cut', parent: 'local_lead', last_activity: NOW - 3 * 3600000, prs: [{ number: 41, state: 'merged' }] }),
   G({ cli: 'k2', title: 'Package two', parent: 'local_lead', last_activity: NOW - 60000, peers: [{ target: 'local_pm', at: NOW - 120000 }] }),
   G({ cli: 'k3', title: 'Package two · verify', parent: 'local_k2', last_activity: NOW - 9 * 3600000 }),
@@ -163,6 +165,10 @@ export function panneauView(columns, o = {}) {
     ci: ciNow(ciCache, NOW, {}),
     graphe: grapheModel({ rows: GRAPH_ROWS, scan, workflows: runs, conso: CLASSEMENT, fcfg: {}, filter: o.graphe || {} }, 'lead', {}, NOW),
     link: 'claude://claude.ai/epitaxy/{id}', self: 'lead',
+    // panel.detail normal: each row's branch CI, « Aujourd’hui », the quotas' projection (invented readings)
+    ciBranches: ciBranches(ciCache),
+    today: todayOf(synthesis(o.data || CLASSEMENT, scan, null, { period: 'today', who: 'claude' }, {}, NOW)),
+    quotaCurves: quotaCurves({ series: { five: [{ ts: NOW - 60 * 60000, pct: 15 }], week: [{ ts: NOW - 24 * 3600000, pct: 80 }] }, usage, now: NOW }),
     debit: debitModel({ debit: o.debit === undefined ? DEBIT : o.debit, codex: CODEX, showCodex: filter.who === 'codex', now: NOW }, {}),
   }
   // CONVERSATIONS as hooks/register.mjs builds it (lib/panel_list.mjs): the sessions of GRAPHE with the activity of EN
@@ -178,7 +184,10 @@ export function panneauView(columns, o = {}) {
   panel.kids = under.kids
   panel.convFactories = under.factories
   // o.indent: panel.tree.indent (columns per tree level, or "auto")
-  return { cfg: o.indent === undefined ? {} : { panel: { list: { indent: o.indent } } }, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
+  // o.detail: panel.detail (compact | normal | full)
+  const pcfg = { ...(o.indent === undefined ? {} : { list: { indent: o.indent } }), ...(o.detail ? { detail: o.detail } : {}) }
+  if (o.detail === 'full' && !o.open) panel.open = { ...panel.open, debit: true }
+  return { cfg: Object.keys(pcfg).length ? { panel: pcfg } : {}, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }
 

@@ -166,6 +166,8 @@ export function grapheModel(input, self, cfg, nowMs) {
       title: r.title || r.cli, starred: r.starred, self: r.cli === self, role: L.graphe_roles[i.role], roleId: i.role,
       tokens: i.tok, ctx: i.ctx, peers, from: p && !keep.has(p) ? clip(p.title || p.cli, g.peer_title_max) : (p && p.repo !== r.repo ? clip(p.title || p.cli, g.peer_title_max) : ''),
       link: i.link, sid: r.sid || '', repo: r.repo, last: i.last || 0, awaiting: Boolean(r.awaiting), model: r.model || '', effort: r.effort || '',
+      // the second grey line of a working / waiting row (panel.detail normal): its start, its PRs and branch (CI)
+      created: r.created || 0, prs: Array.isArray(r.prs) ? r.prs : [], branch: r.branch || '',
       // for the drawn graph (lib/viz_graph.mjs): the parent's and the peers' keys
       parentKey: p ? p.cli : '', peerKeys: [...new Set(r.peers.map((x) => find(x.target)).filter(Boolean).map((t) => t.cli))],
     }

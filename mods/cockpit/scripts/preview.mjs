@@ -2,6 +2,7 @@
 // needed): node mods/cockpit/scripts/preview.mjs [--cols 75] [--project <repo>] [--conv <title or id>] [--agent <id>]
 // --panneau: the default view (the Panneau) from invented fixtures (scripts/fixtures/panneau.mjs), nothing read on this PC:
 //   node mods/cockpit/scripts/preview.mjs --panneau --cols 60   (and --cols 45, 75)
+//   --detail compact|normal|full: panel.detail (normal by default)
 //   --indent <n>: panel.list.indent, the list's columns per level behind its « │ » rule
 //   --busy: the fixture with 2 running Workflows, 1 background agent, 1 working sub-conversation and 1 CI pipeline
 //   --main: only this conversation's main thread works (a turn in progress, no Workflow, no agent, no CI)
@@ -44,11 +45,13 @@ if (argv.includes('--panneau')) {
   const { panneauText } = await import('./fixtures/panneau.mjs')
   const o = indent === undefined ? {} : { indent: indent === 'auto' ? 'auto' : Number(indent) }
   if (argv.includes('--busy')) o.busy = true
+  const detail = opt('--detail', '')
+  if (detail) o.detail = detail
   if (argv.includes('--main')) o.scene = 'main'
   if (argv.includes('--idle')) o.scene = 'idle'
   const ci = opt('--ci', '')
   if (ci) o.ci = ci
-  const sections = ['fichiers', 'conv', 'convs', 'barres', 'debit', 'graphe', 'encours', 'convs_filters']
+  const sections = ['fichiers', 'conv', 'convs', 'barres', 'today', 'debit', 'graphe', 'encours', 'convs_filters', 'convs_rest']
   if (unfold.length) {
     o.open = { conv: true, convs: true, ...Object.fromEntries(unfold.filter((k) => sections.includes(k)).map((k) => [k, true])) }
     o.closed = Object.fromEntries(unfold.filter((k) => !sections.includes(k)).map((k) => [k, false]))

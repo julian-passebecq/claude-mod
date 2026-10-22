@@ -75,6 +75,12 @@ export const PANEL_DEFAULTS = {
   // the working and waiting ones, then « + N au repos › » (0 since 22 Oct, narrow pane: every one folded there);
   // project_max = cells of the grey project suffix of a row; bar_cells = cells of the context / progress bar at the right
   // of a row; bar_color = its colour on a surface without Svg (a theme key), blue like the Svg's colors.usage
+  // how much the Panneau says (Julian, 22 Oct: « cleaner, but there is space for more detail, it's too minimalist »):
+  // compact = one line per row, every section folded (PR #77's look); normal = a grey second line under each working /
+  // waiting conversation (model·effort · tokens · elapsed · PR + CI, or its question), a Workflow row its phase and
+  // running agents, an agent row its tokens, Quotas as two compact rows, a folded « Aujourd’hui » line (› the Gantt);
+  // full = normal with Débit unfolded too
+  detail: 'normal',
   list: { indent: 3, rule: '│', rest_shown: 0, project_max: 14, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' },
   // the status banners at the very top: tinted rows (theme keys or raw colours). ok = something runs or nothing does
   // (green tint), warn = a conversation waits for you (amber); fg = the text colour on it ('' keeps the line's own tones)
@@ -159,6 +165,19 @@ export const PANEL_DEFAULTS = {
     list_blocked: 'bloquée',
     list_coord: 'coord',
     list_wf: '· workflow',
+    // panel.detail normal / full: a row's PR « PR #120 » and its branch's CI (✓ passed, ✕ failed, ● running); a merged
+    // or closed PR without CI says so; a Workflow's running agents « 2 ag. »; Quotas' compact rows; « Aujourd’hui »
+    list_pr: 'PR #{n}',
+    list_pr_merged: 'fusionnée',
+    list_pr_closed: 'fermée',
+    list_ci: { ok: '✓', bad: '✕', running: '●' },
+    list_wf_agents: '{n} ag.',
+    quota_reset_word: 'reset',
+    quota_pace: 'à ce rythme {pct} %',
+    quota_pace_hit: '100 % vers {at}',
+    today_head: 'Aujourd’hui',
+    today_convs: '{n} conv.',
+    today_none: 'rien aujourd’hui',
     // the banners: « ● 1 t’attend : title · reason », « ● 2 t’attendent »
     banner_wait_one: '{n} t’attend :',
     banner_wait_many: '{n} t’attendent',
@@ -460,6 +479,12 @@ export function durText(ms, short = false) {
 export function minText(ms) {
   const m = Math.max(0, Math.round((Number(ms) || 0) / 60000))
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+}
+
+/** panel.detail: 'compact' | 'normal' | 'full' (anything else: 'normal'). */
+export function detailOf(cfg) {
+  const d = String(panelConfig(cfg).detail || '')
+  return ['compact', 'normal', 'full'].includes(d) ? d : 'normal'
 }
 
 /** « opus·med » of a model id or name and an effort (panel.labels.effort_short), « » when nothing is known. */
