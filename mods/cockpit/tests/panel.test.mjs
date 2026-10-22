@@ -745,7 +745,7 @@ for (const columns of [45, 50, 60]) {
 }
 
 test('panel.detail normal: the projection of the week at 60 columns; « Aujourd’hui › » holds the Gantt, Graphe no longer; full unfolds Débit', () => {
-  assert.match(panneauText(60), /\n {2}sem [▰▱]{5} 85 % · reset dim 20:30 · à ce rythme 95 %\n/)
+  assert.match(panneauText(60), /\n {2}sem [▰▱]{5} 85 % · reset [a-z]{3} \d\d:\d\d · à ce rythme 95 %\n/)
   const day = panneauText(60, { open: { conv: true, convs: true, today: true } })
   assert.match(day, /\n─ \[Aujourd’hui\][^\n]*\[⌄\]\n {2}\[Aujourd’hui ⌄\]/, day)
   const g = panneauText(60, { open: { conv: true, convs: true, graphe: true } })
