@@ -143,10 +143,21 @@ test('one list: a child nested under its parent in another project, its project 
   assert.equal(m.lines.find((x) => x.key === 'ray').project, '') // same project as its parent
   assert.deepEqual([m.counts.nested, m.counts.workflows, m.counts.agents], [2, 1, 2])
   for (const cols of [45, 60, 75]) {
-    const t = draw(b, cols)
+    const t = draw({ ...b, cfg: { panel: { detail: 'compact' } } }, cols)
     assert.match(t, /\n● \[Galaxy portfolio release\]/, t)
     assert.match(t, /\n│  ● \[FOIL Wind Studio · finish\] (?:foil-3d )?[▰▱]+ 37 %\n│  │  ◇ \[wf_x\] · workflow [▰▱]+ 0\/2\n│  │  │  ● coder · e2e sonnet · 4 min\n│  │  │  ● coder · wind-assets opus · 22 min\n│  ○ \[Rayfin · version\] au repos 12 min\n/, t)
     if (cols >= 75) assert.match(t, /\[FOIL Wind Studio · finish\] foil-3d /, t)
+    for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
+  }
+})
+
+test('panel.detail normal (the default; Julian, 22 Oct: « too minimalist »): ONE grey line under a working row, a Workflow its running agents; rows at rest one line; 45, 50, 60 columns', () => {
+  const b = build(CROSS())
+  for (const cols of [45, 50, 60]) {
+    const t = draw(b, cols)
+    // the second line sits under the title, behind the rule of its children (« │ ») when it has some
+    assert.match(t, /\n● \[Galaxy portfolio release\][^\n]*\n│ opus·med · 1 h 00\n│  ● \[FOIL Wind Studio · finish\][^\n]*\n│  │ opus·med · 1 h 00\n│  │  ◇ \[wf_x\] · workflow [▰▱]+ 0\/2 · 2 ag\.\n/, t)
+    assert.match(t, /\n│  ○ \[Rayfin · version\] au repos 12 min\n○ \[\+ 6 au repos ›\]\n/, t)
     for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   }
 })

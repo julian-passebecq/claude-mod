@@ -256,7 +256,7 @@ const texts = (n, out = []) => { if (!n || typeof n !== 'object') return out; if
 // way better UI/UX: visibility, indentation, bullets, agents, sub-agents, workflows, progress bars ») -----------------
 for (const columns of [45, 60, 75]) {
   test(`preview --panneau at ${columns} columns: banners, one list, the folded lines at the bottom; no tab bar, nothing wider than the pane`, () => {
-    const text = execFileSync(process.execPath, [PREVIEW, '--panneau', '--cols', String(columns)], { encoding: 'utf8' })
+    const text = execFileSync(process.execPath, [PREVIEW, '--panneau', '--cols', String(columns), '--detail', 'compact'], { encoding: 'utf8' })
     const body = text.split('\n').slice(1).join('\n').trimEnd()
     assert.ok(widest(body) <= columns, `${widest(body)} columns\n${body}`)
     assert.doesNotMatch(body, /\[Panneau\]|\[Plus ▾|\[Moins ▴|\[Mission\]|\[Cockpit\]|\[Journal\]|\[Jauge\]|\[Registres\]/)
@@ -288,31 +288,31 @@ for (const columns of [45, 60, 75]) {
 }
 
 test('one list: one row per conversation, never twice; nested levels step by panel.list.indent columns', () => {
-  const all = panneauText(75)
+  const all = panneauText(75, { detail: 'compact', detail: 'compact' })
   const t = all.slice(all.indexOf('CONVERSATIONS'))
   for (const k of ['[Lane alpha', '[Lane delta]', '[PM BETA]', '[Lane beta]', '[Package two]', '[wf_2]', '[package-wave]']) assert.equal(t.split('\n').filter((l) => l.includes(k)).length, 1, k + '\n' + t)
   const col = (re) => { const l = t.split('\n').find((x) => re.test(x)); return l ? l.search(/[●○◆◇◦✓✕]/) : -1 }
   assert.deepEqual([col(/\[Lane alpha/), col(/\[package-wave\]/), col(/coder: cockpit/), col(/\[Package two\]/), col(/\[Package two · verify\]/)], [0, 3, 6, 3, 6])
-  const t4 = panneauText(75, { indent: 4 })
+  const t4 = panneauText(75, { detail: 'compact', indent: 4 })
   assert.match(t4, /\n│   ◇ \[package-wave\] · workflow[^\n]*\n│   │   ● coder: cockpit/, t4)
   assert.deepEqual(panelConfig({}).list, { indent: 3, rule: '│', rest_shown: 0, project_max: 14, bar_cells: 5, bar_color: 'suggestion', chip_bg: 'subtle', chip_fg: 'inverseText' })
 })
 
 test('details only on a click of the row title: this conversation’s card and journal, another’s « ouvrir ↗ », a Workflow’s tokens and Gantt', () => {
-  const plain = panneauText(75)
+  const plain = panneauText(75, { detail: 'compact', detail: 'compact' })
   assert.doesNotMatch(plain, /Cache hit|Contexte \d|journal \(|ouvrir ↗|tokens/)
-  const self = panneauText(75, { closed: { pdetails: false } })
+  const self = panneauText(75, { detail: 'compact', closed: { pdetails: false } })
   for (const k of ['Contexte 120K / 400K · relais 250K 30 %', 'Coût', 'Cache hit', 'Sous-agents', 'Modèles : Opus 100 %', 'Ce qui contribue', '[journal (6) ›]']) assert.ok(self.includes(k), k + '\n' + self)
   assert.match(self, /\n● \[Lane alpha · tableau de bord\] coord \(ici\) [^\n]*\n│  Contexte 120K/, self)
   assert.doesNotMatch(self, /Opus 5\.5 · medium|ouvrir ↗/) // no duplicate model line; this one is open already
-  const log = panneauText(75, { closed: { pdetails: false, pjournal: false } })
+  const log = panneauText(75, { detail: 'compact', closed: { pdetails: false, pjournal: false } })
   for (const k of ['[journal (6) ⌄]', 'PR #42 ouverte', 'PR #41 mergée']) assert.ok(log.includes(k), k + '\n' + log)
-  const d = panneauText(75, { closed: { 'cv:d:pdetails': false } })
+  const d = panneauText(75, { detail: 'compact', closed: { 'cv:d:pdetails': false } })
   assert.match(d, /\n● \[Lane delta\] [^\n]*\n│  \[ouvrir ↗\]\n│  Contexte 60K[^\n]*\n(?:│[^\n]*\n)+│  ◇ \[wf_2\] · workflow/, d)
-  assert.match(panneauText(75, { open: { convs: true, convs_rest: true }, closed: { 'cv:c:pdetails': false } }), /\n○ \[Lane gamma\] proj-three au repos 30 h\n│  \[ouvrir ↗\]\n│  fabrique non lue/)
+  assert.match(panneauText(75, { detail: 'compact', open: { convs: true, convs_rest: true }, closed: { 'cv:c:pdetails': false } }), /\n○ \[Lane gamma\] proj-three au repos 30 h\n│  \[ouvrir ↗\]\n│  fabrique non lue/)
   // no line with the rule « │ » alone inside the details (the stats grid's blank line is gone in the tree)
   assert.doesNotMatch(self, /\n│ *\n/, self)
-  const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
+  const wf = panneauText(75, { detail: 'compact', closed: { 'pfw-wf_1': false } })
   assert.match(wf, /\n│  ◇ \[package-wave\] · workflow [^\n]*\n│  │  4 agents  2\.0M tokens  \$9\.40  40m 00s  fin vers \d\d:\d\d\n/, wf)
 })
 
@@ -352,7 +352,7 @@ test('banners: tinted rows (green while something runs or nothing does, amber wh
 })
 
 test('colours: one state colour per row, numbers bold only when alarming (ctx at 62.5 % amber, past the hand-off red ⚠)', () => {
-  const view = panneauView(75)
+  const view = panneauView(75, { detail: 'compact', detail: 'compact' })
   const pick = (tree, k) => texts(find(tree, k)).map((t) => [String(t.props.children[0]), Boolean(t.props.bold), t.props.color])
   const lead = pick(drawCockpit(el, view), 'pc-lead')
   assert.deepEqual(lead.find((x) => x[0] === '30 %'), ['30 %', false, undefined]) // 30 %: grey, not bold
@@ -592,11 +592,11 @@ const MANY = (n) => ({ sessions: [{ cli: 'm', app_title: 'Many lane', live: true
 
 test('running agents are always listed under their Workflow, up to running_max then « +N agents en cours »; the done ones never', () => {
   // the fixture: package-wave shows its running agent only, not the done ones
-  const t = panneauText(75)
+  const t = panneauText(75, { detail: 'compact', detail: 'compact' })
   assert.match(t, /\n│  ◇ \[package-wave\] · workflow [▰▱]{5} 2\/4\n│  │  ● coder: cockpit-claude-style opus · 20 min\n│  ○ \[Package two\]/, t)
   assert.doesNotMatch(t, /Wave A|verify sonnet|explore-fast: map/)
   // 11 running agents: 8 lines then « +3 agents en cours », the done one left out; panel.conv.running_max sets it
-  const view = panneauView(75)
+  const view = panneauView(75, { detail: 'compact', detail: 'compact' })
   const row = { id: 'm', label: 'Many lane', cat: 'working', mark: 'working', project: 'p', ctx: 90000, last: NOW }
   const draw = (cfg, closed = {}) => renderText(drawCockpit(el, { ...view, ...(cfg ? { cfg } : {}), panel: { ...view.panel, self: 'm', factory: convFactory(MANY(11), 'm', {}, cfg || {}, NOW, closed, {}),
     convList: { ...view.panel.convList, groups: [{ name: 'p', count: 1, working: 1, roots: [{ row, kids: [] }] }] } } }), 75).replace(/ /g, ' ')
@@ -610,14 +610,14 @@ test('running agents are always listed under their Workflow, up to running_max t
 })
 
 test('a background agent (Agent tool outside a Workflow) is a ◦ line right under its conversation, counted in the banner', () => {
-  const t = panneauText(75, { busy: true })
+  const t = panneauText(75, { detail: 'compact', busy: true })
   assert.match(t, /\n│  ◦ coder · p44-migration opus · 1 h 10\n/, t)
   assert.match(t, /^ ● \[3 conversations travaillent\] · \[2 wf\] · \[3 agents\] · \[1 CI\] \[voir ›\]\n/, t) // the Workflows' 2 and the background one
   // the scan's running agent outside a Workflow, whatever its phase: listed under its conversation
   const one = { sessions: [{ cli: 'x', app_title: 'Solo', live: false, model: 'claude-opus-5-5', recent: [], models: {}, subs: [{ id: 'f1', type: 'tester', desc: 'run tests', model: 'claude-sonnet-5-5', status: 'running', ts: new Date(NOW - 5 * 60000).toISOString(), last_ts: new Date(NOW - 4 * 60000).toISOString(), models: {} }] }] }
   const m = convFactory(one, 'x', {}, {}, NOW, {}, {})
   assert.deepEqual([m.stats.running, m.stats.agents, m.live.agents, m.lead.stateId], [1, 1, 1, 'working'])
-  const view = panneauView(75)
+  const view = panneauView(75, { detail: 'compact', detail: 'compact' })
   const text = renderText(drawCockpit(el, { ...view, panel: { ...view.panel, factory: m, self: 'x' } }), 75).replace(/ /g, ' ')
   assert.match(text, /\n● \[Solo\] \(ici\)[^\n]*\n│  ◦ tester · run tests sonnet · 5 min\n/, text)
 })
@@ -690,4 +690,72 @@ test('EN COURS: everything at zero is one green line; a stale CI cache says « C
   const none = panneauView(75, { scene: 'idle' })
   none.panel.ci = null
   assert.match(renderText(drawCockpit(el, none), 75), /^ ✓ Rien ne tourne[^\n]*\n CI : non lu\n/)
+})
+
+// ---- panel.detail (Julian, 22 Oct, a tall ~50-column pane: « cleaner, but there is space for more detail, it's too
+// minimalist, but I prefer that style ») -------------------------------------------------------------------------------
+import { detailOf } from '../lib/panel.mjs'
+import { ciBranches, ciOfRow, todayOf } from '../lib/panel_list.mjs'
+import { CI_CACHE } from '../scripts/fixtures/panneau.mjs'
+
+test('panel.detail: normal by default, compact / full / anything else; the shipped config says normal', () => {
+  assert.equal(detailOf({}), 'normal')
+  assert.equal(detailOf({ panel: { detail: 'compact' } }), 'compact')
+  assert.equal(detailOf({ panel: { detail: 'full' } }), 'full')
+  assert.equal(detailOf({ panel: { detail: 'huge' } }), 'normal')
+  const shipped = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'cockpit.config.json'), 'utf8'))
+  assert.equal(detailOf(shipped), 'normal')
+})
+
+test('ciBranches: the newest run of each branch, by repo|branch and by branch (not main); todayOf counts conversations with tokens', () => {
+  const m = ciBranches(CI_CACHE.idle)
+  assert.equal(m['proj-one|claude/panel'], 'ok')
+  assert.equal(m['claude/panel'], 'ok')
+  assert.equal(m['proj-one|main'], 'ok')
+  assert.equal(m.main, undefined)
+  assert.equal(ciBranches(CI_CACHE.busy)['claude/panel'], 'running')
+  assert.equal(ciOfRow(m, { project: 'proj-one', branch: 'claude/panel' }), 'ok')
+  assert.equal(ciOfRow(m, { project: 'proj-one', branch: '' }), '')
+  const failed = { apps: [{ app: 'x', runs: [{ status: 'success', branch: 'b', created: '2026-10-16T10:00:00Z' }, { status: 'failed', branch: 'b', created: '2026-10-16T11:00:00Z' }] }] }
+  assert.equal(ciBranches(failed)['x|b'], 'bad')
+  assert.deepEqual(todayOf({ hasData: true, rows: [{ id: 'a', tokens: 5 }, { id: 'b', tokens: 0 }], total: { tokens: 5, cost: 1.5 } }), { convs: 1, tokens: 5, cost: 1.5 })
+  assert.equal(todayOf({ hasData: false }), null)
+})
+
+for (const columns of [45, 50, 60]) {
+  test(`panel.detail normal at ${columns} columns: a second grey line per working / waiting row, Quotas two rows, « Aujourd’hui »; no field cut, nothing wider`, () => {
+    for (const busy of [false, true]) {
+      const t = panneauText(columns, { busy })
+      for (const l of t.split('\n')) assert.ok([...l].length <= columns, `${columns}: ${l}\n${t}`)
+      // this conversation: model·effort · tokens · since its start · its PR and its branch's CI (✓ passed, ● running);
+      // short of room a field goes whole (the model first), never cut
+      assert.match(t, busy ? /\n│ (?:opus·med · )?(?:\d+\.\d+M · )?2 h 10 · PR #120 ●\n/ : /\n│ (?:opus·med · )?(?:\d+\.\d+M · )?2 h 10 · PR #120 ✓\n/, t)
+      // a waiting row: since when, then its question
+      assert.match(t, /\n│ {4}2 h 00 · Choisir la version\n/, t)
+      // a Workflow: its phase and its running agents
+      assert.match(t, /\n│  ◇ \[package-wave\] (?:· Wave B )?[▰▱]{5} 2\/4 · 1 ag\.\n/, t)
+      // a row at rest: one line
+      assert.match(t, /\n│  │  ○ \[Package two · verify\][^\n]*au repos 9 h\n│  ✓ \[Package one/, t)
+      // Quotas: two compact rows under the line, no chart; « Aujourd’hui » folded right after
+      assert.match(t, /\n─ \[Quotas\][^\n]*\[›\]\n {2}5 h [▰▱]{5} 21 %[^\n]*\n {2}sem [▰▱]{5} 85 %[^\n]*\n─ \[Aujourd’hui\] · 5 conv\./, t)
+      assert.doesNotMatch(t, /Session 5 h|Semaine reset/, t)
+      for (const l of t.split('\n').filter((x) => /^ {2}(?:5 h|sem) /.test(x))) assert.doesNotMatch(l, /…/, l)
+    }
+  })
+}
+
+test('panel.detail normal: the projection of the week at 60 columns; « Aujourd’hui › » holds the Gantt, Graphe no longer; full unfolds Débit', () => {
+  assert.match(panneauText(60), /\n {2}sem [▰▱]{5} 85 % · reset dim 20:30 · à ce rythme 95 %\n/)
+  const day = panneauText(60, { open: { conv: true, convs: true, today: true } })
+  assert.match(day, /\n─ \[Aujourd’hui\][^\n]*\[⌄\]\n {2}\[Aujourd’hui ⌄\]/, day)
+  const g = panneauText(60, { open: { conv: true, convs: true, graphe: true } })
+  assert.doesNotMatch(g.slice(g.indexOf('[Graphe]')), /\[Aujourd’hui ⌄\]/, g)
+  // the charts stay behind Quotas' ›
+  assert.match(panneauText(60, { open: { conv: true, convs: true, barres: true } }), /Session 5 h/)
+  const full = panneauText(50, { detail: 'full' })
+  assert.match(full, /\n─ \[Débit\][^\n]*\[⌄\]\n {2}Modèle : opus/, full)
+  for (const l of full.split('\n')) assert.ok([...l].length <= 50, l)
+  // compact: PR #77's look, no second line, no « Aujourd’hui »
+  const compact = panneauText(50, { detail: 'compact' })
+  assert.doesNotMatch(compact, /PR #120|Aujourd’hui|opus·med|1 ag\./, compact)
 })

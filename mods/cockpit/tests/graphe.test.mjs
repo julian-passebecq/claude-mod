@@ -102,7 +102,7 @@ test('filters: archived hidden, 24 h / 7 j / tout, actives seulement, projet', (
 
 test('Graphe unfolded: the diagram only (its alt on a text surface) and the day’s Gantt; the list above is the one list', () => {
   for (const columns of [45, 60, 75]) {
-    const text = panneauText(columns, { open: { convs: true, graphe: true } })
+    const text = panneauText(columns, { detail: 'compact', open: { convs: true, graphe: true } })
     const g = text.slice(text.indexOf('[Graphe]'), text.indexOf('[Fichiers]'))
     assert.match(g, /^\[Graphe\] · \d+ conv/, g)
     assert.match(g, /Graphe dessiné : \d+ conversations/, g)
@@ -112,7 +112,7 @@ test('Graphe unfolded: the diagram only (its alt on a text surface) and the day�
     assert.ok(widest(text.split('\n').slice(1).join('\n')) <= columns, text)
   }
   // à toi de cliquer once, at the top
-  const t = panneauText(75, { open: { convs: true, graphe: true } })
+  const t = panneauText(75, { detail: 'compact', open: { convs: true, graphe: true } })
   assert.equal(t.split('\n').filter((l) => l.includes('Choisir la version')).length, 1, t)
 })
 

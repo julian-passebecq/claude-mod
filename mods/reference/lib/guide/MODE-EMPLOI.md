@@ -150,6 +150,8 @@ Session 5 h et Semaine avec leur reset, Codex semaine quand Codex est choisi, Cr
 
 En haut, **À toi de cliquer** : les conversations qui t'attendent, la plus ancienne d'abord. Puis un groupe par projet comme dans la barre latérale, les sous-conversations sous leur parent ; chaque ligne dit qui travaille, attend ou coordonne. Un clic sur un titre ouvre la conversation.
 
+**Densité** (`panel.detail`) : `"compact"` une ligne par conversation ; `"normal"` (défaut) une ligne grise de plus sous chaque conversation active, « opus·med · 12.1M · 2 h 10 · PR #120 ✓ » (ou sa question), Quotas en deux lignes avec « à ce rythme N % », une ligne **Aujourd'hui** dont le › ouvre le Gantt ; `"full"` déplie aussi Débit. Faute de place un champ part en entier, jamais coupé.
+
 Les anciennes vues restent par leur commande `/cockpit …`, listées en gris tout en bas. Réglages : bloc `panel` de `mods/cockpit/cockpit.config.json`.
 
 ### Exporter en un clic

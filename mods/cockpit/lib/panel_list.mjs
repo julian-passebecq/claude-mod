@@ -60,6 +60,7 @@ export function convRows(input, cfg, nowMs) {
       parent: p ? p.sid : (s && s.parent) || '', parentId: p ? p.key : '', parentTitle: p ? p.title : '',
       ctx, model: (s && (s.app_model || s.model)) || l.model || '', effort: (s && (s.app_effort || s.effort)) || l.effort || '',
       over: ctx >= thr, last: Math.max(l.last || 0, s ? tsMs(s.last_activity) : 0, s ? tsMs(s.mtime) : 0), inScan: Boolean(s), starred: Boolean(l.starred), coord: l.roleId === 'coord',
+      created: Number(l.created) || 0, prs: l.prs || [], branch: l.branch || '',
     }
   })
 }
@@ -234,4 +235,40 @@ export function oneList(list, o = {}) {
       rest: convs.filter((x) => cat(x) === 'idle').length, nested: convs.filter((x) => x.depth > 0).length, workflows: lines.filter((x) => x.kind === 'workflow').length,
       agents: lines.filter((x) => x.kind === 'agent').length, hidden },
   }
+}
+
+const CI_STATE = { success: 'ok', passed: 'ok', failed: 'bad', failure: 'bad', canceled: 'bad', cancelled: 'bad', running: 'running', pending: 'running', queued: 'running', created: 'running', in_progress: 'running' }
+
+/**
+ * The CI state of each branch from the ci mod's pipelines cache (the newest run of a branch wins): { 'repo|branch':
+ * 'ok' | 'bad' | 'running' } (also under 'branch' alone for a branch that is not main / master). For the second grey
+ * line of a row (panel.detail normal): « PR #120 ✓ ».
+ */
+export function ciBranches(cache) {
+  const out = {}
+  const at = {}
+  for (const a of (cache && cache.apps) || []) {
+    for (const r of a.runs || []) {
+      const st = CI_STATE[String((r && r.status) || '').toLowerCase()]
+      const b = r && String(r.branch || '')
+      if (!st || !b) continue
+      const t = tsMs(r.created)
+      const keys = [`${r.app || a.app || '?'}|${b}`, ...(/^(main|master)$/.test(b) ? [] : [b])]
+      for (const k of keys) if (!(k in at) || t >= at[k]) { at[k] = t; out[k] = st }
+    }
+  }
+  return out
+}
+
+/** The CI state of a row (its project and branch), or ''. */
+export function ciOfRow(map, row) {
+  if (!map || !row || !row.branch) return ''
+  return map[`${row.project}|${row.branch}`] || map[row.branch] || ''
+}
+
+/** « Aujourd’hui » (panel.detail normal): conversations with tokens, tokens and cost of a synthesis() since midnight. */
+export function todayOf(syn) {
+  if (!syn || !syn.hasData) return null
+  const rows = (syn.every || syn.rows || []).filter((r) => r.id !== 'codex' && Number(r.tokens) > 0)
+  return { convs: rows.length, tokens: syn.total ? Number(syn.total.tokens) || 0 : 0, cost: syn.total && Number.isFinite(syn.total.cost) ? syn.total.cost : null }
 }

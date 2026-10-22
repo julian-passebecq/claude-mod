@@ -137,14 +137,14 @@ test('SVG: bars in model colours, hatched stalled, dashed ETA, the now line, a t
 
 test('Panneau: « Aujourd’hui » inside Graphe unfolded (not in the default view), folded with its title; a Workflow unfolded shows its Gantt', () => {
   for (const cols of [45, 60, 75]) {
-    assert.doesNotMatch(panneauText(cols), /Aujourd’hui/)
-    const t = panneauText(cols, { open: { convs: true, graphe: true } })
+    assert.doesNotMatch(panneauText(cols, { detail: 'compact', detail: 'compact' }), /Aujourd’hui/)
+    const t = panneauText(cols, { detail: 'compact', open: { convs: true, graphe: true } })
     assert.match(t, /\n {2}\[Aujourd’hui ⌄\][^\n]*\n {2}Lane alpha[^\n]*▕[^\n]*▏\n {2}Lane delta[^\n]*▕[^\n]*▏\n[^\n]*\dh/, t)
     for (const l of t.split('\n')) assert.ok([...l].length <= cols, `${cols}: ${l}`)
   }
-  const folded = panneauText(75, { open: { convs: true, graphe: true }, closed: { pgantt: true } })
+  const folded = panneauText(75, { detail: 'compact', open: { convs: true, graphe: true }, closed: { pgantt: true } })
   assert.match(folded, /\[Aujourd’hui ›\][^\n]*\n─ \[Fichiers\]/)
   // a Workflow's title unfolds its tokens, cost and Gantt under its row, behind the rule
-  const wf = panneauText(75, { closed: { 'pfw-wf_1': false } })
+  const wf = panneauText(75, { detail: 'compact', closed: { 'pfw-wf_1': false } })
   assert.match(wf, /│  ◇ \[package-wave\] · workflow[^\n]*\n│  │  4 agents  2\.0M tokens[^\n]*\n│  │  Wave A\n│  │  sonnet\s+▕█+[^\n]*▏\n/, wf)
 })

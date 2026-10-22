@@ -7,31 +7,41 @@ Opening Cockpit shows **one scrolling column with no tab bar at all**. Since 22 
 `node mods/cockpit/scripts/preview.mjs --panneau --cols 60` (or 45, 75) draws it from invented fixtures (`--indent 4` tries another `panel.list.indent`; `--busy` the fixture with 2 running Workflows, 1 background agent, 1 working sub-conversation and 1 CI pipeline; `--main` only this conversation's main thread works; `--idle` nothing runs; `--ci idle|busy|stale` the ci mod's cache; `--open encours,pdetails` unfolds sections or nodes). `--real` draws it from **this PC's live data, read-only** (`scripts/panneau_real.mjs`: the scanners' caches are copied to a temp folder) and prints **only counts** (rows listed, working, waiting, at rest, nested children, Workflows, agents); `--show` prints the text too, on your terminal: never commit that output. `--panneau --busy --cols 60`:
 
 ```
- ● [3 conv.] · [2 wf] · [3 ag.] · [1 CI] [voir ›]
- ◆ 1 t’attend : [Lane beta] · Choisir la version · depuis…
+ ● [3 conv.] · [2 wf] · [3 ag.] [voir ›]
+ ◆ 1 t’attend : [Lane beta] · Choisir la versio…
 
 CONVERSATIONS [filtres ›]
-● [Lane alpha · tableau de bord] coord (ici) ▰▰▱▱▱ 30 %
-│  ◇ [package-wave] · workflow ▰▰▰▱▱ 2/4
+● [Lane alpha · tableau de bord] coord ▰▰▱▱▱ 30 %
+│ opus·med · 6.0M · 2 h 10 · PR #120 ●
+│  ◇ [package-wave] · Wave B ▰▰▰▱▱ 2/4 · 1 ag.
 │  │  ● coder: cockpit-claude-style opus · 20 min
-│  ◦ coder · p44-migration opus · 1 h 10
+│  ◦ coder · p44-migration opus · 1 h 10 · 918K
 │  ● [Package four] fil principal ▰▱▱▱▱ 10 %
+│    opus·med · 255K
 │  ○ [Package two] coord au repos 1 min
 │  │  ○ [Package two · verify] au repos 9 h
-│  ✓ [Package one: a rather long lane title …] au repos 3 h
-● [Lane delta] ▰▱▱▱▱ 15 %
-│  ◇ [wf_2] · workflow ▰▰▰▱▱ 1/2
+│  ✓ [Package one: a rather long l…] au repos 3 h
+● [Lane delta] proj-one ▰▱▱▱▱ 15 %
+│ sonnet·low · 1.5M
+│  ◇ [wf_2] · workflow ▰▰▰▱▱ 1/2 · 1 ag.
 │  │  ● coder · write the docs sonnet · 12 min
-○ [PM BETA] coord au repos 40 min
+○ [PM BETA] coord proj-two au repos 40 min
 │  ◆ [Lane beta] t’attend
-○ [Lane gamma] au repos 30 h
+│    2 h 00 · Choisir la version
+○ [+ 1 au repos ›]
 
-─ [Quotas] · 5 h 21 % · sem 85 % · 852 tok/s [›]
-─ [Débit] · opus 56 · sonnet 88 · haiku 164 TPS (30 min) [›]
-─ [Graphe] · 8 conv · 3 coord · 1 t’attend(ent) [›]
-─ [Fichiers] · proj-one · main · sélection : src/panel.… [›]
+─ [Quotas] · 852 tok/s [›]
+  5 h ▰▱▱▱▱ 21 % · dans 2 h 10
+  sem ▰▰▰▰▱ 85 % · dim 20:30 · à ce rythme 95 %
+─ [Aujourd’hui] · 5 conv. · 6.1M · $20.50 [›]
+─ [Débit] · opus 56 · sonnet 88 TPS (30 min) [›]
+─ [Graphe] · 8 conv · 3 coord · 1 t’attend(… [›]
+─ [Fichiers] · proj-one · main · sélection : … [›]
 ```
 
+(`panel.detail` « normal », the default, at 50 columns with `--busy`; `--detail compact` draws PR #77's one-line rows.)
+
+- **Density** (`panel.detail`, Julian 22 Oct: « cleaner, but there is space for more detail, it's too minimalist, but I prefer that style »): the same style, no box, no new colour, more grey. `"compact"` = PR #77's look (one line per row, every section folded). `"normal"` (default): a working or waiting conversation gets **one grey second line** under its title, « opus·med · 12.1M · 2 h 10 · PR #120 ✓ » (model·effort, tokens, since its start, its newest PR from the session file's `prs` and its `branch`'s CI from the ci mod's cache: ✓ passed, ✕ failed, ● running; a merged / closed PR without CI says « fusionnée » / « fermée »); a waiting one « 2 h 00 · its question »; short of room a field goes whole, the model first, then the tokens, then the time, never cut. A Workflow row says its running phase instead of « · workflow » and « · N ag. » after done/total; an agent row its tokens while its label stays whole. Rows at rest stay one line. **Quotas** shows two compact rows under its line, « 5 h ▰▱▱▱▱ 21 % · reset dans 2 h 10 » and « sem ▰▰▰▰▱ 85 % · reset dim 20:30 · à ce rythme 95 % » (the word « reset », then the projection, then the reset go when short of room), the curves behind its ›. A folded **Aujourd’hui** line « 5 conv. · 6.1M · $20.50 › » follows it, its › the day's Gantt (no longer inside Graphe). `"full"` = normal with Débit unfolded on first open. `preview.mjs --panneau --detail compact|normal|full`.
 - **Status banners** (`drawEnCours`, `drawClick` in `hooks/panel_view.mjs`), on a tinted background (`panel.banners`: theme keys, `ok_bg` `diffAddedDimmed` and `warn_bg` `warning` by default; the text renderer ignores the tint). Green while something runs: « ● 6 conversations travaillent · 2 workflows · 5 agents · 1 CI   voir › », every count shown (a zero in grey), each one clickable (the conversations filter the list on « en cours », the others and « voir › » unfold « En ce moment »: every running agent, flat, with its path « Conv › workflow › phase »); « 1 bloquée » in red when a Workflow is stalled or a turn is cut. Amber when someone waits for you: « ◆ 1 t’attend : title · reason » (several: one line each under « ◆ N t’attendent »), the title opens that conversation. Nothing runs: « ✓ Rien ne tourne · dernier fini il y a 12 min (name) ». A CI cache older than `panel.encours.ci_stale_min` says « CI : non lu depuis 40 min ». Short of room the words get short (« 2 conv. · 2 wf · 2 ag. »): a number is never cut. Counted over every conversation of the window (`enCours` in `lib/panel_conv.mjs`), detection as before: a conversation works when its main thread has a turn in progress (`mainThreadBusy`, `lib/core/activity.mjs`) or a Workflow / agent of it runs.
 - **ONE list** (`oneList` in `lib/panel_list.mjs`, drawn by `drawConvs`), replacing CETTE CONVERSATION, CONVERSATIONS and the graph's text list. The sessions of GRAPHE (the app's session files plus factory's scan) with the activity of the banner, over `panel.convs.period` (24 h; the shipped config said « today », which hid last night's work: fixed 22 Oct). **Children nest under their parent** (`spawnedFrom`) even in another project, the child's project in grey on its row; the current conversation says « (ici) ». Each level sits behind a grey « │ » rule (`panel.list.indent` columns, 3). A row: its state mark (● travaille, ◆ t’attend, ✕ bloquée, ✓ finie, ○ au repos), the title (bold for a parent), a « coord » chip for a coordinator, then on the right « fil principal » / « t’attend » and its **context bar** (blue, amber from `panel.style.ctx_warn_pct` 62.5 %, red past the hand-off threshold with ⚠) and %. Under a conversation: its running Workflows « ◇ name · workflow  ▰▰▱ 2/4 » (progress bar, done / count, amber « à l’arrêt 1 h 09 » when stalled), under each its running agents « ● role · label  model · elapsed » (at most `panel.conv.running_max`, then « +N agents en cours »), its background agents « ◦ … », then its children. Conversations at rest are one grey line « au repos 40 min »; after the working and waiting ones and the `panel.list.rest_shown` (3) most recent at rest, « + N au repos › » unfolds the rest. **Details only on a click of the title** (cost, tokens, cache, the Sankey, the journal, « ouvrir ↗ » for another conversation): the Usage-like card behind the rule; a Workflow's title unfolds its tokens, cost, ETA, Gantt and agents. « Terminés » and the phases are not drawn by default any more. « filtres › » unfolds the filter row (« 24 h ▾ » « Projet ▾ » « État ▾ » « Claude ▾ »); a filter never hides a working conversation.
 - **Folded lines** at the bottom, one line each with its summary (`oneLine`): Quotas, Débit, Graphe (the diagram only, then the day's Gantt that used to sit under the list) and Fichiers (the file tree, then « Autres vues : /cockpit cartes · … », which used to be a footer). No project group headers any more.

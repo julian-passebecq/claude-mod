@@ -28,9 +28,9 @@ import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sect
 import { drawCockpit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
-import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow } from '../lib/panel.mjs'
+import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow, detailOf } from '../lib/panel.mjs'
 import { convFactory } from '../lib/panel_conv.mjs'
-import { panelConvs } from '../lib/panel_list.mjs'
+import { panelConvs, ciBranches, todayOf } from '../lib/panel_list.mjs'
 import { ciNow } from '../lib/core/activity.mjs'
 import { grapheModel, grapheFilter } from '../lib/graphe.mjs'
 import { debitModel } from '../lib/debit.mjs'
@@ -391,7 +391,8 @@ async function loadPanelState($) {
   // rows again, and nothing that 18 Oct unfolded by default stays unfolded
   if (!saved || !(saved.v >= 3)) { delete prev.barres; delete prev.debit; delete prev.graphe }
   D.ptouched = Object.fromEntries(Object.keys(prev).map((k) => [k, true]))
-  D.popen = { ...Object.fromEntries(pc.open.map((k) => [k, true])), ...prev }
+  // panel.detail full: Débit starts unfolded too
+  D.popen = { ...Object.fromEntries([...pc.open, ...(detailOf(CFG || {}) === 'full' ? ['debit'] : [])].map((k) => [k, true])), ...prev }
   D.pclosed = saved && saved.closed && typeof saved.closed === 'object' ? { ...saved.closed } : {}
   D.pf = { period: '', project: '', state: '', who: pc.convs.who, ...((saved && saved.filter) || {}) }
   // saves before v4 (22 Oct) always held the period, the default « aujourd’hui » included: the new default (24 h) applies
@@ -486,7 +487,8 @@ async function refreshPanel($) {
   await loadConso($, now).catch(() => undefined)
   await loadCi($).catch(() => undefined)
   // the quotas file and every Workflow of the PC (phases, ETA, cost of this conversation's Workflows too)
-  if ((D.popen || {}).convs || (D.popen || {}).conv || (D.popen || {}).barres) await loadCards($).catch(() => undefined)
+  // Quotas' compact rows (panel.detail normal / full) say the projection: the readings of the cards scanner
+  if ((D.popen || {}).convs || (D.popen || {}).conv || (D.popen || {}).barres || detailOf(CFG || {}) !== 'compact') await loadCards($).catch(() => undefined)
   // the graph's one line and « À toi de cliquer » at the top are always drawn: the session files are read whatever the folds
   if (now - D.grapheAt >= Math.max(10, panelConfig(CFG || {}).graphe.refresh_s) * 1000) {
     D.grapheAt = now
@@ -498,6 +500,7 @@ async function refreshPanel($) {
 
 function panelView(now) {
   const pc = panelConfig(CFG || {})
+  const detail = detailOf(CFG || {})
   const F = D.F
   const fr = filesRows(F, (pc.fichiers.max_rows || 30) + D.fLimit)
   const f = D.pf
@@ -543,6 +546,10 @@ function panelView(now) {
     unfold: under.unfold, tree: under.tree || new Set(), kids: under.kids || under.tree || new Set(), convFactories: under.factories, synAll: pool, convList: list, link: depuisConfig(CFG || {}).session_link, ctxWindow,
     open: D.popen || {}, closed: D.pclosed, self: D.self,
     ci: ciNow(D.ciCache, now, pc.encours),
+    // panel.detail normal / full: each row's branch CI (« PR #120 ✓ ») and the « Aujourd’hui » line
+    ciBranches: detail !== 'compact' ? safe(() => ciBranches(D.ciCache)) : null,
+    today: detail !== 'compact' ? safe(() => todayOf(f.period === 'today' && claudeAll === syn && f.who !== 'codex' ? syn
+      : synthesis(D.consoData, D.scan, null, { period: 'today', who: 'claude', project: '', state: '', runs }, CFG || {}, now))) : null,
     files: { head: F.root ? filesHead(F) : '', rows: fr.rows, more: fr.more, selected: F.selected ? filesShort(F, F.selected) : '', attach: pc.fichiers.attach_selection !== false, busy: D.fBusy, error: F.error },
     factory, treeEmpty: !D.scan ? (D.busy ? cockpitConfig(CFG).labels.scanning : '') : '',
     syn, filter: f,
@@ -551,7 +558,7 @@ function panelView(now) {
     debit: debitView(now, f.who),
     // the diagrams (lib/viz_*.mjs): built only for what is unfolded
     sankey: D.scan && D.self ? safe(() => sankeyModel(D.scan, D.self, runs)) : null,
-    quotaCurves: (D.popen || {}).barres ? safe(() => quotaCurves({ series: D.cardsRaw && D.cardsRaw.quotaSeries, usage: D.usageRaw, now }, (CFG && CFG.panel && CFG.panel.viz && CFG.panel.viz.quota) || {})) : null,
+    quotaCurves: (D.popen || {}).barres || detail !== 'compact' ? safe(() => quotaCurves({ series: D.cardsRaw && D.cardsRaw.quotaSeries, usage: D.usageRaw, now }, (CFG && CFG.panel && CFG.panel.viz && CFG.panel.viz.quota) || {})) : null,
     debitSpark: (D.popen || {}).debit ? safe(() => tpsHourly(D.debitData, now, CFG || {})) : null,
   }
 }
@@ -621,7 +628,7 @@ function actions($) {
       D.ptouched = { ...(D.ptouched || {}), [id]: true }
       savePanelState($)
       redraw()
-      if (D.popen[id] && (id === 'fichiers' || id === 'conv' || id === 'convs' || id === 'barres' || id === 'debit' || id === 'graphe')) void refreshPanel($)
+      if (D.popen[id] && (id === 'fichiers' || id === 'conv' || id === 'convs' || id === 'barres' || id === 'debit' || id === 'graphe' || id === 'today')) void refreshPanel($)
     },
     gfilter: (k, v) => { D.pg = grapheFilter({ ...(D.pg || {}), [k]: v }, CFG || {}); savePanelState($); redraw() },
     gcycle: async (k) => {

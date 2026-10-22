@@ -21,9 +21,9 @@
 // cache, Sankey, journal, ouvrir ↗) only by a click on the row's title. Quotas, Débit, Graphe (its diagram and the day's
 // Gantt) and Fichiers (with the other views) are one folded line each at the bottom.
 // Pure except for the kit `h` and the callbacks in P.act.
-import { panelConfig, fill, textBar, durText, kTok, convKey, minText } from '../lib/panel.mjs'
+import { panelConfig, fill, textBar, durText, kTok, convKey, minText, modelShort, detailOf } from '../lib/panel.mjs'
 import { enCours, runningNow } from '../lib/panel_conv.mjs'
-import { convList, oneList } from '../lib/panel_list.mjs'
+import { convList, oneList, ciOfRow } from '../lib/panel_list.mjs'
 import { activityCounts } from '../lib/core/activity.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { meterSvg } from './svg.mjs'
@@ -32,6 +32,7 @@ import { tpsText as debitTps, secText, clockText, fitColumns, tokText } from '..
 import { vizConfig, modelColor, modelTone } from '../lib/viz_palette.mjs'
 import { sankeySvg, sankeyAlt, sankeyLegend } from './viz_sankey.mjs'
 import { quotaSvg } from './viz_quota.mjs'
+import { atText } from '../lib/viz_quota.mjs'
 import { sparkSvg, sparkText } from './viz_spark.mjs'
 import { graphSvg, graphAlt } from './viz_graph.mjs'
 import { graphLayout } from '../lib/viz_graph.mjs'
@@ -53,14 +54,17 @@ export function drawPanel(h, P) {
   const L = c.labels
   const width = Math.max(30, P.columns || 75)
   const u = ui(h, P, c, width)
-  const folds = { barres: drawBarres, debit: drawDebit, graphe: drawGrapheSection, fichiers: drawFiles }
+  const folds = { barres: drawBarres, today: drawToday, debit: drawDebit, graphe: drawGrapheSection, fichiers: drawFiles }
   // the banners first (Julian, 21-22 Oct: « how do I know no work is in process? make it more visible »)
   const out = [drawEnCours(u, P, L)]
   const wait = drawClick(u, P, L)
   if (wait) out.push(wait)
   out.push(u.blank('p-gap-list'), drawConvs(u, P, L, width), u.blank('p-gap-folds'))
   // then one folded line each, in panel.order (an older order with « conv » or « fichiers » first still puts them here)
-  for (const id of c.order) if (folds[id]) out.push(folds[id](u, P, L, width))
+  // panel.detail normal / full: « Aujourd’hui » (its › the day's Gantt) right after Quotas
+  const order = u.detail === 'compact' ? c.order : c.order.flatMap((id) => (id === 'barres' ? [id, 'today'] : [id]))
+  if (u.detail !== 'compact' && !order.includes('today')) order.push('today')
+  for (const id of order) if (folds[id]) out.push(folds[id](u, P, L, width))
   return out
 }
 
@@ -383,9 +387,14 @@ function lineEls(u, P, L, x, wide) {
     const a = x.agent
     const fam = String(a.model || '?').split(' ')[0].toLowerCase()
     const t = a.ms ? item(h, minText(a.ms), { dim: true }) : null
+    // panel.detail normal / full: its tokens too, the first to go short of room
+    const tok = u.detail !== 'compact' && Number(a.tokens) > 0 ? item(h, kTok(a.tokens), { dim: true }) : null
     const right = withDots(u, [item(h, fam, { dim: true }), t])
+    // the tokens stay only while the label stays whole
+    const withTok = tok ? withDots(u, [item(h, fam, { dim: true }), t, tok]) : null
+    const whole = withTok && w - 2 - withTok.reduce((n, y) => n + y.w + 1, 0) >= len(a.label)
     return [pre(u, prefix, nodeHead(inner, { key: 'pla-' + x.key, mark: bullet(u, x.background ? 'background' : 'agent', 'running'), title: a.label, minTitle: 12,
-      variants: [right, t ? [t] : []] }, w), 'pa-' + x.key)]
+      variants: [...(whole ? [withTok] : []), right, t ? [t] : []] }, w), 'pa-' + x.key)]
   }
   if (x.kind === 'workflow') {
     const k = x.card
@@ -396,8 +405,13 @@ function lineEls(u, P, L, x, wide) {
     const bar = barItem(u, pct, `plb-${k.key}`, tone)
     const n = item(h, `${x.done}/${x.total}`, { dim: !k.stalled, tone: k.stalled ? 'warn' : undefined })
     const right = k.stalled ? [bar, item(h, fill(L.wf_stalled, { age: minText(k.stalledMs) }), { tone: 'warn', bold: true })] : [bar, n]
+    // panel.detail normal / full: the phase that runs instead of « · workflow », its running agents after done/total
+    const full = u.detail !== 'compact'
+    const phase = full ? phaseOf(k, L) : ''
+    const run = full && !k.stalled ? (k.running ?? k.phases.reduce((a, p) => a + (p.running || 0), 0)) : 0
+    const variants = [...(run ? [[bar, n, dot(u), item(h, fill(L.list_wf_agents, { n: run }), { dim: true })]] : []), right, right.slice(-1)]
     const out = [pre(u, prefix, nodeHead(inner, { key: 'plw-' + k.key, mark, title: k.title, titleKey: `pk-${k.key}-t`, onPress: toggle, bold: Boolean(k.live), dim: !k.live,
-      type: L.list_wf, variants: [right, right.slice(-1)], minTitle: 10 }, w), 'pw-' + k.key)]
+      type: phase ? '· ' + phase : L.list_wf, variants, minTitle: 10 }, w), 'pw-' + k.key)]
     if (k.open) {
       const dp = ruleOf(u, x.depth + 1)
       taskBody(u.sub(len(dp)), P, L, k, true, true).forEach((l, i) => out.push(pre(u, dp, l, `pwd-${k.key}-${i}`)))
@@ -441,6 +455,12 @@ function lineEls(u, P, L, x, wide) {
   const head = nodeHead(inner, { key: 'plc-h-' + r.id, mark: { glyph: mk.glyph, tone: mk.tone }, title: r.label, titleKey: 'pcv-' + r.id,
     onPress: () => P.act.nodeToggle(dk, open), bold: !idle && (x.hasKids || x.depth === 0), dim: idle, after, variants: right, minTitle: 12, whole: !idle }, w)
   const out = [pre(u, prefix, head, 'pc-' + r.id)]
+  // panel.detail normal / full: ONE grey line under the title of a working / waiting row
+  if (!idle && u.detail !== 'compact') {
+    const mp = prefix + ((x.hasKids || open) ? (u.c.list || {}).rule || '│' : ' ') + ' '
+    const meta = convMeta(u.sub(len(mp)), P, L, x, 'pcm-' + r.id)
+    if (meta) out.push(pre(u, mp, meta, 'pcmr-' + r.id))
+  }
   if (open) {
     const dp = ruleOf(u, x.depth + 1)
     const link = r.sid && P.link ? fill(P.link, { id: r.sid }) : ''
@@ -448,6 +468,64 @@ function lineEls(u, P, L, x, wide) {
     lines.filter(Boolean).forEach((l, i) => out.push(pre(u, dp, l, `pcd-${r.id}-${i}`)))
   }
   return out
+}
+
+/** The phase of a Workflow card that runs now (its first phase with a running agent, else the first not done), or ''. */
+function phaseOf(k, L) {
+  if (!k || k.kind !== 'workflow') return ''
+  const ps = k.phases || []
+  const p = ps.find((x) => x.running > 0) || ps.find((x) => x.done < x.count) || null
+  return p && p.title && p.title !== L.phase_default ? p.title : ''
+}
+
+/** « 12 min », « 2 h 10 », past 48 h « 3 j ». */
+function spanText(ms) {
+  const m = Math.round((Number(ms) || 0) / 60000)
+  return m < 48 * 60 ? minText(ms) : `${Math.round(m / 1440)} j`
+}
+
+/**
+ * The second grey line of a working / waiting row (panel.detail normal / full; Julian, 22 Oct: « there is space for more
+ * detail »): « opus·med · 12.1M · 2 h 10 · PR #120 ✓ » (model·effort, tokens, since its start, its newest PR and its
+ * branch's CI); a waiting row: « 2 h 10 · PR #120 · its question ». Short of room the fields go whole, the model first,
+ * then the tokens, then the time; the question is cut last. null when there is nothing to say.
+ */
+function convMeta(u, P, L, x, key) {
+  const { h } = u
+  const r = x.row
+  const m = x.m && x.m.available ? x.m : null
+  const now = Number(P.now)
+  const ago = (t) => (Number.isFinite(now) && Number(t) > 0 ? Math.max(0, now - Number(t)) : null)
+  const fields = []
+  const add = (it, pri) => { if (it) fields.push({ it, pri }) }
+  const waiting = r.cat === 'waiting'
+  if (!waiting) {
+    const ms = modelShort(r.model || (m && m.lead && m.lead.model), r.effort || (m && m.lead && m.lead.effort), P.cfg)
+    if (ms) add(item(h, ms, { dim: true }), 1)
+    const tok = m && m.stats && Number(m.stats.tokens) > 0 ? m.stats.tokens : Number(r.tokens) > 0 ? r.tokens : null
+    if (tok) add(item(h, kTok(tok), { dim: true }), 2)
+  }
+  const t = waiting ? ago(r.last) : ago(r.created)
+  if (t !== null) add(item(h, spanText(t), { dim: true }), 3)
+  const pr = (Array.isArray(r.prs) ? r.prs : []).filter((p) => p && Number.isFinite(Number(p.number))).sort((a, b) => Number(b.number) - Number(a.number))[0]
+  if (pr) {
+    const ci = ciOfRow(P.ciBranches, r)
+    const g = ci ? (L.list_ci || {})[ci] || '' : ''
+    const word = !g && pr.state === 'merged' ? L.list_pr_merged : !g && pr.state === 'closed' ? L.list_pr_closed : ''
+    const text = fill(L.list_pr, { n: pr.number })
+    const tail = g || word
+    const el = h.row([h.T(text, { dim: true }), tail ? h.T(tail, g ? { tone: ci === 'ok' ? 'ok' : ci === 'bad' ? 'bad' : 'ok', bold: ci === 'bad' } : { dim: true }) : null], { flexWrap: 'nowrap', gap: 1, alignItems: 'center' })
+    add({ el, w: len(text) + (tail ? len(tail) + 1 : 0) }, 4)
+  }
+  const ask = waiting ? (((P.graphe && P.graphe.ready && P.graphe.waiting) || []).find((w) => w.key === r.id) || {}).reason || '' : ''
+  if (!fields.length && !ask) return null
+  const pris = [...new Set(fields.map((f) => f.pri))].sort((a, b) => a - b)
+  const variants = [0, ...pris].map((p) => withDots(u, fields.filter((f) => f.pri > p).map((f) => f.it)))
+  // a question keeps at least 14 cells: the fields leave it that room first
+  const W = u.W - 1
+  const sum = (xs) => xs.reduce((a, y) => a + y.w + 1, 0) - (xs.length ? 1 : 0)
+  const v = variants.find((y) => sum(y) <= W - (ask ? 14 : 0)) || variants[variants.length - 1]
+  return fitLine(u, W, [v], key, ask)
 }
 
 /** A small chip (« coord »): its own background (panel.list.chip_bg) where the surface draws one, plain grey text otherwise. */
@@ -552,7 +630,7 @@ function ui(h, P, c, width) {
   const title = (text, key, o = {}) => h.T(text, { bold: true, size: 'heading', wrap: 'truncate-end', key, tone: o.tone })
   // the same primitives `cols` columns narrower (what sits right of a left rule)
   const sub = (cols) => ui(h, P, c, width - cols)
-  return { h, c, W, line, bar, grid, dots, title, blank, rule, sub }
+  return { h, c, W, line, bar, grid, dots, title, blank, rule, sub, detail: detailOf(P.cfg) }
 }
 
 const tpsText = (n) => (n === null || n === undefined ? '' : n >= 100 ? String(Math.round(n)) : n.toFixed(1))
@@ -760,7 +838,7 @@ const oneLineRoom = (u, title) => u.W - (len(title) + 3) - 6
  * A folded line « ─ Title · summary  › »: a grey rule, its bold title (a plain button that unfolds it), the first of
  * `variants` (lists of items, fullest first) that fits, ›; unfolded (⌄), its detail under it.
  */
-function oneLine(u, P, id, title, variants, body) {
+function oneLine(u, P, id, title, variants, body, folded = null) {
   const { h } = u
   const open = Boolean(P.open[id])
   const toggle = () => P.act.ptoggle(id)
@@ -775,6 +853,8 @@ function oneLine(u, P, id, title, variants, body) {
       h.row([arrow.el], { flexShrink: 0, key: 'r' }),
     ], { key: 'p-sec-' + id + '-row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap' }),
     open ? h.col(body(), { marginLeft: 2, key: 'p-' + id + '-micro' }) : null,
+    // what it shows under its line while folded (Quotas' two compact rows, panel.detail normal)
+    !open && folded ? h.col(folded(), { marginLeft: 2, key: 'p-' + id + '-rows' }) : null,
   ], { key: 'p-' + id })
 }
 
@@ -820,7 +900,9 @@ function drawBarres(u, P, L) {
   const week = one(bars.find((b) => b.id === 'week'), L.quotas_week)
   const tps = bars.find((b) => b.id === 'tps')
   const t = tps && tps.pct === null && tps.text !== L.unknown ? item(h, tps.text.replace(/^(\d+)(\d{3}) /, (_, a, b) => `${a}.${b[0]}k `), { dim: true }) : null
-  const variants = [withDots(u, [five, week, t]), withDots(u, [five, week]), withDots(u, [five])]
+  // panel.detail normal / full: the 5 h and week rows under the line (the line keeps the tok/s), the curves behind ›
+  const rows = u.detail !== 'compact' && bars.some((b) => (b.id === 'five' || b.id === 'week') && Number.isFinite(b.pct))
+  const variants = rows ? (t ? [[t], []] : [[]]) : [withDots(u, [five, week, t]), withDots(u, [five, week]), withDots(u, [five])]
   return oneLine(u, P, 'barres', L.quotas_head, variants, () => {
     const out = []
     for (const b of bars) {
@@ -834,6 +916,46 @@ function drawBarres(u, P, L) {
       ], { key: 'pbc-' + b.id }))
     }
     return out
+  }, rows ? () => quotaRows(u.sub(2), P, L, bars, toneOf) : null)
+}
+
+/**
+ * Quotas' two compact rows (panel.detail normal): « 5 h ▰▰▱▱▱ 21 % · reset dans 2 h 10 » and « sem ▰▰▰▰▱ 85 % · reset
+ * dim 20:30 · à ce rythme 97 % ». Short of room the word « reset » goes, then the projection, then the reset; the
+ * label, the bar and the % stay.
+ */
+function quotaRows(u, P, L, bars, toneOf) {
+  const { h } = u
+  const out = []
+  for (const [id, label] of [['five', L.quotas_five], ['week', L.quotas_week]]) {
+    const b = bars.find((x) => x.id === id)
+    if (!b || !Number.isFinite(b.pct)) continue
+    const tone = toneOf(b.pct)
+    const head = [item(h, label, { dim: !tone, tone, bold: Boolean(tone) }), barItem(u, b.pct, 'pqr-' + id, tone), item(h, `${Math.round(b.pct)} %`, { bold: Boolean(tone), tone, dim: !tone })]
+    const word = String(L.quota_reset_word || '')
+    const reset = b.detail ? item(h, b.detail, { dim: true }) : null
+    const short = b.detail && word && b.detail.startsWith(word + ' ') ? item(h, b.detail.slice(word.length + 1), { dim: true }) : reset
+    const p = P.quotaCurves && P.quotaCurves[id]
+    const paceText = !p ? '' : p.over ? fill(L.quota_pace_hit, { at: atText(p.hitAt, p.now) }) : p.end && p.ratePerH !== null ? fill(L.quota_pace, { pct: Math.round(p.projPct) }) : ''
+    const pace = paceText ? item(h, paceText, p.over ? { tone: 'bad', bold: true } : { dim: true }) : null
+    const tail = (xs) => xs.filter(Boolean).flatMap((x) => [dot(u), x])
+    const vs = [[...head, ...tail([reset, pace])], [...head, ...tail([short, pace])], [...head, ...tail([short])], head]
+    out.push(fitLine(u, u.W - 1, vs, 'pqr-row-' + id))
+  }
+  return out
+}
+
+/** « ─ Aujourd’hui · 5 conv. · 6.1M · $20.50 › » (panel.detail normal / full); unfolded, the day's Gantt. */
+function drawToday(u, P, L) {
+  const { h } = u
+  const t = P.today || null
+  const parts = t ? [item(h, fill(L.today_convs, { n: t.convs }), { dim: true }), t.tokens ? item(h, fmtTokens(t.tokens), { dim: true }) : null,
+    t.cost !== null && t.cost !== undefined && t.cost > 0 ? item(h, fmtUsd(t.cost), { dim: true }) : null] : []
+  const all = withDots(u, parts)
+  const variants = t ? [all, withDots(u, parts.slice(0, 2)), withDots(u, parts.slice(0, 1))] : [[]]
+  return oneLine(u, P, 'today', L.today_head, variants, () => {
+    const g = drawDayGantt(u.sub(2), P)
+    return g.length ? g : [h.T(L.today_none, { dim: true, key: 'pt-none' })]
   })
 }
 
@@ -954,7 +1076,8 @@ function drawGrapheSection(u, P, L, width) {
   const m = P.graphe
   const sum = m && m.ready ? m.macro || m.summary : L.graphe_slot
   const variants = [[item(h, clip(sum, Math.max(6, oneLineRoom(u, L.graphe_head) - 3)), { dim: true })]]
-  return oneLine(u, P, 'graphe', L.graphe_head, variants, () => [...grapheSvg(u, P, m, width - 3), ...drawDayGantt(u.sub(2), P)])
+  // the day's Gantt is behind « Aujourd’hui » (panel.detail normal / full), here in compact
+  return oneLine(u, P, 'graphe', L.graphe_head, variants, () => [...grapheSvg(u, P, m, width - 3), ...(u.detail === 'compact' ? drawDayGantt(u.sub(2), P) : [])])
 }
 
 // the graph as a diagram (lib/viz_graph.mjs): boxes per project, arrows parent → child, dashed peers; Svg where the
