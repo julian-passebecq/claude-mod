@@ -353,6 +353,16 @@ const seeCommands = async ($: EngineInterface) => {
   } catch {}
 }
 
+// The kind of the session's Anthropic credential (Julian: « api cre of my account »): 'api-key' or 'bearer' (login).
+// Only the kind is read; the secret stays with the engine. Null without a first-party credential or when refused.
+const credentialKind = async ($: EngineInterface): Promise<'bearer' | 'api-key' | null> => {
+  try {
+    return (await $.session.authorize())?.kind ?? null
+  } catch {
+    return null
+  }
+}
+
 const buttonsOf = async ($: EngineInterface, c: Config) => {
   const l = await read($, launcherAtom)
   return launcherButtons(c.launcher, l.commands, l.open, c.labels)
@@ -810,7 +820,11 @@ export const register: Register = (on, raw) => {
           )
         const [head, ...rest] = cv.rows
         const summaryW = cells(segsText(head.segs)) + cv.reserve
-        const inlineButtons = jx.buttons_inline !== false && summaryW + cells(jc.sep) + fitted.width + stampW <= cols
+        // The credential kind sits at the far right of the summary line, after the buttons; its width counts in the fit.
+        const credKind = await credentialKind($)
+        const credText = credKind ? (credKind === 'api-key' ? cc.labels.cred_api : cc.labels.cred_login) : ''
+        const credW = credText ? cells(credText) + 2 : 0
+        const inlineButtons = jx.buttons_inline !== false && summaryW + cells(jc.sep) + fitted.width + stampW + credW <= cols
         let relayC: any[] = []
         if (relay && c.handoff && cv.relay !== 'none') {
           const lc = await read($, launcherAtom)
@@ -838,6 +852,11 @@ export const register: Register = (on, raw) => {
             {inlineButtons ? (
               <Box key="clar-buttons-inline" flexDirection="row" flexShrink={0} marginLeft={2} columnGap={1}>
                 {buttonEls}
+              </Box>
+            ) : null}
+            {credText ? (
+              <Box key="clar-cred" flexShrink={0} marginLeft={2}>
+                <Text dimColor>{credText}</Text>
               </Box>
             ) : null}
           </Box>
