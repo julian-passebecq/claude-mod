@@ -2,7 +2,45 @@
 
 Read-only band above the prompt, and `/jauge` for the detail pane. UI in French. Settings: `band.config.json` (your own JSON via the mod's userConfig `config`, deep-merged).
 
-## La ligne
+## La Jauge « clarity » (default, `jauge.layout: "clarity"`)
+
+Julian, 25 Oct: « not clear, I don't see what's running on the conv, too much info not collapsed, no line jumped, not enough indentation, not enough colors, progression bar % token eta ». **Folded by default to ONE line**: what runs in **this** conversation first, coloured by state, then the gauges; the buttons sit on that line when they fit (else under « Mods » once unfolded). `▶` / `▼` (a button) folds and unfolds; the state is kept in the mod's `$.store` `sections` (`expanded`).
+
+```
+▶ ● 1 workflow · 3 agents en cours · ctx ▰▰▰▱▱ 57 % · 5 h ▰▰▰▱▱ 64 % · sem ▰▰▰▰▱ 74 %   [Usage] [Règles] …
+▶ ○ rien en cours · ctx ▰▱▱▱▱ 19 % · 5 h ▱▱▱▱▱ 0 % · sem ▰▰▱▱▱ 41 %
+```
+
+Unfolded: each section after a blank line, a header (accent colour, bold) and indented tree rows (`├ └ │`):
+
+```
+▼ ● 1 workflow · 3 agents en cours · ctx ▰▰▰▱▱ 57 % · 5 h ▰▰▰▱▱ 64 %
+
+  En cours · cette conversation
+  ├ ● fil principal
+  ├ ◇ demo-release-wave ▰▰▰▰▰▰▱▱▱▱ 60 % · 3/5 · ▸ Verify · 47 min · fin ~16:48
+  │ ├ • coder lane-alpha-identity · opus · 20 min · 1,2 M tok
+  │ └ • tester lane-beta · sonnet · 9 min · rien écrit depuis 18 min
+  └ ◦ auditor scan · sonnet · 3 min
+
+  Jauges
+  ├ ctx ▰▰▰▰▰▰▱▱▱▱  57 % · 228 k / 400 k · relais 250 k · compact ~16 min
+  ├ 5 h ▰▰▰▰▰▰▱▱▱▱  64 %
+  ├ sem ▰▰▰▰▰▰▰▱▱▱  74 % · projeté 108 %
+  └ débit 4,4 k tok/s
+
+  Ailleurs sur ce PC
+  └ 2 conv · 1 wf · 3 ag · 1 CI
+```
+
+- Running state: `●` green while it writes, amber when something is silent for `en_cours.warn_min`, red when one failed or is silent for `bad_min`; `○ rien en cours` grey. `Claude travaille` when only the main thread works (the engine's `isWorking`).
+- Running rows: the main thread, each Workflow (bar of phases done/total, %, `done/total`, phase, elapsed, tokens when the reader gives them, `fin ~HH:MM` from past runs) with its agents one per row (`max_agents`, then `+N agents`), then Agent-tool agents (`◦` background, `•` foreground). No « agent d'arrière-plan » words. Tokens per agent show only when `scanner/encours.mjs` passes a `tokens` field (`lib/core/running.mjs` does not yet).
+- Gauges: bars (`bar_cells`, 10; `summary_bar_cells`, 5 on the folded line; a thin Svg on the desktop) coloured green → orange → red by `jauge.levels` (see the table below).
+- « Ailleurs sur ce PC »: the PC-wide counts, zeros left out (`rien d’autre` when all are zero, `CI ?` when the ci cache is stale).
+- Narrow: the folded line drops week, then 5 h, then the bars, uses `1 wf · 3 ag`, and keeps RESUME (the red « relais conseillé » words only when they fit); tree rows cut names first, then drop phase, model, ETA. Tested from 40 to 120 columns (`tests/clarity.test.mjs`).
+- Settings in `band.config.json` `jauge.clarity`: `sections`, `summary`, `gauges`, `summary_bar_cells`, `bar_cells`, `indent`, `blank_lines`, `max_agents`, `max_running`, `glyphs`, `labels`. `jauge.layout: "line"` brings back the older line described below.
+
+## La ligne (`jauge.layout: "line"`)
 
 One line when it fits the band's width, else two rows, then the five buttons (Usage · Règles · Réf · Cockpit · Exporter):
 
@@ -60,8 +98,8 @@ Source: `scanner/encours.mjs`, a thin wrapper over `lib/core/running.mjs` (this 
 
 ## Preview
 
-`node mods/band/scripts/preview.mjs --cols 40,50,60,80` (or bare widths: `60 90`) prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle (`✓ au repos`), a busy-with-stale-CI (`CI ?`), a running and a busy-past-the-relay conversation (7 conv · 1 wf · 3 ag, ctx 63 %) at each width given (default 80), with each row's width. Invented fixtures.
+`node mods/band/scripts/preview.mjs --cols 40,50,60,80` prints the clarity Jauge, each fixture folded then unfolded (`--layout line` for the older line); `node mods/band/scripts/preview.mjs --layout line --cols 40,50,60,80` (or bare widths: `60 90`) prints the Jauge as the terminal draws it (ANSI colours; `--plain` without) for an idle (`✓ au repos`), a busy-with-stale-CI (`CI ?`), a running and a busy-past-the-relay conversation (7 conv · 1 wf · 3 ag, ctx 63 %) at each width given (default 80), with each row's width. Invented fixtures.
 
 ## Tests
 
-`node --test mods/band/tests/*.test.mjs` (invented fixtures in a temp folder) and `claude plugin test mods/band`.
+`node --test mods/band/tests/*.test.mjs` (`clarity.test.mjs`: the clarity rows) (invented fixtures in a temp folder) and `claude plugin test mods/band`.

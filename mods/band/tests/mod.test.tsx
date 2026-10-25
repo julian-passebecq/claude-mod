@@ -6,6 +6,9 @@ import { buildView } from '../hooks/logic'
 import { SHIPPED } from './shipped'
 
 const CFG = JSON.parse(SHIPPED)
+// The older one-line Jauge (jauge.layout "line"): the tests written for it read this copy unless they ask for the
+// shipped default (opts.layout 'clarity').
+const LINE = JSON.stringify({ ...CFG, jauge: { ...CFG.jauge, layout: 'line' } })
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, string> = {}) => ({
   t: NOW - sAgo * 1000,
@@ -17,7 +20,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
 
 // opts.julian / opts.todo: the counters the scanner computed with lib/core/veille.mjs (view.waiting); opts.config: the
 // person's own settings file (userConfig 'config') at C:/Users/me/band.json.
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown; layout?: 'clarity' | 'line' } = {}) {
   const tokens = opts.tokens ?? 164000
   const clock = mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -41,7 +44,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   on('store.set', ($: any, e: any) => ((stored[e.key] = e.value), { value: undefined }))
   on('fs.read', ($: any, e: any) => {
     const p = String(e.path).replace(/\\/g, '/')
-    if (p.endsWith('/band.config.json')) return { value: SHIPPED }
+    if (p.endsWith('/band.config.json')) return { value: opts.layout === 'clarity' ? SHIPPED : LINE }
     if (opts.config && p === 'C:/Users/me/band.json') return { value: JSON.stringify(opts.config) }
     if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
     throw new Error('ENOENT')
@@ -650,5 +653,116 @@ for (const cols of [40, 50, 60, 80]) {
     expect(shown(rows[1]).join('')).toMatch(/^ctx /)
     expect(await band.find({ type: 'Button', text: 'RESUME' })).toBeDefined()
     await band.unmount()
+  })
+}
+
+// The clarity Jauge (jauge.layout "clarity", the shipped default; Julian 25 Oct: « not clear, I don't see what's running
+// on the conv, too much info not collapsed, no line jumped, not enough indentation, not enough colors »).
+const CL = { layout: 'clarity' as const }
+const texts = async (band: any) => ((await band.findAll({ type: 'Text' })) as any[]).map(t => (t.children ?? []).join(''))
+const mountAt = async ($: any, surface: 'terminal' | 'desktop', columns = 150) =>
+  $.ui.mount({ plugin: 'band', component: 'AbovePrompt', surface, viewport: { columns: columns + 10, rows: 60 }, props: at(columns) } as any)
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`clarity: folded by default to ONE line « ▶ ○ rien en cours · ctx · sem », the buttons beside it (${surface})`, async ($, on) => {
+    world(on, CL)
+    on('command.list', () => ({ value: FIVE_CMDS }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await mountAt($, surface)
+    expect(await band.find({ type: 'Button', text: '▶' })).toBeDefined()
+    expect(((await band.find({ type: 'Text', text: 'rien en cours' })) as any).props.dimColor).toBe(true)
+    expect(((await band.find({ type: 'Text', text: ' 41 %' })) as any).props.color).toBe('success')
+    expect(await band.find({ type: 'Text', text: ' 37 %' })).toBeDefined()
+    // nothing unfolded: no header, no tree, no PC-wide zeros, no « agent d'arrière-plan »
+    const all = await texts(band)
+    expect(all.some(t => /En cours · cette conversation|Jauges|Ailleurs sur ce PC|├|└|0 conv|0 wf|arrière-plan/.test(t))).toBe(false)
+    const labels = ((await band.findAll({ type: 'Button' })) as any[]).map(b => b.text)
+    expect(labels).toEqual(['▶', 'Usage', 'Règles', 'Réf', 'Cockpit', 'Exporter'])
+    if (surface === 'terminal') expect(await band.find({ type: 'Svg' })).toBeUndefined()
+    else expect(((await band.findAll({ type: 'Svg' })) as any[]).length).toBe(2) // ctx and sem as thin coloured bars
+    expect(await band.find({ type: 'Text', text: /engine/ })).toBeUndefined()
+    await band.unmount()
+  })
+
+  test(`clarity: ▶ unfolds sections (blank line, header, ├ └ rows), the state is kept in $.store sections.expanded (${surface})`, async ($, on) => {
+    const activity = { convs: 2, workflows: 0, agents: 0, thisBusy: false }
+    const w = world(on, { ...CL, encours: { workflows: [WAVE], agents: [BG] }, extra: { activity }, limits: [{ kind: 'five_hour', percentUsed: 70 }, { kind: 'seven_day', percentUsed: 90 }] })
+    on('command.list', () => ({ value: FIVE_CMDS }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await mountAt($, surface)
+    const head = (await band.find({ type: 'Text', text: '1 workflow · 3 agents en cours' })) as any
+    expect(head.props.color).toBe('success')
+    await band.press({ key: 'clar-toggle' })
+    expect((w.stored.sections as any).expanded).toBe(true)
+    await band.unmount()
+    const open = await mountAt($, surface)
+    expect(await open.find({ type: 'Button', text: '▼' })).toBeDefined()
+    const all = await texts(open)
+    for (const h of ['  En cours · cette conversation', '  Jauges', '  Ailleurs sur ce PC']) expect(all).toContain(h)
+    expect(((await open.find({ type: 'Text', text: '  Jauges' })) as any).props.bold).toBe(true)
+    expect(all.filter(t => t === ' ').length >= 3).toBe(true) // a blank line before each section
+    // the running tree: the Workflow, its two agents indented under │, the background agent last
+    expect(all).toContain('  ├ ')
+    expect(all).toContain('  │ ├ ')
+    expect(all).toContain('  │ └ ')
+    expect(all).toContain('  └ ')
+    expect(await open.find({ type: 'Text', text: 'cockpit-preview-g2' })).toBeDefined()
+    expect(await open.find({ type: 'Text', text: 'p43-rag-identity' })).toBeDefined()
+    expect(await open.find({ type: 'Text', text: '47 min' })).toBeDefined()
+    expect(all.some(t => /arrière-plan/.test(t))).toBe(false)
+    // elsewhere on the PC: zeros left out (this conversation's own Workflow and agents raise wf / ag)
+    expect(all).toContain('2 conv')
+    expect(all.some(t => /^0 (conv|wf|ag|CI)/.test(t))).toBe(false)
+    // gauges coloured by jauge.levels: 5 h 70 % orange, week 90 % red
+    expect(((await open.find({ type: 'Text', text: '  70 %' })) as any).props.color).toBe('warning')
+    expect(((await open.find({ type: 'Text', text: '  90 %' })) as any).props.color).toBe('error')
+    expect(all.some(t => /164 k \/ 400 k/.test(t))).toBe(true)
+    if (surface === 'desktop') expect(((await open.findAll({ type: 'Svg' })) as any[]).length >= 6).toBe(true)
+    else expect(all).toContain('▰▰▰▰▰▰▰▱▱▱')
+    await open.unmount()
+  })
+}
+
+test('clarity: the unfolded state remembered in $.store comes back at session start', async ($, on) => {
+  world(on, { ...CL, stored: { expanded: true, open: [] } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await mountAt($, 'terminal')
+  expect(await band.find({ type: 'Button', text: '▼' })).toBeDefined()
+  expect(((await band.find({ type: 'Text', text: 'rien en cours ici' })) as any).props.dimColor).toBe(true)
+  await band.unmount()
+})
+
+test('clarity: a failed agent turns the summary red; a silent one amber', async ($, on) => {
+  world(on, { ...CL, encours: { workflows: [{ ...WAVE, agents: [runningAgent('a1', 'x'), runningAgent('a2', 'y', { status: 'failed' })] }] } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await mountAt($, 'terminal')
+  expect(((await band.find({ type: 'Text', text: '1 workflow · 1 agent en cours' })) as any).props.color).toBe('error')
+  expect(((await band.find({ type: 'Text', text: ' · 1 échoué(s)' })) as any).props.color).toBe('error')
+  await band.unmount()
+})
+
+for (const cols of [40, 60, 90]) {
+  test(`clarity at ${cols} columns, past the relay: one folded line with RESUME; unfolded, every row fits and the buttons sit under Mods`, async ($, on) => {
+    world(on, { ...CL, tokens: 260000, encours: { workflows: [WAVE], agents: [BG] } })
+    on('command.list', () => ({ value: [...FIVE_CMDS, { name: 'handoff', description: '', source: 'user' }] }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await mountAt($, 'terminal', cols)
+    expect(await band.find({ type: 'Button', text: 'RESUME' })).toBeDefined()
+    const row = (b: any) => textsIn(b).map((t: any) => (t.children ?? []).join('')).join('')
+    const summary = (await band.find({ type: 'Box', key: 'clar-summary' })) as any
+    expect([...row(summary)].length <= cols).toBe(true)
+    await band.press({ key: 'clar-toggle' })
+    await band.unmount()
+    const open = await mountAt($, 'terminal', cols)
+    const rows = ((await open.findAll({ type: 'Box' })) as any[]).filter(b => /^clar-(run|gauge|pc)-/.test(String(b.key)))
+    expect(rows.length >= 6).toBe(true)
+    for (const r of rows) expect([...row(r)].length <= cols).toBe(true)
+    if (cols < 90) expect(await open.find({ type: 'Text', text: '  Mods' })).toBeDefined()
+    expect(((await open.findAll({ type: 'Button' })) as any[]).filter(b => /Usage|Cockpit/.test(b.text)).length).toBe(2)
+    await open.unmount()
   })
 }

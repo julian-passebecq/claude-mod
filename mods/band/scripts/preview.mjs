@@ -5,6 +5,8 @@
 //   node mods/band/scripts/preview.mjs                  80 columns
 //   node mods/band/scripts/preview.mjs --cols 40,50,60  several widths (also: --cols=52, or bare numbers: 60 90)
 //   node mods/band/scripts/preview.mjs --plain          no ANSI colours
+//   node mods/band/scripts/preview.mjs --layout line    the older one-line Jauge (jauge.layout "line")
+// Default: the clarity Jauge (jauge.layout "clarity"), each fixture folded (one line) then unfolded (sections).
 // Invented fixtures only. Colours: green ok, yellow warn, red bad, grey label words (as the band draws them).
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -12,11 +14,14 @@ import { fileURLToPath } from 'node:url'
 
 import { cells, jaugeCfg, layoutJauge, relayText } from '../hooks/jauge.ts'
 import { ecCfg, enCoursView, rowText } from '../hooks/encours.ts'
+import { clarityCfg, clarityView, segsText } from '../hooks/clarity.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const cfg = JSON.parse(readFileSync(join(here, '..', 'band.config.json'), 'utf8'))
 const args = process.argv.slice(2)
 const plain = args.includes('--plain') || !!process.env.NO_COLOR
+const li = args.findIndex(a => a === '--layout' || a.startsWith('--layout='))
+const layout = li < 0 ? (cfg.jauge.layout ?? 'clarity') : args[li].includes('=') ? args[li].split('=')[1] : args[li + 1]
 const widths = []
 for (let i = 0; i < args.length; i++) {
   const a = args[i]
@@ -25,7 +30,7 @@ for (let i = 0; i < args.length; i++) {
 }
 if (!widths.length) widths.push(80)
 
-const ANSI = { ok: 32, warn: 33, bad: 31, dim: 90 }
+const ANSI = { ok: 32, warn: 33, bad: 31, dim: 90, accent: 36 }
 const paint = (text, tone) => (plain || !tone || !ANSI[tone] ? text : `\x1b[${ANSI[tone]}m${text}\x1b[0m`)
 
 const NOW = Date.parse('2026-10-21T14:30:00Z')
@@ -47,7 +52,7 @@ const running = {
         id: 'wf_demo', name: 'demo-release-wave', phases: ['Plan', 'Build', 'Preview', 'Verify', 'Merge'], phase: 'Verify', phaseIdx: 3, status: 'running',
         start: NOW - 47 * MIN, last: NOW - MIN, eta: NOW + 18 * MIN,
         agents: [
-          { id: 'a1', type: 'coder', label: 'lane-alpha-identity', model: 'opus', status: 'running', start: NOW - 20 * MIN, last: NOW - MIN },
+          { id: 'a1', type: 'coder', label: 'lane-alpha-identity', model: 'opus', status: 'running', start: NOW - 20 * MIN, last: NOW - MIN, tokens: 1240000 },
           { id: 'a2', type: 'tester', label: 'lane-beta', model: 'sonnet', status: 'running', start: NOW - 9 * MIN, last: NOW - 18 * MIN },
         ],
       },
@@ -92,10 +97,51 @@ function rows(data, cols) {
   return out
 }
 
-for (const cols of widths) {
-  for (const [name, fx] of [['idle', idle], ['busy, CI stale', staleCi], ['running', running], ['busy, relais', busy]]) {
-    console.log(paint(`── ${name} · ${cols} colonnes ${'─'.repeat(Math.max(0, cols - cells(name) - 16))}`, 'dim'))
-    for (const l of lines(fx, cols)) console.log(`${l.out}${paint(`   (${l.w})`, 'dim')}`)
-    for (const r of rows(fx.running, cols)) console.log(r)
+const cc = clarityCfg(cfg.jauge.clarity)
+const ecLv = { warn_min: ec.warn_min, bad_min: ec.bad_min }
+/** The clarity input from a fixture (what register.tsx builds from the engine, the scanner and encours.mjs). */
+const clarityIn = (fx, working) => ({
+  now: NOW,
+  working,
+  running: fx.running,
+  ctxPct: fx.facts.ctxPct,
+  tokens: (fx.facts.ctxPct * window) / 100,
+  window,
+  relayAt: base.relayAt,
+  relayPct: base.relayPct,
+  etaMin: fx.facts.ctxPct > 50 ? 16 : undefined,
+  five: fx.facts.five,
+  week: fx.facts.week,
+  weekProj: fx.facts.weekProj,
+  tps: fx.facts.tps.tps_all,
+  waiting: fx.facts.waiting,
+  pc: fx.facts.act,
+})
+const segOut = segs => segs.map(s => paint(s.text, s.tone)).join('')
+
+if (layout === 'line') {
+  for (const cols of widths) {
+    for (const [name, fx] of [['idle', idle], ['busy, CI stale', staleCi], ['running', running], ['busy, relais', busy]]) {
+      console.log(paint(`── ${name} · ${cols} colonnes ${'─'.repeat(Math.max(0, cols - cells(name) - 16))}`, 'dim'))
+      for (const l of lines(fx, cols)) console.log(`${l.out}${paint(`   (${l.w})`, 'dim')}`)
+      for (const r of rows(fx.running, cols)) console.log(r)
+    }
+  }
+} else {
+  for (const cols of widths) {
+    for (const [name, fx, working] of [['idle', idle, false], ['busy, CI stale', staleCi, true], ['running', running, true], ['busy, relais', busy, true]]) {
+      for (const expanded of [false, true]) {
+        console.log(paint(`── ${name} · ${expanded ? 'déplié' : 'replié'} · ${cols} colonnes ${'─'.repeat(Math.max(0, cols - cells(name) - 26))}`, 'dim'))
+        const relay = relayOf(fx)
+        const v = clarityView(clarityIn(fx, working), cc, jc.levels, cols, expanded, relay && { ...relay, pad: jc.button_pad }, ecLv)
+        for (const r of v.rows) {
+          let out = segOut(r.segs)
+          let w = cells(segsText(r.segs))
+          if (r.kind === 'summary' && v.relay !== 'none') (out += `${v.relay === 'chip' ? ` ${paint(relay.hint, 'bad')}` : ''} ${paint(`[ ${relay.button} ]`, 'bad')}`), (w += v.reserve)
+          if (r.kind === 'header' && r.section === 'mods') out += '  ' + paint('[ Usage ] [ Règles ] [ Réf ] [ Cockpit ] [ Exporter ]', 'dim')
+          console.log(r.kind === 'blank' ? '' : `${out}${paint(`   (${w})`, 'dim')}`)
+        }
+      }
+    }
   }
 }
