@@ -64,6 +64,8 @@ import {
 import type { BandUi, SectionsCfg } from './sections'
 import { ecCfg, enCoursView, levelOf } from './encours'
 import type { EcData, Seg } from './encours'
+import { clarityCfg, clarityView, segsText } from './clarity'
+import type { ClarityIn, CSeg } from './clarity'
 
 // The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
 const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number | undefined): Gauge => {
@@ -682,7 +684,7 @@ export const register: Register = (on, raw) => {
       // The Jauge (Julian, 17 Oct): ONE line of figures, the five buttons (on that line when both fit), a relay hint
       // and its RESUME button only past the hand-off threshold. No ▾, no second line, nothing else unless configured.
       const jc = jaugeCfg((c as any).jauge)
-      const jx = ((c as any).jauge ?? {}) as { buttons_inline?: boolean; others_above_prompt?: string }
+      const jx = ((c as any).jauge ?? {}) as { buttons_inline?: boolean; others_above_prompt?: string; layout?: string }
       const cols = Math.max(20, Number((e.props as any).bodyColumns) || jc.columns_fallback)
       const ecData = (await read($, encoursAtom)) as EcData | null
       const facts = jaugeFacts(c, jc, ctx, v ?? null, en, actFacts(c, v ?? null, ecData, Boolean(isWorking)))
@@ -768,6 +770,110 @@ export const register: Register = (on, raw) => {
         return st ? [btn, <Text key={`stamp-${launcherKey(b)}`} dimColor wrap="truncate-end">{st}</Text>] : [btn]
       })
       const keepOthers = jx.others_above_prompt === 'show'
+      if (jx.layout !== 'line') {
+        // The clarity Jauge (default since 25 Oct): folded, ONE line « ▶ ● 3 agents en cours · ctx · 5 h · sem »
+        // coloured by state; ▶/▼ unfolds sections (blank line, header, ├ └ tree rows). Pure rows from clarity.ts.
+        const cc = clarityCfg((jx as any).clarity)
+        const ecc = ecCfg(jx)
+        const ui = (await read($, uiAtom)) as BandUi
+        const cin: ClarityIn = {
+          now: v?.now ?? Date.now(),
+          working: Boolean(isWorking),
+          running: ecData,
+          ...(facts.ctxPct !== undefined ? { ctxPct: facts.ctxPct } : {}),
+          ...(ctx?.tokens !== undefined ? { tokens: ctx.tokens } : {}),
+          ...(ctx?.window ? { window: ctx.window } : {}),
+          relayAt: facts.relayAt,
+          ...(facts.relayPct !== undefined ? { relayPct: facts.relayPct } : {}),
+          ...(ctx?.etaMin !== undefined ? { etaMin: ctx.etaMin } : {}),
+          ...(facts.five !== undefined ? { five: facts.five } : {}),
+          ...(facts.fiveProj !== undefined ? { fiveProj: facts.fiveProj } : {}),
+          ...(facts.week !== undefined ? { week: facts.week } : {}),
+          ...(facts.weekProj !== undefined ? { weekProj: facts.weekProj } : {}),
+          ...(facts.tps.tps_all !== undefined ? { tps: facts.tps.tps_all } : {}),
+          ...(facts.waiting !== undefined ? { waiting: facts.waiting } : {}),
+          ...(facts.act ? { pc: facts.act } : {}),
+        }
+        const cv = clarityView(cin, cc, jc.levels, cols, ui.expanded, relay ? { hint: relay.hint, button: relay.button, pad: jc.button_pad } : undefined, { warn_min: ecc.warn_min, bad_min: ecc.bad_min })
+        const tone = (t?: CSeg['tone']) =>
+          t === 'ok' || t === 'warn' || t === 'bad' ? { color: c.colors[t] ?? t } : t === 'accent' ? { color: (c.colors as any).accent ?? c.colors.this } : t === 'dim' ? { dimColor: true } : {}
+        const barW = (s: CSeg) => Math.max(12, (s.cells ?? cells(s.text)) * 7)
+        const segEls = (segs: CSeg[], key: string) =>
+          segs.map((s, i) =>
+            Svg && s.bar !== undefined ? (
+              <Svg key={`${key}-${i}`} source={barSvg(s.bar, svgColors[s.tone ?? 'ok'] ?? svgColors.ok, barW(s), svgColors.track)} alt={`${Math.round(s.bar)} %`} width={barW(s)} height={6} />
+            ) : (
+              <Text key={`${key}-${i}`} {...(s.bold ? { bold: true } : {})} {...tone(s.tone)} wrap="truncate-end">
+                {s.text}
+              </Text>
+            ),
+          )
+        const [head, ...rest] = cv.rows
+        const summaryW = cells(segsText(head.segs)) + cv.reserve
+        const inlineButtons = jx.buttons_inline !== false && summaryW + cells(jc.sep) + fitted.width + stampW <= cols
+        let relayC: any[] = []
+        if (relay && c.handoff && cv.relay !== 'none') {
+          const lc = await read($, launcherAtom)
+          const hs = await read($, handoffAtom)
+          const prep = handoffButtons(c.handoff, lc.commands, hs.resume, c.labels)[0]
+          relayC = [
+            ...(cv.relay === 'chip' ? [<Text key="clar-relay-hint" bold color={c.colors.bad}>{relay.hint}</Text>] : []),
+            <Button key={prep.key} variant="primary" {...(prep.enabled ? {} : { dimColor: true })} onPress={() => pressHandoff($, prep, isWorking)}>
+              {relay.button}
+            </Button>,
+          ]
+        }
+        const summary = (
+          <Box key="clar-summary" flexDirection="row" flexWrap="nowrap">
+            <Button key="clar-toggle" onPress={() => toggleUi($, 'band')}>
+              {head.segs[0].text.trim()}
+            </Button>
+            <Text key="clar-gap"> </Text>
+            {segEls(head.segs.slice(1), 'clar-s')}
+            {relayC.length ? (
+              <Box key="clar-relay" flexDirection="row" flexShrink={0} marginLeft={1} columnGap={1}>
+                {relayC}
+              </Box>
+            ) : null}
+            {inlineButtons ? (
+              <Box key="clar-buttons-inline" flexDirection="row" flexShrink={0} marginLeft={2} columnGap={1}>
+                {buttonEls}
+              </Box>
+            ) : null}
+          </Box>
+        )
+        const body: any[] = []
+        for (const r of rest) {
+          // with the buttons on the summary line the Mods section (and its blank line) is left out
+          if (r.section === 'mods' && inlineButtons) continue
+          if (r.kind === 'blank') body.push(<Text key={`clar-${r.key}`}> </Text>)
+          else if (r.kind === 'header' && r.section === 'mods') {
+            body.push(
+              <Box key={`clar-${r.key}`} flexDirection="column">
+                {segEls(r.segs, `clar-${r.key}`)}
+                <Box key="clar-mods-row" flexDirection="row" flexWrap="wrap" marginLeft={cc.indent} columnGap={1}>
+                  <Text key="clar-mods-guide" dimColor>
+                    {cc.glyphs.last.trimEnd()}
+                  </Text>
+                  {buttonEls}
+                </Box>
+              </Box>,
+            )
+          } else
+            body.push(
+              <Box key={`clar-${r.key}`} flexDirection="row" flexWrap="nowrap">
+                {segEls(r.segs, `clar-${r.key}`)}
+              </Box>,
+            )
+        }
+        return (
+          <Box flexDirection="column">
+            {summary}
+            {body}
+            {keepOthers ? (theirs ?? null) : null}
+          </Box>
+        )
+      }
       const ecv = enCoursView(ecData, ecCfg(jx), cols, v?.now)
       const segColor = (s: Seg) => (s.tone ? { color: c.colors[s.tone] ?? s.tone } : s.dim ? { dimColor: true } : {})
       const segEl = (s: Seg, key: string) =>
