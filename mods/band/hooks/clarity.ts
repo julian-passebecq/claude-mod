@@ -118,6 +118,8 @@ export const DEF_CLARITY_LABELS: Record<string, string> = {
   failed: 'échoué',
   more_agents: '+{n} agents',
   more: '+{n} de plus · Cockpit',
+  cred_api: 'clé API',
+  cred_login: 'connexion',
   sep: ' · ',
 }
 
