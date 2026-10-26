@@ -104,3 +104,17 @@ test('/export-eta tout is the same one-click export', async ($, on) => {
   await new Promise((r) => setTimeout(r, 50))
   expect(w.runs.some((a) => a.join(' ').includes('export.mjs tout'))).toBe(true)
 })
+
+test('/export-eta brief enfants runs exporter/brief.mjs for this session with --children, no pane, and toasts its line', async ($, on) => {
+  const toasts: string[] = []
+  const opened: string[] = []
+  const w = base(on, PENDING, { stdout: 'Brief : C:/Users/me/.claude/export-eta/briefs/2026-10-16-lead-avec-enfants.md · copié · 4 conversation(s)', toasts, opened })
+  on('session.id', () => ({ value: 'sess-1' }))
+  await $.session.start({ cwd: 'C:/code/app', surface: 'terminal', isInteractive: true } as any)
+  await $.command.run({ command: 'export-eta', args: 'brief enfants' })
+  await new Promise((r) => setTimeout(r, 50))
+  const run = w.runs.find((a) => /brief\.mjs$/.test(String(a[1])))
+  expect(run.slice(2)).toEqual(['run', '--session', 'sess-1', '--children'])
+  expect(opened.length).toBe(0)
+  expect(toasts.at(-1)).toBe('Brief : C:/Users/me/.claude/export-eta/briefs/2026-10-16-lead-avec-enfants.md · copié · 4 conversation(s)')
+})

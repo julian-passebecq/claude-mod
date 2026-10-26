@@ -77,6 +77,15 @@ ctx ▰▰▰▱▱ 63 % │ 5 h ▱▱▱▱▱ 2 % │ sem ▰▰▰▰▱ 77 
 
 - Past the hand-off threshold, on row 1: a red chip « relais conseillé » (`labels.relay_hint`) next to a **RESUME** button; narrower a red `●` (`labels.relay_mark`, no words) before RESUME; narrowest RESUME alone.
 
+## Export pour une autre IA (`export_brief`)
+
+Julian, 26 Oct: « 1 button to export all the messages of the conversation and the actions Claude took, the GitHub progress, git, a live ETA I can paste to another AI so it knows where we are; for a main conversation, a button that exports all its children too ». Two buttons on the Jauge line (on the line when they fit, else a row of their own under it):
+
+- **Export conv**: ONE Markdown brief of this conversation, masked, saved under `~/.claude/export-eta/briefs/<date>-<titre>.md` and copied to the clipboard; a toast gives the path and « copié ». No model call, no PR.
+- **Export + enfants +N**: only when the desktop app links sub-conversations to this one (`spawnedFrom`; N counts every descendant): the same brief with one numbered section per sub-conversation (1, 1.1, 1.1.1…), file `<date>-<titre>-avec-enfants.md`.
+
+Labels, order and the `+{n}` suffix: `export_brief.buttons` in `band.config.json`; toasts: `export_brief.labels`. The press runs export-eta's `exporter/brief.mjs` (path `export_brief.script`, relative to band's folder) with `$.process.run`, so it works while Claude works (a slash command would wait for the turn to end). The child count is read every `export_brief.refresh_s` (60 s) with `brief.mjs info`. When the script is missing the buttons are hidden (`when_missing: "grey"` shows them greyed, a press says how to add the mod). What the brief holds and its settings: [export-eta's README](../export-eta/README.md#brief-pour-une-autre-ia).
+
 ## En cours (cette conversation)
 
 Only while something runs in **this** conversation, rows appear under the line and above the buttons (none when idle, so the Jauge stays one line):
@@ -102,4 +111,4 @@ Source: `scanner/encours.mjs`, a thin wrapper over `lib/core/running.mjs` (this 
 
 ## Tests
 
-`node --test mods/band/tests/*.test.mjs` (`clarity.test.mjs`: the clarity rows) (invented fixtures in a temp folder) and `claude plugin test mods/band`.
+`node --test mods/band/tests/*.test.mjs` (`clarity.test.mjs`: the clarity rows; `brief.test.mjs`: the export buttons) (invented fixtures in a temp folder) and `claude plugin test mods/band`.
