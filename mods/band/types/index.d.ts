@@ -177,6 +177,9 @@ declare module 'claude-code' {
       ui: BandUi
       /** when each stamped button (Exporter) last ran, by its open-state key (ms); kept in $.store under "stamps" */
       stamps: Record<string, number>
+      /** « Export conv » / « Export + enfants » (export_brief): export-eta's script found, this conversation's child
+       *  count (descendants, from the app's session files), the button running, when the count was last read (ms) */
+      brief: { ready: boolean; children: number; busy: string; at: number }
     }
   }
 }

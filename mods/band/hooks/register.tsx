@@ -66,6 +66,8 @@ import { ecCfg, enCoursView, levelOf } from './encours'
 import type { EcData, Seg } from './encours'
 import { clarityCfg, clarityView, segsText } from './clarity'
 import type { ClarityIn, CSeg } from './clarity'
+import { briefArgv, briefButtons, briefCfg, briefToast, fillB, infoOf, scriptPath } from './brief'
+import type { BriefButton } from './brief'
 
 // The gauge's input from this conversation's context and the band's rates (style "gauge", the default).
 const gaugeOf = (c: Config, ctx: Ctx | undefined, v: View | null, week: number | undefined): Gauge => {
@@ -164,6 +166,7 @@ const STORE_KEY = 'sections'
 const stampsAtom = atom({ plugin: 'band', key: 'stamps' } as const, {})
 const STAMPS_KEY = 'stamps'
 const encoursAtom = atom({ plugin: 'band', key: 'encours' } as const, null)
+const briefAtom = atom({ plugin: 'band', key: 'brief' } as const, { ready: false, children: 0, busy: '', at: 0 })
 
 const loadStamps = async ($: EngineInterface) => {
   let stored: unknown
@@ -535,6 +538,63 @@ const refreshEnCours = async ($: EngineInterface, force = false) => {
   }
 }
 
+// ---------- brief for another AI (export_brief) ----------
+// The child count comes from export-eta's exporter/brief.mjs `info` (the app's session files, cached by mtime), read
+// every export_brief.refresh_s; a press runs `run` directly with $.process.run so it works while Claude works.
+const briefScript = ($: EngineInterface, c: Config) => scriptPath($.plugin.root, briefCfg((c as any).export_brief).script)
+
+const refreshBrief = async ($: EngineInterface, force = false) => {
+  const c = await loadConfig($)
+  const bc = briefCfg((c as any).export_brief)
+  if (!bc.enabled) return
+  const now = await $.clock.now()
+  const s = await read($, briefAtom)
+  if (!force && s.at && now - s.at < bc.refresh_s * 1000) return
+  await update($, briefAtom, x => ({ ...x, at: now }))
+  const script = briefScript($, c)
+  let ready = false
+  try {
+    ready = (await $.fs.stat(script)).kind === 'file'
+  } catch {}
+  let children = 0
+  if (ready) {
+    try {
+      const session = await $.session.id()
+      const r = await $.process.run([c.node, script, 'info', '--session', session], { timeoutMs: 120000 })
+      children = infoOf(r.stdout).children
+    } catch {}
+  }
+  await update($, briefAtom, x => ({ ...x, ready, children }))
+}
+
+const pressBrief = async ($: EngineInterface, b: BriefButton) => {
+  const c = await loadConfig($)
+  const bc = briefCfg((c as any).export_brief)
+  const s = await read($, briefAtom)
+  const script = briefScript($, c)
+  if (!s.ready) {
+    $.ui.toast(fillB(bc.labels.missing, { script }))
+    return
+  }
+  if (s.busy) return
+  await update($, briefAtom, x => ({ ...x, busy: b.id }))
+  $.ui.toast(b.id === 'tree' ? fillB(bc.labels.started_tree, { n: s.children }) : bc.labels.started)
+  try {
+    let session = ''
+    let cwd = ''
+    try {
+      session = await $.session.id()
+      cwd = await $.session.cwd()
+    } catch {}
+    const r = await $.process.run(briefArgv(c.node, script, b.id, session, cwd), { timeoutMs: bc.timeout_s * 1000 })
+    $.ui.toast(briefToast(bc, r))
+  } catch (err) {
+    $.ui.toast(fillB(bc.labels.failed, { error: String(err).slice(0, 200) }))
+  } finally {
+    await update($, briefAtom, x => ({ ...x, busy: '' }))
+  }
+}
+
 const fileHref = (p: string) => `file:///${encodeURI(p.replace(/\\/g, '/').replace(/^\/+/, ''))}`
 
 const refresh = async ($: EngineInterface) => {
@@ -575,6 +635,7 @@ const refresh = async ($: EngineInterface) => {
     await seeCommands($)
     await seeResume($, c)
     await refreshEnCours($)
+    await refreshBrief($)
   } catch (err) {
     await update($, errorAtom, () => `scanner: ${String(err).slice(0, 200)}`)
   } finally {
@@ -608,6 +669,7 @@ export const register: Register = (on, raw) => {
     void seeCommands($)
     void refresh($)
     void refreshEnCours($, true)
+    void refreshBrief($, true)
     return started
   })
 
@@ -693,11 +755,20 @@ export const register: Register = (on, raw) => {
       const stampOf = (b: LauncherButton) => stampText(b, stamps[launcherKey(b)])
       const stampW = buttons.reduce((s, b) => s + (stampOf(b) ? cells(stampOf(b)) + 1 : 0), 0)
       const fitted = fitButtons(buttons.map(b => ({ label: b.label, ...(b.short ? { short: b.short } : {}), open: b.open })), jc, cols, 0)
+      // « Export conv » / « Export + enfants » (export_brief): on the line when they fit, else a row of their own
+      const bs = await read($, briefAtom)
+      const briefBs = briefButtons(briefCfg((c as any).export_brief), bs)
+      const briefW = briefBs.reduce((w, b) => w + cells(b.label) + jc.button_pad + 1, 0)
+      const briefEls = briefBs.map(b => (
+        <Button key={b.key} {...(b.enabled ? {} : { dimColor: true })} onPress={() => pressBrief($, b)}>
+          {b.label}
+        </Button>
+      ))
       // A field is never cut (Julian, 22 Oct): one row, else two (status counts, then ctx · 5 h · sem · tok/s), then
       // whole fields of drop_order left out; the buttons join row 1 only when everything fits on it.
       const lay = layoutJauge(jc.line1, facts, jc, cols, relay)
       const inline =
-        jx.buttons_inline !== false && lay.rows.length === 1 && cells(lay.rows[0].text) + relayCells(relay, lay.relay, jc) + cells(jc.sep) + fitted.width + stampW <= cols
+        jx.buttons_inline !== false && lay.rows.length === 1 && cells(lay.rows[0].text) + relayCells(relay, lay.relay, jc) + cells(jc.sep) + fitted.width + stampW + briefW <= cols
       const l2 = jc.line2.length ? fitLine(jc.line2, facts, jc, cols) : undefined
       // Traffic light on the mini bar and the % (ok green, warn orange, bad red); label words grey (Julian, 21 Oct).
       const toneOf = (t?: Field['tone']) => (t === 'ok' || t === 'warn' || t === 'bad' ? { color: c.colors[t] ?? t } : t === 'dim' ? { dimColor: true } : {})
@@ -811,6 +882,7 @@ export const register: Register = (on, raw) => {
         const [head, ...rest] = cv.rows
         const summaryW = cells(segsText(head.segs)) + cv.reserve
         const inlineButtons = jx.buttons_inline !== false && summaryW + cells(jc.sep) + fitted.width + stampW <= cols
+        const inlineBrief = briefEls.length > 0 && summaryW + (inlineButtons ? cells(jc.sep) + fitted.width + stampW : 0) + 2 + briefW <= cols
         let relayC: any[] = []
         if (relay && c.handoff && cv.relay !== 'none') {
           const lc = await read($, launcherAtom)
@@ -840,8 +912,19 @@ export const register: Register = (on, raw) => {
                 {buttonEls}
               </Box>
             ) : null}
+            {inlineBrief ? (
+              <Box key="clar-brief-inline" flexDirection="row" flexShrink={0} marginLeft={2} columnGap={1}>
+                {briefEls}
+              </Box>
+            ) : null}
           </Box>
         )
+        const briefRow =
+          briefEls.length && !inlineBrief ? (
+            <Box key="clar-brief-row" flexDirection="row" flexWrap="wrap" columnGap={1}>
+              {briefEls}
+            </Box>
+          ) : null
         const body: any[] = []
         for (const r of rest) {
           // with the buttons on the summary line the Mods section (and its blank line) is left out
@@ -869,6 +952,7 @@ export const register: Register = (on, raw) => {
         return (
           <Box flexDirection="column">
             {summary}
+            {briefRow}
             {body}
             {keepOthers ? (theirs ?? null) : null}
           </Box>
@@ -907,7 +991,7 @@ export const register: Register = (on, raw) => {
       if (inline) {
         return (
           <Box flexDirection="column">
-            {rowEls([...relayEls, ...buttonEls])}
+            {rowEls([...relayEls, ...buttonEls, ...briefEls])}
             {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
             {ecEls}
             {keepOthers ? (theirs ?? null) : null}
@@ -921,6 +1005,7 @@ export const register: Register = (on, raw) => {
           {ecEls}
           <Box key="jauge-buttons" flexDirection="row" flexWrap="nowrap" gap={1}>
             {buttonEls}
+            {briefEls}
           </Box>
           {keepOthers ? (theirs ?? null) : null}
         </Box>

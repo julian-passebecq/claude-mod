@@ -6,7 +6,7 @@
     "ci": ["util.mjs", "estimate.mjs", "gantt.mjs", "runner.mjs"],
     "cockpit": ["util.mjs", "transcripts.mjs", "codex.mjs", "prices.json", "sessions.mjs", "usage.mjs", "veille.mjs", "waiting.mjs", "runner.mjs", "mods.mjs", "health.mjs", "estimate.mjs", "gantt.mjs", "activity.mjs"],
     "control": ["util.mjs", "mods.mjs"],
-    "export-eta": ["util.mjs", "sessions.mjs", "health.mjs", "veille.mjs", "usage.mjs", "runner.mjs", "mods.mjs", "estimate.mjs"],
+    "export-eta": ["util.mjs", "sessions.mjs", "health.mjs", "veille.mjs", "usage.mjs", "runner.mjs", "mods.mjs", "estimate.mjs", "running.mjs"],
     "factory": ["util.mjs", "sessions.mjs", "estimate.mjs", "gantt.mjs", "runner.mjs", "health.mjs", "usage.mjs"],
     "guide": ["util.mjs", "mods.mjs"],
     "machine": ["util.mjs", "runner.mjs"],

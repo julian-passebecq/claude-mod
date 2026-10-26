@@ -66,6 +66,23 @@
     "questions_tail_lines": 300,
     "tests_apps": 80
   },
+  "brief": {
+    "_doc": "Brief pour une autre IA (boutons « Export conv » / « Export + enfants » du bandeau, /export-eta brief [enfants]) : UN fichier Markdown masqué sous dir, copié dans le presse-papiers, sans modèle ni PR. Ordre : ce qu'est la conversation, où on en est / suite (dernier récap de fin de tour, liste de tâches), ETA en direct (PR/MR ouvertes et leurs checks, Workflows et agents en cours, estimation lib/core/estimate.mjs), git, GitHub / GitLab, puis la conversation (messages de Julian en entier, textes de Claude, un appel d'outil par ligne → ok / erreur). Avec enfants : une section par sous-conversation (lien spawnedFrom de l'app), récursif jusqu'à max_depth. Au-delà de max_chars_per_conv, les messages les plus anciens d'une conversation sont omis (l'en-tête et les plus récents restent) avec une note. clipboard : auto (PowerShell Set-Clipboard sous Windows, pbcopy, wl-copy, xclip), off, ou une commande [\"prog\", \"arg\", \"{file}\"]. Un secret non masquable reste dans le fichier local et n'est jamais copié. forge false : pas d'appel gh / glab. labels : tous les titres et mots du brief (voir lib/brief.mjs BRIEF_LABELS).",
+    "dir": "~/.claude/export-eta/briefs",
+    "file": "{day}-{slug}.md",
+    "file_children": "{day}-{slug}-avec-enfants.md",
+    "max_chars_per_conv": 60000,
+    "max_depth": 5,
+    "live_s": 120,
+    "clipboard": "auto",
+    "git_commits": 10,
+    "git_files": 30,
+    "git_bases": ["origin/main", "origin/master"],
+    "prs_max": 15,
+    "forge": true,
+    "timeout_s": 20,
+    "labels": {}
+  },
   "pane": {
     "refresh_s": 300,
     "max_rows": 40,

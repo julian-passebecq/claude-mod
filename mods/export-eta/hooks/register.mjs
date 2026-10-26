@@ -135,10 +135,26 @@ function viewModel() {
   }
 }
 
+// /export-eta brief [enfants]: the brief for another AI of THIS conversation (exporter/brief.mjs), file + clipboard,
+// no pane, no PR. The band's buttons run the same script directly (no wait for the turn to end).
+async function exportBrief($, children) {
+  const node = (D.cfg && D.cfg.node) || 'node'
+  let session = ''
+  try { session = await $.session.id() } catch { /* no session */ }
+  try { $.ui.toast(children ? 'Brief (avec enfants) en cours…' : 'Brief en cours…') } catch { /* no toast */ }
+  try {
+    const r = await $.process.run([node, root($) + '/exporter/brief.mjs', 'run', '--session', session, ...(children ? ['--children'] : [])], { timeoutMs: 300000 })
+    $.ui.toast(((r.stdout || r.stderr || '').trim().split('\n').pop() || `exit ${r.exitCode}`).slice(0, 300))
+  } catch (err) {
+    $.ui.toast(`Brief échoué : ${String(err && err.message ? err.message : err).slice(0, 200)}`)
+  }
+}
+
 async function onCommand($, e) {
   await load($)
   const v = String(e.args || '').trim().toLowerCase()
   if (v === 'close') { await $.ui.close({ id: PANE }); return {} }
+  if (v === 'brief' || v === 'brief enfants' || v === 'brief children') { void exportBrief($, v !== 'brief'); return {} }
   if (v === 'tout' || v === 'all') { void exportTout($); return {} }
   await $.ui.open({ id: PANE, title: (D.cfg.labels || {}).pane_title || 'Export eta', focus: true, closeOnEscape: true })
   if (v === 'en-cours' || v === 'ongoing') { D.tab = 'history'; void runMode($, 'ongoing') }
@@ -157,7 +173,7 @@ export function register(on) {
         await $.command.register({
           name, immediate: true,
           description: 'Export eta : exporte les conversations (en cours, sélection, lot terminé) en Markdown masqué vers le dépôt eta, par PR',
-          argumentHint: 'en-cours | lot | tout | close',
+          argumentHint: 'en-cours | lot | tout | brief [enfants] | close',
         })
       } catch { /* /export may clash with a built-in: /export-eta stays */ }
     }

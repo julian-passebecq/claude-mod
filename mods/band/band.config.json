@@ -255,6 +255,26 @@
     "history_n": 3,
     "preview_chars": 12000
   },
+  "export_brief": {
+    "_doc": "Brief pour une autre IA, sur la ligne de la Jauge : « Export conv » écrit UN fichier Markdown masqué sur cette conversation (ce qu'elle est, où on en est / suite, ETA en direct, git, PR/MR, messages et actions) et le copie dans le presse-papiers ; « Export + enfants » (seulement quand l'app lui connaît des sous-conversations, leur nombre en {n}) y ajoute chaque sous-conversation. buttons : libellés et ordre (id conv ou tree ; count : suffixe du bouton tree). Lance script (exporter/brief.mjs du mod export-eta, relatif au dossier de band) directement, sans attendre la fin du tour de Claude, sans modèle ni PR ; réglages du brief dans export-eta.config.json (brief). refresh_s : intervalle de relecture du nombre d'enfants. when_missing : hide (boutons absents si le script manque) ou grey.",
+    "enabled": true,
+    "script": "../export-eta/exporter/brief.mjs",
+    "buttons": [
+      { "id": "conv", "label": "Export conv" },
+      { "id": "tree", "label": "Export + enfants", "count": " +{n}" }
+    ],
+    "refresh_s": 60,
+    "timeout_s": 300,
+    "when_missing": "hide",
+    "labels": {
+      "busy": "export…",
+      "started": "Brief en cours…",
+      "started_tree": "Brief avec {n} sous-conversation(s) en cours…",
+      "done": "{line}",
+      "failed": "Brief échoué : {error}",
+      "missing": "mod export-eta introuvable ({script}) : ajouter mods/export-eta à côté de mods/band"
+    }
+  },
   "context": {
     "window_fallback": 200000,
     "_autocompact_pct_fallback": "used only when the engine gives no autoCompactThreshold",

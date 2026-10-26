@@ -20,7 +20,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
 
 // opts.julian / opts.todo: the counters the scanner computed with lib/core/veille.mjs (view.waiting); opts.config: the
 // person's own settings file (userConfig 'config') at C:/Users/me/band.json.
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown; layout?: 'clarity' | 'line' } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown; layout?: 'clarity' | 'line'; brief?: { children: number; runs: string[][] } } = {}) {
   const tokens = opts.tokens ?? 164000
   const clock = mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -50,6 +50,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
     throw new Error('ENOENT')
   })
   on('fs.stat', ($: any, e: any) => {
+    if (opts.brief && String(e.path).replace(/\\/g, '/').endsWith('/export-eta/exporter/brief.mjs')) return { value: { kind: 'file', size: 9000, mtimeMs: NOW, isLink: false } }
     if (opts.resume && String(e.path).replace(/\\/g, '/') === 'C:/code/app/handoff/RESUME.md') {
       return { value: { kind: 'file', size: 40, mtimeMs: NOW - 3 * 3600000, isLink: false } }
     }
@@ -57,7 +58,11 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   })
   // scanner/encours.mjs (the « en cours » rows) answers opts.encours, else nothing runs; runs lists scan.mjs only
   on('process.run', ($: any, e: any) =>
-    /encours.mjs$/.test(String(e.argv[1]))
+    /brief\.mjs$/.test(String(e.argv[1]))
+      ? e.argv[2] === 'info'
+        ? { value: { exitCode: 0, stdout: JSON.stringify({ found: true, children: opts.brief?.children ?? 0 }), stderr: '' } }
+        : (opts.brief?.runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify({ ok: true, line: 'Brief : C:/Users/me/.claude/export-eta/briefs/x.md · copié' }), stderr: '' } })
+      : /encours.mjs$/.test(String(e.argv[1]))
       ? { value: { exitCode: 0, stdout: JSON.stringify(opts.encours ?? { workflows: [], agents: [] }), stderr: '' } }
       : (runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify(view), stderr: '' } }),
   )
@@ -766,3 +771,39 @@ for (const cols of [40, 60, 90]) {
     await open.unmount()
   })
 }
+
+// « Export conv » / « Export + enfants » (export_brief, Julian 26 Oct): drawn only when export-eta's script is found; the
+// tree button only with children (« +3 »); a press runs the script directly (no wait for the turn) and toasts its line.
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`export brief: both buttons with 3 children, a press runs brief.mjs --children and toasts the file (${surface})`, async ($, on) => {
+    const runs: string[][] = []
+    const toasts: string[] = []
+    world(on, { ...CL, brief: { children: 3, runs } })
+    on('command.list', () => ({ value: FIVE_CMDS }))
+    on('ui.toast', ($: any, e: any) => (toasts.push(String(e.text)), { value: undefined }))
+    await $.command.run({ command: 'jauge', args: '' } as any)
+    const band = await mountAt($, surface, 200)
+    expect(await band.find({ type: 'Button', text: 'Export conv' })).toBeDefined()
+    expect(await band.find({ type: 'Button', text: 'Export + enfants +3' })).toBeDefined()
+    await band.press({ key: 'brief-tree' })
+    expect(runs.length).toBe(1)
+    expect(runs[0].slice(2)).toEqual(['run', '--session', 'me', '--cwd', 'C:/code/app/.claude/worktrees/band', '--json', '--children'])
+    expect(toasts).toContain('Brief avec 3 sous-conversation(s) en cours…')
+    expect(toasts.at(-1)).toBe('Brief : C:/Users/me/.claude/export-eta/briefs/x.md · copié')
+    await band.unmount()
+  })
+}
+
+test('export brief: no children → only « Export conv »; at 60 columns the buttons get a row of their own', async ($, on) => {
+  const runs: string[][] = []
+  world(on, { ...CL, brief: { children: 0, runs } })
+  on('command.list', () => ({ value: FIVE_CMDS }))
+  await $.command.run({ command: 'jauge', args: '' } as any)
+  const band = await mountAt($, 'terminal', 60)
+  expect(await band.find({ type: 'Button', text: 'Export conv' })).toBeDefined()
+  expect(await band.find({ type: 'Button', text: /enfants/ })).toBeUndefined()
+  expect(await band.find({ type: 'Box', key: 'clar-brief-row' })).toBeDefined()
+  await band.press({ key: 'brief-conv' })
+  expect(runs[0].includes('--children')).toBe(false)
+  await band.unmount()
+})
