@@ -52,3 +52,13 @@ Files: `mods/cockpit` only (and this report).
   `glance.decisions` nothing changes here. One patch if they ever differ: none needed in the mod.
 - Critical strip: drawn from fixtures only until the hub publishes a critical row (another lane).
 - `option_notes` are carried on the buttons but only `why` is drawn (narrow pane; « more » shows all notes on the page).
+
+## Installed (12 Nov 21:17Z, after #88 merged as b235088)
+- First run of `deploy-fleet.sh` queued nothing: `herdq add` is refused over plain ssh (hub hardening, by design). The
+  script now sends through `herdq submit job msi` (the Cockpit's own narrow path: worker machines, default timeout,
+  30 per hour); the gate is not worked around.
+- msi: main checkout fast-forwarded to b235088. Hub tarball sha256 7e5efbfe… checked on the hub and on arrival.
+- imac (job 494): checkout 99e366a -> b235088 (it had missed #87: I145 seen), cockpit 0.8.3, validate passed, /fleet
+  answered by band+cockpit. msiold (job 495) and mbp (job 496): cockpit 0.8.3 from the tarball, old copy kept in
+  `~/.claude/mods-backup`, validate passed, /fleet answered by cockpit. (`fleet_exit=-1` on Windows = the output pipe
+  was closed after three lines by `Select-Object -First 3`; the lines are there.)
