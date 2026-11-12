@@ -51,6 +51,21 @@ critical strip (UX rule 20) sits above both blocks when the page data has one (`
 `glance.problems` of severity critical), and is not repeated under Problems now. This laptop lists only this
 machine's to-dos.
 
+**First glance (12 Nov, fifth review, 0.8.4)**: one story appears once. A step of This laptop that is a decision row, or
+that a decision row covers (`glance.decisions.rows[].uid` / `covers`, read as published), is shown only as the
+decision under Needs you now; This laptop keeps the other steps and says « 2 more are decisions below » (or « All 10
+steps here are decisions below »); urgent to-dos elsewhere are counted the same way. A decision row at 50 columns: the
+title on `title_lines` (2) lines, one dimmed line « organization: why », the recommended answer button and « more »
+(the page at that row), and under it « → what it does » in `effect_words` (7) words (the first clause of the
+option's note, `option_notes` or `notes`). Five rows (`global_max`), then one row of links: « show all N », « N more
+wait on you without blocking work », « N decided for you » (`decisions.decided_for_you`). The critical strip: « !
+critical · <what is stopped> » on two lines at most, then the action and where (organization): a row whose story is a
+decision (its `uid`, or the to-do the hub files for its alert `key`: « in:provision:x » -> « todo:alert-in-provision-x
+») carries that decision's recommended answer and the decision is not repeated below; another row « Open <module> »
+(its `link`). To keep the pane near one screen: the views, refresh and age on top, the workspace folded to « All · N
+more › », the tile's reasons on two lines, the fleet sentence on one, the quota on two, and « Open in Cockpit ·
+modules › » on one line (unfolds the module buttons).
+
 **Deploy after each merge** (I145): `bash mods/cockpit/scripts/deploy-fleet.sh` on the MSI, Git Bash. It fast-forwards
 the MSI main checkout, puts a tarball of origin/main's `mods/cockpit` on the hub (sha256 checked), queues one herdq
 job per machine (`scripts/deploy/imac.ps1`: fast-forward of its checkout; `msiold.ps1`, `mbp.sh`: copy into

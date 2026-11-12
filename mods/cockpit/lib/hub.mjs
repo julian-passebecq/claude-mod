@@ -42,8 +42,10 @@ export const HUB_DEFAULTS = {
   // the Global block shows about this many rows (Needs you now first, then Problems now), then « show all N » and
   // « Open in Cockpit » (UX rule 3; 50 columns = about one screen)
   global_max: 5,
-  // a row's title is cut to this many lines of the pane's width (the full title is one click away in the page)
-  title_lines: 1,
+  // a row's title wraps to this many lines of the pane's width (the full title is one click away in the page)
+  title_lines: 2,
+  // the recommended answer's button says what it does in at most this many words (the first clause of its note)
+  effect_words: 7,
   todo: { max: 3, urgent_prio: 8, tag_re: '^\\s*\\[([^\\]]{1,24})\\]\\s*' },
   // one clock everywhere: zone "local" (this computer) or "utc"; hour12 false = « 19:22 »
   time: { zone: 'local', hour12: false },
@@ -104,6 +106,18 @@ export const HUB_DEFAULTS = {
     waiting_more: '{n} more wait on you without blocking work',
     // a row's « more »: opens the Cockpit page at that row (#r-<uid>), where every option and its effect is shown
     more_row: 'more',
+    // This laptop keeps only the steps that are not already a decision row (one story, one place: the decision)
+    todo_as_decisions: '{n} more are decisions below',
+    todo_all_decisions: 'All {n} steps here are decisions below',
+    // the critical strip: severity word, where (organization), the action link to the page's module
+    crit_sev: 'critical',
+    crit_open: 'Open {module}',
+    decided_for_you: '{n} decided for you',
+    // the line under the recommended answer: what it does, in a few words
+    effect: '→ {effect}',
+    ws_more: '{n} more ›',
+    ws_less: 'less',
+    open_modules: 'modules ›',
     // the strip above both blocks when the page data has critical problems (UX rule 20: work is stopped)
     critical: 'Critical: work is stopped',
     more_answers: 'more',
@@ -398,11 +412,17 @@ export function decisionButtons(r) {
   const opts = arr(row.options).filter((o) => o && o.key !== undefined && o.key !== null)
   const keys = new Set(opts.map((o) => str(o.key)))
   const recKey = row.rec_key ? str(row.rec_key) : keys.has(str(row.recommended)) ? str(row.recommended) : ''
-  const notes = obj(row.option_notes)
+  const notes = obj(row.option_notes || row.notes)
   const synth = row.answer === 'decide'
   const out = opts.map((o) => ({ key: str(o.key), label: str(o.label), rec: str(o.key) === recKey, note: str(notes[str(o.key)] || ''), ...(synth ? { synth: true } : {}) }))
   if (!synth && recKey === 'rec' && str(row.recommended)) out.unshift({ key: 'rec', label: str(row.recommended), rec: true, note: '' })
   return out.sort((a, b) => Number(b.rec) - Number(a.rec))
+}
+// What an answer does, in a few words: the first clause of its note (« Turns on GitLab two-factor »), at most n words.
+export function fewWords(note, n = 5) {
+  const t = str(note).trim().split(/[.;:,(]|\s[-–—]\s/)[0].trim()
+  const w = t.split(/\s+/).filter(Boolean)
+  return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' ')
 }
 export const buttonLabel = (a) => (a.key === 'rec' || a.synth ? a.label : `${a.key}) ${a.label}`)
 
@@ -431,12 +451,19 @@ export function coversOfUids(uids, lab) {
 
 // The critical strip (UX rule 20: work is stopped), read when the page data has one: glance.critical as a list or
 // {rows | items}, else glance.problems rows of severity critical. Each row: its text, organization, id and page link.
+// The uids a critical row can be as a decision: its own uid, and the to-do the hub files for an alert key
+// (« in:provision:login-mbp-glab » -> « todo:alert-in-provision-login-mbp-glab », as « issue:I90 » -> « todo:alert-issue-i90 »).
+export function criticalUids(r) {
+  const x = obj(r)
+  return [str(x.uid), x.key ? 'todo:alert-' + str(x.key).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : ''].filter(Boolean)
+}
 export function criticalRows(G, org, orgLabel, isFleet) {
   const g = obj(G)
   const src = Array.isArray(g.critical) ? g.critical : g.critical ? arr(obj(g.critical).rows || obj(g.critical).items) : arr(g.problems).filter((r) => r && str(r.severity).toLowerCase() === 'critical')
   return src.filter((r) => r && (r.text || r.title)).filter((r) => (!org ? true : r.org ? r.org === org : isFleet)).map((r) => ({
     text: str(r.text || r.title), id: str(r.id || ''), org: str(r.org || ''), orgLabel: r.org ? orgLabel(str(r.org)) : '',
     why: str(r.why || ''), link: str(r.link || '').replace(/^#/, '') || (r.uid ? 'r-' + uidKey(r.uid) : 'overview'),
+    uid: str(r.uid || ''), key: str(r.key || ''), severity: str(r.severity || 'critical').toLowerCase(), kind: str(r.kind || ''),
   }))
 }
 
@@ -521,6 +548,25 @@ export function hubModel(local, data, cfg, opts = {}) {
   }
   const orgLab = (o) => str((m.orgs.find((x) => x.id === o) || {}).label || o)
   m.critical = criticalRows(G, org, orgLab, isFleetWs(D, org))
+  if (dg) {
+    // one story, one place (review 5, MAJOR 1): a step that is a decision row (or one a decision covers) shows once, as
+    // the decision under Needs you now; This laptop keeps the other steps and says how many went there
+    const isDecision = (t) => Boolean(dg.storyOf('todo:' + t.id))
+    const kept = m.laptop.todos.filter((t) => !isDecision(t))
+    m.laptop.asDecisions = m.laptop.todos.length - kept.length
+    m.laptop.todos = kept
+    m.global.urgentElsewhere = m.todo.urgentElsewhere.filter((t) => !isDecision(t)).length
+    // a critical row whose story is a decision carries that decision (its recommended answer is the action), and the
+    // decision is not repeated under Needs you now
+    const deflt = str(obj(inbox).default_org || 'fleet')
+    for (const r of m.critical) {
+      r.where = r.orgLabel || orgLab(deflt)
+      const d = criticalUids(r).map((u) => dg.storyOf(u)).find(Boolean)
+      if (d) { r.decision = d; if (!r.where) r.where = d.orgLabel }
+    }
+    const onStrip = new Set(m.critical.filter((r) => r.decision).map((r) => r.decision.uid))
+    if (onStrip.size) m.global.you = m.global.you.filter((q) => !onStrip.has(q.uid))
+  } else for (const r of m.critical) r.where = r.orgLabel
   // one problem, one place (UX rule 13): a critical row on the strip is not repeated under Problems now
   if (m.critical.length && Array.isArray(m.global.errors)) {
     const onStrip = new Set(m.critical.map((r) => localize(r.text, now, c)))
@@ -913,7 +959,7 @@ function decisionsGlobal(D, G, c, org, inbox, answered, now) {
     nNow = blocking.length
     nWait = rows.length - blocking.length
   }
-  const you = top.filter(Boolean).map((r) => {
+  const toRow = (r) => {
     const it = obj(items.get(str(r.uid)))
     const answers = decisionButtons(r)
     const meta = [str(it.app_label || ''), !org && r.org ? orgLabel(str(r.org)) : '', str(urgW[str(r.urgency)] || r.urgency || ''), coversOfUids(r.covers, lab),
@@ -924,10 +970,22 @@ function decisionsGlobal(D, G, c, org, inbox, answered, now) {
       tone: r.urgency === 'now' ? 'bad' : 'warn', answers, decide: r.answer === 'decide', row: r,
       question: r.answer !== 'decide', rec: str(r.recommended || ''), why: str(r.why || ''), owner: str(r.owner || ''),
       url: rowUrl(c.base, r.uid), sent: answered[str(r.uid)] || null,
+      effect: (() => { const a = answers.find((x) => x.rec); return a ? fewWords(a.note, Number(c.effect_words) || 5) : '' })(),
     }
-  })
+  }
+  const you = top.filter(Boolean).map(toRow)
+  // every decision row of this view (not only the top ones) and what it covers: a story that is a decision is shown
+  // once, as the decision (This laptop drops those steps; a critical row that is one carries its button)
+  const viewRows = arr(dec.rows).filter((r) => r && r.uid && rowIn(D, org, r))
+  const storyOf = new Map()
+  for (const r of viewRows) for (const u of [str(r.uid), ...arr(r.covers).map(str)]) if (!storyOf.has(u)) storyOf.set(u, r)
+  const dfy = Array.isArray(dec.decided_for_you) ? dec.decided_for_you.filter((r) => r && rowIn(D, org, r)).length : num(obj(dec.counts).decided_for_you) || 0
   const youCount = nNow ? fill(nNow === 1 ? lab.you_count_dec_1 : lab.you_count_dec, { n: nNow, at: T(inbox.generated_ts || G.generated_ts) }) : ''
-  return { you, youTotal: nNow, youAll: nNow + nWait, youCount, waiting: nWait, waitingLine: nWait ? fill(lab.waiting_more, { n: nWait }) : '', decisions: true }
+  return {
+    you, youTotal: nNow, youAll: nNow + nWait, youCount, waiting: nWait, waitingLine: nWait ? fill(lab.waiting_more, { n: nWait }) : '', decisions: true,
+    decidedForYou: dfy, decidedLine: dfy ? fill(lab.decided_for_you, { n: dfy }) : '',
+    storyOf: (uid) => { const r = storyOf.get(str(uid)); return r ? toRow(r) : null },
+  }
 }
 
 // One « Needs you now » row: the plain title first, the meta line in plain words with the id small at the end,
@@ -1006,7 +1064,11 @@ export function summaryText(m, cfg) {
   // the critical strip on top (UX rule 20), when the page data has one
   if (arr(m.critical).length) {
     lines.push(`!! ${W.critical}`)
-    for (const r of m.critical) lines.push(`   ! ${r.text}${[r.orgLabel, r.id].filter(Boolean).length ? ` (${[r.orgLabel, r.id].filter(Boolean).join(' · ')})` : ''}`)
+    for (const r of m.critical) {
+      lines.push(`   ! ${r.text}${[r.orgLabel, r.id].filter(Boolean).length ? ` (${[r.orgLabel, r.id].filter(Boolean).join(' · ')})` : ''}`)
+      const rec = r.decision && r.decision.answers.find((a) => a.rec)
+      if (rec) lines.push(`     [${buttonLabel(rec)} · ${W.recommended}] [${W.more_row}] ${r.decision.url}`)
+    }
   }
   lines.push(`${fill(W.laptop, { machine: m.label })} (${fill(W.pulled, { ago: m.pulled, built: m.built || '?' })}${m.hubError ? `; ${m.hubError}` : ''})`)
   if (m.stale) lines.push(`! ${m.stale}`)
@@ -1014,10 +1076,11 @@ export function summaryText(m, cfg) {
   lines.push(`  ${P.line} · ${P.temp.text}${P.agents ? ' · ' + P.agents : ''}`)
   for (const w of P.warn) lines.push(`  ! ${w.text}`)
   lines.push(`  ${W.working}: ${P.work.length ? P.work.map((w) => w.text).join('; ') : W.working_none}`)
-  lines.push(`  ${fill(W.todo_here, { n: P.todos.length })}`)
-  if (!P.todos.length) lines.push(`    ${W.todo_none}`)
+  if (P.todos.length) lines.push(`  ${fill(W.todo_here, { n: P.todos.length })}`)
+  else lines.push(`  ${P.asDecisions ? fill(W.todo_all_decisions, { n: P.asDecisions }) : W.todo_none}`)
   for (const t of P.todos.slice(0, tmax)) lines.push(`    ${t.urgent ? '!' : '*'} ${t.title}${t.marked ? ` (${W.marked})` : t.pending ? ` (${W.pending})` : ''}`)
   if (P.todos.length > tmax) lines.push(`    ${fill(W.show_all, { n: P.todos.length })}: ${moduleUrl(m.base, 'todo')}`)
+  if (P.todos.length && P.asDecisions) lines.push(`    ${fill(W.todo_as_decisions, { n: P.asDecisions })}`)
   lines.push(`${W.global}${m.org ? ` (${(m.orgs.find((o) => o.id === m.org) || {}).label || m.org})` : ''}`)
   if (G.fleetLine) lines.push(`  ${G.fleetLine}`)
   if (G.quota) lines.push(`  ${G.quota.tone === 'bad' ? '!' : '*'} ${G.quota.text}${G.quota.covers.length ? ` · ${fill(W.covers, { list: G.quota.covers.join(', ') })}` : ''}`)
