@@ -151,7 +151,8 @@ test('runnerBackends + workflowsLive: core runner load in the Système shape; on
 
 const noop = () => {}
 const ACT = { tab: noop, crumb: noop, select: noop, refresh: noop, filter: noop, toggle: noop, files: noop, machine: noop, card: noop, go: noop, jfilter: noop, jproject: noop, pick: noop, wfScope: noop, wfToggle: noop }
-const NOMENU = { ...CCFG, menu: { ...CCFG.menu, position: 'off' } }
+// hub: off = this view alone; the hub tab bar above every view is tested in hub.test.mjs
+const NOMENU = { ...CCFG, menu: { ...CCFG.menu, position: 'off' }, hub: { enabled: false } }
 const VIEW = (o) => ({ cfg: NOMENU, fcfg: FCFG, scan: { sessions: [] }, nav: { level: 'mega' }, self: null, busy: false, error: '', at: NOW, columns: 60, filter: 'all',
   usage: null, veille: null, open: {}, act: ACT, ...o })
 

@@ -35,6 +35,26 @@ const convQ = opt('--conv', '')
 const agentQ = opt('--agent', '')
 const indent = opt('--indent', undefined)
 const unfold = String(opt('--open', '') || '').split(',').filter(Boolean)
+// --hub <tab> [--org <id>]: a hub tab (overview|todo|questions|fleet|quota|alerts|journal|watch|lanes) from invented
+//   fixtures (scripts/fixtures/hub.mjs); --hub-live <tab>: the same tab from this computer's local Cockpit
+//   (http://127.0.0.1:24365, read-only GETs; the output is private data: print it, never commit it)
+const hubTab = opt('--hub', '') || opt('--hub-live', '')
+if (hubTab) {
+  const live = process.argv.includes('--hub-live')
+  const { hubModel } = await import('../lib/hub.mjs')
+  const { drawHub } = await import('../hooks/hub_view.mjs')
+  const { kit } = await import('../hooks/view.mjs')
+  let local, data
+  if (live) {
+    const base = 'http://127.0.0.1:24365'
+    local = await (await fetch(base + '/local.json')).json()
+    data = await (await fetch(base + '/data.json')).json()
+  } else ({ LOCAL: local, DATA: data } = await import('./fixtures/hub.mjs'))
+  const m = hubModel(local, data, {}, { org: opt('--org', '') })
+  const noop = () => {}
+  console.log(renderText(drawHub(kit(el, {}), { cfg: {}, tab: hubTab, model: m, columns: cols, act: { hubTab: noop, panneau: noop, refresh: noop, org: noop, run: noop, done: noop } }), cols))
+  process.exit(0)
+}
 if (argv.includes('--real')) {
   // the Panneau from this PC's live data, read-only: counts only unless --show (never commit that output)
   const { printReal } = await import('./panneau_real.mjs')

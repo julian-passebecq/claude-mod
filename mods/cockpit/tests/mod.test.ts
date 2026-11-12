@@ -42,7 +42,32 @@ const GRAPHE = { rows: [GR({ cli: 'g-lead', title: 'COORD eta' }), GR({ cli: 'g-
 
 const TREE = { 'C:/code/eta': [['src', 'dir'], ['README.md', 'file']], 'C:/code/eta/src': [['main.ts', 'file']] }
 
-function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string; cockpitCfg?: unknown } = {}) {
+// the local Cockpit (herd-worker on 127.0.0.1:24365), invented: o.hub serves it, otherwise it is down
+const HUB_LOCAL = { machine: 'pc1', version: '0.4.2', now: NOW, fetched_at: NOW - 20000, hub_error: '', delivered: [{ id: 'pc1-a', nn: '01' }], marked_done: [] }
+const HUB_DATA = { schema: 'herd.cockpit/1', labels: { pc1: 'Computer one', pc2: 'Computer two' },
+  todo: { pc1: [{ id: 'pc1-a', nn: '01', title: '[security] Rotate the test key', why: ['Why it matters.'], check: { kind: 'manual', text: 'Mark done when you did it' } }], pc2: [] },
+  fleet: { herd: { machines_up: 2, jobs_running: 0, jobs_queued: 0, todo_open_total: 1, alerts_total: 0 },
+    machines: [{ id: 'pc1', label: 'Computer one', state: 'live' }, { id: 'pc2', label: 'Computer two', state: 'live' }] },
+  overview: { schema: 'herd.overview/1', you: { todos: [{ id: 'pc1-a', machine: 'pc1', title: 'Rotate the test key', prio: 9 }], questions: [], counts: { todos_open: 1 } },
+    errors: { rows: [{ kind: 'job', severity: 'high', text: 'job 14 lost on Computer two' }] }, apps: [], running: { jobs: [], lanes: [] } } }
+
+function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string; cockpitCfg?: unknown; hub?: boolean; dispatch?: number } = {}) {
+  const posts: any[] = []
+  const status: (string | undefined)[] = []
+  on('http.fetch', ($: any, e: any) => {
+    if (!o.hub) throw new Error('connection refused')
+    const res = (code: number, text: string) => ({ value: { status: code, ok: code >= 200 && code < 300, headers: {}, text } })
+    const p = new URL(e.url).pathname
+    if (e.init?.method === 'POST') {
+      posts.push({ path: p, headers: e.init.headers, body: JSON.parse(e.init.body) })
+      if (p === '/api/dispatch') return res(o.dispatch ?? 404, o.dispatch === 200 ? '{"ok":true,"job":7}' : '{"error":"no such action"}')
+      return res(200, '{"ok":true}')
+    }
+    if (p === '/local.json') return res(200, JSON.stringify(HUB_LOCAL))
+    if (p === '/data.json') return res(200, JSON.stringify(HUB_DATA))
+    return res(200, '<meta name="cockpit-token" content="tok0123456789abcd">')
+  })
+  on('ui.status', ($: any, e: any) => { status.push(e.text); return { value: undefined } })
   const opened: string[] = []
   const ran: unknown[] = []
   const scans: string[] = []
@@ -88,7 +113,7 @@ function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?
   on('ui.panes', () => ({ value: [{ id: 'cockpit', title: 'Cockpit', isShown: true, isFocused: false, isPlaced: true }] }))
   on('command.run', ($: any, e: any) => { ran.push(e); return { value: {} } })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
-  return { opened, ran, scans, argvs, registered }
+  return { opened, ran, scans, argvs, registered, posts, status }
 }
 
 const PANE = { title: 'Cockpit', isFocused: true, bodyColumns: 75, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} }
@@ -507,4 +532,69 @@ test('Panneau: another conversation’s details unfold under its row on a click 
   await ui.press({ plugin: 'cockpit', key: open.key })
   for (let i = 0; i < 20 && !w.argvs.some((a) => a.join(' ').includes('local_child')); i++) await new Promise((r) => setTimeout(r, 25))
   expect(w.argvs.some((a) => a.join(' ').includes('claude://claude.ai/epitaxy/local_child'))).toBe(true)
+})
+
+// ---- the hub tabs (local Cockpit data) -----------------------------------------------------------------------------
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`hub tabs: Overview, the tab bar switches to To do and Fleet; Mark done posts with the page token (${surface})`, async ($, on) => {
+    const w = world(on, { hub: true })
+    on('session.start', ($: any, e: any) => e)
+    await $.session.start({ cwd: 'C:/code/eta', surface, isInteractive: true } as any)
+    await $.command.run({ command: 'cockpit', args: 'overview' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
+    expect(await has(ui, /job 14 lost on Computer two/)).toBe(true)
+    expect(await ui.find({ key: 'hubtab-panneau' })).toBeDefined()
+    await ui.press({ plugin: 'cockpit', key: 'hubtab-todo' })
+    expect(await has(ui, /Rotate the test key/)).toBe(true)
+    expect(await has(ui, /\[security\]/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'done-pc1-a' })
+    const p = w.posts.find((x) => x.path === '/api/done')
+    expect(p?.body).toEqual({ id: 'pc1-a' })
+    expect(p?.headers['X-Cockpit-Token']).toBe('tok0123456789abcd')
+    expect(p?.headers.Origin).toBe('http://127.0.0.1:24365')
+    await ui.press({ plugin: 'cockpit', key: 'hubtab-fleet' })
+    expect(await has(ui, /2 machines up/)).toBe(true)
+    expect(w.status).toContain('Fleet: 1 to do')
+    await ui.unmount()
+  })
+}
+
+test('hub: /fleet, /dispatch, /todo are registered when no loaded mod has them, and answer', async ($, on) => {
+  const w = world(on, { hub: true, clock: false })
+  const clock = mock.clock(on, { now: NOW } as any)
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/eta', surface: 'terminal', isInteractive: true } as any)
+  await (clock as any).advance(5000)
+  expect(w.registered).toContain('fleet')
+  expect(w.registered).toContain('dispatch')
+  expect(w.registered).toContain('todo')
+  const f = await $.command.run({ command: 'fleet', args: '' } as any)
+  expect((f as any).text).toMatch(/Fleet on Computer one: 1 to-do here/)
+  const d = await $.command.run({ command: 'dispatch', args: 'pc2 run the backup' } as any)
+  expect((d as any).text).toMatch(/not available yet/)
+  expect(w.posts.find((x) => x.path === '/api/dispatch')?.body).toEqual({ machine: 'pc2', text: 'run the backup' })
+  const bad = await $.command.run({ command: 'todo', args: 'pc9 hello' } as any)
+  expect((bad as any).text).toMatch(/unknown machine "pc9"/)
+})
+
+test('hub: a loaded Fleet mod keeps /fleet (cockpit does not register it again)', async ($, on) => {
+  const w = world(on, { hub: true, clock: false, commands: [{ name: 'cockpit', plugin: 'cockpit' }, { name: 'fleet', plugin: 'fleet' }] })
+  const clock = mock.clock(on, { now: NOW } as any)
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/eta', surface: 'terminal', isInteractive: true } as any)
+  await (clock as any).advance(5000)
+  expect(w.registered).not.toContain('fleet')
+  expect(w.registered).toContain('dispatch')
+})
+
+test('hub: the local Cockpit down shows the reason, the status line says offline', async ($, on) => {
+  const w = world(on)
+  on('session.start', ($: any, e: any) => e)
+  await $.session.start({ cwd: 'C:/code/eta', surface: 'desktop', isInteractive: true } as any)
+  await $.command.run({ command: 'cockpit', args: 'todo' } as any)
+  const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
+  expect(await has(ui, /not reachable on http:\/\/127\.0\.0\.1:24365/)).toBe(true)
+  expect(w.status).toContain('Fleet: offline')
+  await ui.unmount()
 })

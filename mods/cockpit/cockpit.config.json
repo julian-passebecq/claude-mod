@@ -42,6 +42,17 @@
       "conv"
     ]
   },
+  "_hub": "The hub tabs (12 Nov 2026: one mod, one window): Overview, To do, Questions and checks, Fleet, Quota, Alerts, Journal, Watch, Lanes, drawn from the SAME data as the local Cockpit page and the VS Code extension: herd-worker's http://127.0.0.1:24365/local.json and /data.json (loopback; lib/hub.mjs). Their tab bar sits above every view, « Conversations » last (the Panneau). start: the view the pane opens on (a hub tab id, or \"panneau\"). refresh_s: how often the local Cockpit is read (also for the status line « Fleet: N to do »; status_line false = only while a hub tab is shown). tabs.order / tabs.labels: which hub tabs, in which order, and their names. todo.urgent_prio: a to-do whose hub priority is at or above it is Urgent (first); Ongoing = marked done here or with a check already run; then this computer, then elsewhere; todo.tag_re takes a [tag] off the title. A workspace switch shows when the data carries organizations (data.organizations; items name theirs by org). Quota, Alerts, Journal, Watch and Lanes use data.quota / alerts / journal / watch / lanes when the hub adds them and derive from overview, fleet and digest otherwise. Run / Mark done and /dispatch, /todo POST to the same endpoints as the page with its Origin and per-start token. Every label in hub.labels (lib/hub.mjs HUB_DEFAULTS has them all). enabled false: no hub tabs, the Panneau again by default.",
+  "hub": {
+    "enabled": true,
+    "base": "http://127.0.0.1:24365",
+    "start": "overview",
+    "refresh_s": 60,
+    "status_line": true,
+    "tabs": { "order": ["overview", "todo", "questions", "fleet", "quota", "alerts", "journal", "watch", "lanes"] },
+    "max_rows": 8,
+    "todo": { "urgent_prio": 8, "why_lines": 2 }
+  },
   "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them. relais = Claude ↔ Codex (the ci mod's ~/.claude/ci-cache/interactions.json: who opened, fixed, merged, hand-offs, dependencies, green rate per agent); galerie = the Reference Gallery views (Équipe: lead → advisor / worker / explorer / researcher lanes and return to lead; Carte: the control layers; Codex: approvals and cost); nuit = « Bilan avant la nuit », opened by the Nuit button of the Cockpit tab (add it to order to get a tab button too).",
   "tabs": {
     "order": [
