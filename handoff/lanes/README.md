@@ -5,3 +5,4 @@ One file per lane that changed code here: what changed, how it was verified, pro
 | Date | Lane | Report |
 |---|---|---|
 | 2026-11-12 | claude-mod (Cockpit hub tabs, Fleet folded in) | [2026-11-12-claude-mod.md](2026-11-12-claude-mod.md) |
+| 2026-11-12 | mod-dispatcher (Cockpit mod trimmed to one dispatcher pane) | [2026-11-12-mod-dispatcher.md](2026-11-12-mod-dispatcher.md) |

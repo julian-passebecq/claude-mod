@@ -1,42 +1,34 @@
 # cockpit
 
-## Hub tabs (default view since 12 Nov 2026: one mod, one window)
+## Dispatcher (default view since 12 Nov 2026: one narrow pane, UX-PRINCIPLES rule 7)
 
-The pane opens on **Overview**, with one tab bar above every view: **Overview · To do · Questions and checks · Fleet ·
-Quota · Alerts · Journal · Watch · Lanes · Conversations** (Conversations = the Panneau below). The hub tabs show the
-SAME data as the local Cockpit page and the VS Code extension, so the three never disagree: herd-worker serves it on
-every laptop at `http://127.0.0.1:24365` (loopback only), `GET /local.json` (this computer: machine, delivered to-dos,
-marked done, last pull) and `GET /data.json` (the hub's `herd.cockpit/1`: labels, to-dos per machine, fleet, watch
-digest, answer sheet, overview). Read every `hub.refresh_s` (60 s); the last copy stays with its age when the worker
-or the hub is down. Code: `lib/hub.mjs` (model, pure), `hooks/hub_view.mjs` (drawing), `hooks/register.mjs` (engine glue: reads, POSTs, commands).
+The pane opens on the **dispatcher**: what needs Julian now, and a way to act on it, nothing else. The full workplace is
+the local **Cockpit page** (`http://127.0.0.1:24365`, side bar and modules); the mod does not repeat its tabs. Both read
+the SAME data (herd-worker on every laptop: `GET /local.json` this computer, `GET /data.json` the hub's
+`herd.cockpit/1`), every `hub.refresh_s` (60 s), and use the page's words (`inbox.labels`) first.
 
-| Tab | From the data |
+| Block | What it shows |
 |---|---|
-| Overview | `overview`: You (to-dos by priority, questions with the recommended answer, counts), Errors and blocks, By application (rank, ETA, next step), Running now and ETA; the hub's own labels; a stale line past `stale_after_s` |
-| To do | `todo` of every machine: **Urgent** (hub priority at or above `todo.urgent_prio`), **Ongoing** (marked done here, or a check already run), this computer, elsewhere; `[tag]` from the title, machine and `p<prio>` as tags; **Run** and **Mark done** on items delivered here |
-| Questions and checks | overview questions (severity first), the answer sheet's open rows, to-dos that close by themselves |
-| Fleet | herd line, one block per machine (state, worker, jobs, CPU, RAM, disks, to-dos, alerts, last seen), lost jobs; the send hint |
-| Quota | `data.quota` (`herd.quota/1`: provider, window, %, empties-before-reset, reset) when the hub adds it, its quota warnings, and this computer's Claude Code windows (`$.session.usage`) |
-| Alerts | `data.alerts` or the overview's errors, machine alerts, and veille's open alerts on this computer |
-| Journal | `data.journal` when present, else the dated events the data carries (runner, jobs, lost jobs, to-dos added, watch digest) |
-| Watch | the newest technology watch digest |
-| Lanes | `data.lanes` or overview lanes, running jobs with ETA, the backlog runner's last line |
+| **This laptop · <machine>** | to-dos delivered here, urgent first (marked done last) with **Run** / **Mark done**, at most `max_rows` (5) then « show all N »; state, mode, CPU, RAM, temperature (the hub's health reading when published, else the GPU sensor of the load sample, else « no sensor reading »), agent processes, warnings (hot, low disk, battery, reboot), what runs here (jobs with since / ETA or « past its ETA », lanes this machine owns) |
+| **Global** | the fleet in one line (workers busy, jobs, alerts) and one dot per machine coloured by state (grey = off or viewer, never red for normal); the page's **You: what blocks work now** list of the workspace with **one-click answers** (recommended first; the page's own send, `POST /api/todo` « Answer I90: a » to `inbox.answer_machine`, confirmed on screen and kept); errors of `error_severities` (critical, urgent); urgent to-dos on other machines; quick actions **Job or prompt to a machine…** and **To-do for Julian…** that fill the prompt with `/dispatch ` or `/todo ` (nothing is sent until the person sends it) |
+| **Open in Cockpit** | one button per page module (Overview, To do, Questions and checks, Fleet, Quota, Alerts, Journal, Watch, Lanes) opening `base/#<module>` in the browser (rundll32 URL handler on Windows, `open` on macOS, `xdg-open` elsewhere, as an argv; only the configured loopback base). Every « show all N » is such a button too. |
 
-A **workspace** row (All · one button per organization) shows when the data carries organizations (`organizations`, or
-the inbox's `inbox.orgs`, `herd.inbox/1`); items name theirs with `org` (to-dos through `inbox.todo_org`), items naming
-none show in every workspace, and an item of a confidential organization shows only in its own workspace, never under
-All. Questions and checks adds the inbox's open questions for you. Quota reads `quota.providers` as a list or a map,
-Journal shows the daily journal text (`journal.text`), Lanes reads `lanes.running` and `lanes.presence`.
-`/fleet [tab]`, `/dispatch <machine> <text>` (a herdq job) and `/todo <machine> <text>` (an item for Julian) come from
-the separate Fleet mod this replaces ([`mods/fleet`](../fleet) is now a thin redirect); Cockpit registers them only when
-no loaded mod has the name. Run, Mark done, dispatch and todo POST to the worker with the page's Origin and per-start
-token (`<meta name="cockpit-token">`); a 404 says « not available yet ». The status line reads « Fleet: N to do »
-(`hub.status_line`). Nothing blocks, rewrites or adds to a tool call or prompt. Settings under `hub` in
-`cockpit.config.json` (start view, refresh, tab order and labels, thresholds, every label); `hub.start: "panneau"` opens on
-the Panneau again, `hub.enabled: false` removes the hub tabs.
+A **workspace** row (All · one button per organization) filters both blocks the page's way: All = every
+non-confidential item; an organization = its items; a confidential organization's items show only in its own workspace.
+**Conversations** (above every view) opens the Panneau below; **Dispatcher** comes back. The nine hub tabs of #82/#83 are
+gone; their ids and words (`/cockpit fleet`, `hub.start: "overview"`) open the dispatcher.
 
-Preview: `node mods/cockpit/scripts/preview.mjs --hub <tab> --cols 60` (invented fixtures), `--hub-live <tab>` (this
-computer's local Cockpit, read-only; private output, never commit it).
+`/fleet [module]` answers the dispatcher as text (both blocks) and, with a module word, its page link; `/dispatch
+<machine> <text>` (a herdq job, kind claude by default: a prompt) and `/todo <machine> <text>` (an item for Julian) POST
+to the worker with the page's Origin and per-start token (`<meta name="cockpit-token">`); a 404 says « not available
+yet ». Cockpit registers the three only when no loaded mod has the name ([`mods/fleet`](../fleet) is a thin redirect).
+The status line reads « Fleet: N to do ». Nothing blocks, rewrites or adds to a tool call or prompt. Settings under
+`hub` in `cockpit.config.json` (start, refresh, modules order and labels, `max_rows`, `errors_max`, `error_severities`,
+`temp`, `disk_warn_pct`, every label); `hub.start: "panneau"` opens on the Panneau again, `hub.enabled: false` removes
+the dispatcher.
+
+Preview: `node mods/cockpit/scripts/preview.mjs --hub --cols 50` (invented fixtures), `--hub-live` (this computer's
+local Cockpit, read-only; private output, never commit it), `--text` for /fleet's text.
 
 ## Panneau (« Conversations »; one list since 22 Oct)
 
