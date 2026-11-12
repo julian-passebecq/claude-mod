@@ -6,7 +6,7 @@
 #   bash mods/cockpit/scripts/deploy-fleet.sh imac mbp   # only these machines
 #
 # What it does, each step printed:
-#   1. msi: the main checkout D:/PROJ/claude-mod fast-forwards to origin/main (only when it is on main; never resets).
+#   1. msi: the main checkout (the first worktree of this repo, or MAIN_CHECKOUT) fast-forwards to origin/main (only when it is on main; never resets).
 #   2. a tarball of origin/main's mods/cockpit goes to the hub (~/tmp/cockpit-deploy/cockpit-<sha>.tar), sha256 checked
 #      on both ends.
 #   3. one herdq job per machine (scripts/deploy/<machine>.ps1|.sh), sent through `herdq submit job msi` (the narrow
@@ -21,7 +21,7 @@ HUB="${HUB:-oracle-herd}"
 HERDQ="/usr/bin/python3 herdq/q.py"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
-MAIN="${MAIN_CHECKOUT:-D:/PROJ/claude-mod}"
+MAIN="${MAIN_CHECKOUT:-$(git -C "$REPO" worktree list --porcelain | sed -n "1s/^worktree //p")}"
 MACHINES=("$@")
 [ ${#MACHINES[@]} -gt 0 ] || MACHINES=(imac msiold mbp)
 

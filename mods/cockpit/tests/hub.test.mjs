@@ -4,8 +4,8 @@ process.env.TZ = 'UTC' // the one clock is local; the tests pin it
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hubModel, hubTabs, hubIdOf, tabKey, hubConfig, parseTarget, sendResult, summaryText, badgeText, tokenOf, inOrg, orgsOf, moduleOf, moduleUrl,
-  answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated, decisionButtons, decisionText, coversOfUids, rowUrl } from '../lib/hub.mjs'
-import { drawHub, hubBar } from '../hooks/hub_view.mjs'
+  answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated, decisionButtons, decisionText, coversOfUids, rowUrl, fewWords, criticalUids } from '../lib/hub.mjs'
+import { drawHub, hubBar, clipLines } from '../hooks/hub_view.mjs'
 import { kit, drawCockpit } from '../hooks/view.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
@@ -410,7 +410,8 @@ test('decisions in the pane: five rows with buttons on each (a to-do too), more,
   assert.match(text, /\[a\) 30 minutes\] \[more\]/)
   assert.match(text, /\[I will do it\] \[more\]/)
   assert.match(text, /\[Keep the plan\] \[more\]/)
-  assert.match(text, /Security · Fleet and tooling · urgent/)
+  assert.match(text, /Fleet and tooling: The keys leak while this w/)
+  assert.match(text, /→ Half an hour with you/)
   assert.match(text, /\[7 more wait on you without blocking work\]/)
   assert.doesNotMatch(text, /\[b\) later\]/)
 })
@@ -437,4 +438,76 @@ test('This laptop lists only this machine’s items', () => {
   const m = hubModel(LOCAL, d, {}, { now: NOW })
   assert.ok(m.laptop.todos.every((t) => t.machine === 'pc1'))
   assert.ok(!m.laptop.todos.some((t) => t.id === 'pc1-for-pc2'))
+})
+
+// ---- first glance (12 Nov, fifth review): one story once, decision rows readable at 50 columns ----
+
+test('one story once: a step here that is a decision row, or one a decision covers, is shown only as the decision', () => {
+  const d = structuredClone(DATA4)
+  d.todo.pc1.push({ ...d.todo.pc1[1], id: 'pc1-mail', title: 'Mail app password for the away e-mails (smtp)' })
+  d.todo.pc1.push({ ...d.todo.pc1[1], id: 'pc1-keys', title: 'Restrict the laptop keys' })
+  d.glance.decisions.rows[0].covers.push('todo:pc1-keys')
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.deepEqual(m.laptop.todos.map((t) => t.id).sort(), ['pc1-marked', 'pc1-plain', 'pc1-urgent'])
+  assert.equal(m.laptop.asDecisions, 2)
+  const text = draw(m, 50, { act: { ...ACT, more() {} } })
+  const laptop = text.slice(text.indexOf('This laptop'), text.indexOf('Global'))
+  assert.doesNotMatch(laptop, /Mail app password|Restrict the laptop keys/)
+  assert.match(laptop, /2 more are decisions below/)
+  assert.equal((text.match(/Mail app password/g) || []).length, 1)
+  // every step here a decision: one line says so
+  d.todo.pc1 = d.todo.pc1.filter((t) => ['pc1-mail', 'pc1-keys'].includes(t.id))
+  assert.match(draw(hubModel(LOCAL, d, {}, { now: NOW }), 50), /All 2 steps here are decisions below/)
+})
+
+test('decision rows at 50 columns: title on two lines, one line of why, the recommended answer and what it does, more', () => {
+  const d = structuredClone(DATA4)
+  const long = 'Security hour with you (about 30 minutes): GitLab two-factor, replace the leaked tokens, lock the hub ssh keys'
+  const extra = [1, 2, 3, 4].map((i) => ({ ...d.glance.decisions.rows[1], uid: `todo:pc1-x${i}`, id: `pc1-x${i}`, title: `Extra decision ${i}` }))
+  d.glance.decisions.rows[0] = { ...d.glance.decisions.rows[0], title: long, option_notes: undefined,
+    notes: { a: 'Turns on GitLab two-factor, replaces the tokens found in old transcripts.' }, why: 'Leaked tokens with owner rights are still valid and any stolen laptop key opens the hub.' }
+  d.glance.decisions.rows.push(...extra)
+  d.glance.decisions.top = d.glance.decisions.rows.filter((r) => r.blocks)
+  d.glance.decisions.counts.now = d.glance.decisions.top.length
+  d.glance.decisions.decided_for_you = [{ uid: 'issue:I89', org: 'tools' }]
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.equal(m.global.you[0].effect, 'Turns on GitLab two-factor')
+  const text = draw(m, 50, { act: { ...ACT, more() {} } })
+  const lines = text.split('\n')
+  const i = lines.findIndex((l) => l.includes('Security hour with you'))
+  assert.match(lines[i + 1], /GitLab two-factor, replace the leaked tokens,…/)
+  assert.match(lines[i + 2], /Fleet and tooling: Leaked tokens with owner/)
+  assert.match(lines[i + 3], /\[a\) 30 minutes\] \[more\]/)
+  assert.match(lines[i + 4], /→ Turns on GitLab two-factor/)
+  // five rows (the page's top in its order), then show all, the waiting ones and what was decided for you
+  assert.match(text, /Extra decision 2/)
+  assert.doesNotMatch(text, /Extra decision 3/)
+  assert.match(text, /\[show all 7\]/)
+  assert.match(text, /\[1 decided for you\]/)
+  assert.ok(lines.length <= 75, `${lines.length} lines`)
+})
+
+test('critical strip: severity word, what is stopped, where, and the action; a decision story carries its answer once', () => {
+  const d = structuredClone(DATA4)
+  d.glance.critical = [{ kind: 'alert', text: 'Type code X at the device page (login for pc2)', link: '#alerts', key: 'in:provision:login-pc2', org: null }]
+  let m = hubModel(LOCAL, d, {}, { now: NOW })
+  let text = draw(m, 50)
+  assert.match(text, /! critical · Type code X at the device page/)
+  assert.match(text, /\[Open Alerts\] Fleet and tooling/)
+  // the hub files that alert as a to-do the decision covers: the strip carries the decision's button, not repeated below
+  assert.deepEqual(criticalUids(d.glance.critical[0]), ['todo:alert-in-provision-login-pc2'])
+  d.glance.decisions.rows[1].covers = ['todo:alert-in-provision-login-pc2']
+  m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.equal(m.critical[0].decision.uid, 'todo:pc1-mail')
+  assert.ok(!m.global.you.some((q) => q.uid === 'todo:pc1-mail'))
+  text = draw(m, 50)
+  assert.match(text, /\[I will do it\] \[more\] Fleet and tooling/)
+  assert.equal((text.match(/I will do it/g) || []).length, 1)
+})
+
+test('fewWords and clipLines', () => {
+  assert.equal(fewWords('It stays in your To do; the work waits.', 7), 'It stays in your To do')
+  assert.equal(fewWords('You create an app password in your Google account and paste it', 5), 'You create an app password…')
+  assert.equal(clipLines('one two three four five six', 9, 2), 'one two three fo…')
+  assert.equal(clipLines('short', 20, 2), 'short')
 })

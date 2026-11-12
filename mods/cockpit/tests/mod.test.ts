@@ -561,6 +561,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await has(ui, /^Needs you now \(1\)$/)).toBe(true)
     expect(await has(ui, /job 14 lost on Computer two/)).toBe(true)
     expect(await has(ui, /^Open in Cockpit$/)).toBe(true)
+    // « Open in Cockpit » is one line; « modules › » unfolds one button per page module
+    expect(await ui.find({ key: 'open-fleet' })).toBeUndefined()
+    await ui.press({ plugin: 'cockpit', key: 'open-more' })
     await ui.press({ plugin: 'cockpit', key: 'open-fleet' })
     await (async () => { for (let i = 0; i < 20 && !w.argvs.some((x) => x.includes('http://127.0.0.1:24365/#fleet')); i++) await new Promise((r) => setTimeout(r, 10)) })()
     expect(w.argvs.find((x) => x.includes('http://127.0.0.1:24365/#fleet'))).toEqual(['xdg-open', 'http://127.0.0.1:24365/#fleet'])

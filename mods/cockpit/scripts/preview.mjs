@@ -52,7 +52,7 @@ if (argv.includes('--hub') || hubLive) {
   const m = hubModel(local, data, {}, { org: opt('--org', '') })
   const noop = () => {}
   if (argv.includes('--text')) console.log(summaryText(m, {}))
-  else console.log(renderText(drawHub(kit(el, {}), { cfg: {}, model: m, columns: cols, act: { hubTab: noop, panneau: noop, refresh: noop, org: noop, run: noop, done: noop, answer: noop, fill: noop, open: noop } }), cols))
+  else console.log(renderText(drawHub(kit(el, {}), { cfg: {}, model: m, columns: cols, act: { hubTab: noop, panneau: noop, refresh: noop, org: noop, run: noop, done: noop, answer: noop, fill: noop, open: noop, more: noop } }), cols))
   process.exit(0)
 }
 if (argv.includes('--real')) {
