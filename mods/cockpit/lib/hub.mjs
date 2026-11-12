@@ -1,24 +1,27 @@
 // The Cockpit mod's dispatcher (UX-PRINCIPLES rule 7, Julian 12 Nov 2026): ONE narrow pane, two blocks, read from the
 // SAME data as the local Cockpit page (herd-worker on every laptop, http://127.0.0.1:24365, loopback only):
 //   block 1 « This laptop »  what Julian must do here (urgent first), this machine's mode, load, temperature, current work
-//   block 2 « Global »       what blocks work in the whole fleet and every organization (the page's « You » list, with
-//                            one-click answers), errors now, one-line fleet status, quick actions (send a job or prompt,
-//                            add a to-do)
+//   block 2 « Global »       the page's « Needs you now » (related items folded into one row, one-click answers),
+//                            « Problems now » (what is not already under Needs you now; the quota as ONE row from
+//                            quota.json), the alerts count, the page's fleet sentence, quick actions
 //   « Open in Cockpit »      deep links to the page's modules (http://127.0.0.1:24365/#<module>) for anything bigger.
-// The mod never re-implements the page's full tabs.
+// The mod never re-implements the page's full tabs, and it never recomputes what the page prints: the fleet sentence,
+// machine tiles (mode, temperature, order), module list and headings are read from data.json as the page reads them.
 //   GET  /local.json   this computer: machine id, delivered to-dos, marked done, last pull from the hub
-//   GET  /data.json    the hub's cockpit data (herd.cockpit/1): labels, todo, fleet, overview, inbox (herd.inbox/1), …;
-//                      health and modes are read when a later hub lane publishes them (absent today: said so)
+//   GET  /data.json    the hub's cockpit data (herd.cockpit/1): labels, todo, fleet, fleet_view, overview, inbox,
+//                      quota, quota_mode, alerts_live, modules, page_labels, …
 //   GET  /             the page; its <meta name="cockpit-token"> is the per-start token every POST carries
 //   POST /api/run, /api/done {id}; /api/dispatch {machine, text}; /api/todo {machine, text} (also the answers, as the
 //        page sends them: « Answer I90: a » to inbox.answer_machine)
-// Pure: no `$`, no engine call. Words: the page's own (inbox.labels) first, then hub.labels (cockpit.config.json).
+// Times: ONE format on every line (hub.time: local clock, 24 h, « 19:22 » today, « Fri 13 Nov 16:02 » another day);
+// hub-written dates inside texts (« empties 2026-11-13T07:31:57Z », « since 2026-11-11 ») are formatted here too.
+// Pure: no `$`, no engine call. Words: the page's own (page_labels, inbox.labels) first, then hub.labels.
 
 // the one hub view of the pane (the dispatcher); the old tab ids still open it (configs and /cockpit words of #82/#83)
 export const HUB_TABS = ['home']
 export const LEGACY_TABS = ['overview', 'todo', 'questions', 'fleet', 'quota', 'alerts', 'journal', 'watch', 'lanes']
-// the page's modules (its view ids, its hash links)
-export const MODULES = ['overview', 'todo', 'inbox', 'fleet', 'quota', 'alerts', 'journal', 'watch', 'lanes']
+// the page's modules (its view ids, its hash links; logic.js KNOWN)
+export const MODULES = ['overview', 'inbox', 'todo', 'fleet', 'alerts', 'quota', 'dispatch', 'intake', 'lanes', 'journal', 'watch']
 export const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 export const MAX_TEXT = 2000
 const URG = ['now', 'today', 'week', 'later']
@@ -30,19 +33,26 @@ export const HUB_DEFAULTS = {
   start: 'home',
   refresh_s: 60,
   status_line: true,
-  // the « Open in Cockpit » links, in order; labels are the page's (inbox.labels.tab_<id>) unless set here
-  modules: { order: MODULES, labels: { overview: 'Overview', todo: 'To do', inbox: 'Questions and checks', fleet: 'Fleet', quota: 'Quota',
-    alerts: 'Alerts', journal: 'Journal', watch: 'Watch', lanes: 'Lanes' } },
+  // the « Open in Cockpit » links: the page's own list (data.modules) when it publishes one, else this order and labels
+  modules: { order: MODULES, labels: { overview: 'Overview', inbox: 'Questions and checks', todo: 'To do', fleet: 'Fleet', alerts: 'Alerts',
+    quota: 'Quota', dispatch: 'Dispatch plan', intake: 'My messages', lanes: 'Lanes', journal: 'Journal', watch: 'Watch' } },
   // at most this many rows in a block (UX rule 3); the rest is « show all N » in the page
   max_rows: 5,
   errors_max: 3,
-  // overview error rows shown in Global (the rest is in the page's Overview)
-  error_severities: ['critical', 'urgent'],
-  todo: { urgent_prio: 8, tag_re: '^\\s*\\[([^\\]]{1,24})\\]\\s*' },
-  severity_order: ['critical', 'urgent', 'high', 'normal', 'watch', 'low', 'info', 'ok'],
-  severity_tone: { critical: 'bad', urgent: 'bad', high: 'warn', watch: 'warn', normal: '', low: 'dim', info: 'dim', ok: 'ok' },
-  // colour = state (UX rule 4): red problem now, yellow look later, green fine, grey off or not applicable
-  state_tone: { live: 'ok', hub: 'ok', busy: 'running', viewer: 'dim', asleep: 'dim', off: 'dim', stale: 'warn', gaming: 'warn', offline: 'bad', down: 'bad' },
+  todo: { max: 3, urgent_prio: 8, tag_re: '^\\s*\\[([^\\]]{1,24})\\]\\s*' },
+  // one clock everywhere: zone "local" (this computer) or "utc"; hour12 false = « 19:22 »
+  time: { zone: 'local', hour12: false },
+  // quota: provider states that make a « Problems now » row; the quota mode that turns it yellow (Julian's choice)
+  quota: { states: ['critical', 'stop', 'high'], calm_modes: ['unlimited'], category_re: '^quota(/|$)' },
+  severity_order: ['critical', 'urgent', 'alert', 'high', 'warn', 'normal', 'watch', 'low', 'info', 'ok'],
+  severity_tone: { critical: 'bad', urgent: 'bad', alert: 'bad', high: 'warn', warn: 'warn', watch: 'warn', normal: '', low: 'dim', info: 'dim', ok: 'ok' },
+  // colour = state (UX rule 4): the page's tile colours, then the older herd states
+  colour_tone: { red: 'bad', yellow: 'warn', green: 'ok', grey: 'dim' },
+  state_tone: { on: 'ok', live: 'ok', hub: 'ok', busy: 'running', viewer: 'dim', asleep: 'dim', off: 'dim', stale: 'warn', gaming: 'warn', offline: 'bad', down: 'bad' },
+  // plain words for the register's states, owners and types (UX rule 16: no internal code as the main label)
+  state_words: { 'blocked-user': 'waits on you', 'waiting-julian': 'waits on you', 'decided-by-agent': 'decided by an agent', open: 'open', blocked: 'blocked', resolved: 'resolved' },
+  owner_words: { julian: 'waits on you', lead: 'the lead works on it', agent: 'an agent works on it' },
+  type_words: { question: 'question', issue: 'problem', todo: 'to-do', backlog: 'plan item', alert: 'alert' },
   temp: { warn_c: 85, bad_c: 95 },
   disk_warn_pct: 10,
   battery_warn_pct: 20,
@@ -59,8 +69,9 @@ export const HUB_DEFAULTS = {
     laptop: 'This laptop · {machine}',
     laptop_unknown: 'This laptop is not in the hub fleet yet ({machine}).',
     state: '{state} · mode {mode} · CPU {cpu} · RAM {ram}',
-    mode_unknown: 'not published',
+    mode_unknown: 'unknown',
     temp: 'temperature {temp}',
+    temp_max: 'max {c} °C in the last hour',
     temp_none: 'temperature: no sensor reading in the hub data',
     agents: '{n} agent processes',
     disk_low: 'disk {mount} {pct} % free',
@@ -68,7 +79,7 @@ export const HUB_DEFAULTS = {
     reboot: 'reboot pending',
     seen: 'seen {ago}',
     working: 'Working on',
-    working_none: 'Nothing running here.',
+    working_none: 'No queue job here.',
     todo_here: 'To do here ({n})',
     todo_none: 'Nothing to do here.',
     run: 'Run',
@@ -76,10 +87,28 @@ export const HUB_DEFAULTS = {
     marked: 'marked done, closes at the next hub tick',
     pending: 'reaches this computer at the next sync (about 10 minutes)',
     global: 'Global',
-    fleet_line: '{busy} of {workers} workers busy · jobs: {running} running, {queued} queued · {alerts} alerts',
-    you_block: 'You: what blocks work now',
-    you_none: 'Nothing waits on you.',
-    errors: 'Errors now',
+    fleet_at: '{sentence} (at {at})',
+    fleet_line: '{busy} of {workers} workers busy · jobs: {running} running, {queued} queued',
+    you_block: 'Needs you now',
+    you_none: 'Nothing needs you now.',
+    covers: 'covers {list}',
+    todos_n: '{n} to-do',
+    todos_n_pl: '{n} to-dos',
+    and: 'and',
+    todo_on: 'to-do on {machine}',
+    todo_on_here: 'to-do on this laptop (above)',
+    priority: 'priority {n}',
+    errors: 'Problems now',
+    errors_none: 'No problem now.',
+    covered: '{n} more are under Needs you now',
+    alerts_line: 'Alerts: {n} open, {u} urgent',
+    alerts_listed: '{n} more are listed above',
+    alerts_none: 'No open alert.',
+    quota_row: '{label} quota: {used} % used of the {window} window, empties {exhaust} at this pace (resets {reset})',
+    quota_row_ok: '{label} quota: {used} % used of the {window} window (resets {reset})',
+    quota_read: 'read {at}',
+    quota_mode: '{mode} mode until {until}',
+    quota_mode_open: '{mode} mode',
     urgent_elsewhere: '{n} urgent to-dos on other machines',
     show_all: 'show all {n}',
     recommended: 'recommended',
@@ -90,7 +119,7 @@ export const HUB_DEFAULTS = {
     actions: 'Send',
     send_job: 'Job or prompt to a machine…',
     add_todo: 'To-do for Julian…',
-    send_hint: 'Fills the prompt: /dispatch <machine> <text> or /todo <machine> <text>. Machines: {machines}',
+    send_hint: 'Fills the prompt (/dispatch or /todo <machine> <text>). Machines: {machines}',
     open: 'Open in Cockpit',
     eta: 'ETA {at}',
     eta_past: 'past its ETA {at}',
@@ -106,8 +135,14 @@ export function hubConfig(cfg) {
     ...d, ...u,
     modules: { ...d.modules, ...um, labels: { ...d.modules.labels, ...(um.labels || {}) } },
     todo: { ...d.todo, ...(u.todo || {}) },
+    time: { ...d.time, ...(u.time || {}) },
+    quota: { ...d.quota, ...(u.quota || {}) },
     severity_tone: { ...d.severity_tone, ...(u.severity_tone || {}) },
+    colour_tone: { ...d.colour_tone, ...(u.colour_tone || {}) },
     state_tone: { ...d.state_tone, ...(u.state_tone || {}) },
+    state_words: { ...d.state_words, ...(u.state_words || {}) },
+    owner_words: { ...d.owner_words, ...(u.owner_words || {}) },
+    type_words: { ...d.type_words, ...(u.type_words || {}) },
     temp: { ...d.temp, ...(u.temp || {}) },
     labels: { ...d.labels, ...(u.labels || {}) },
   }
@@ -137,7 +172,7 @@ export const hubIdOf = (tab) => {
 // A module word (« fleet », « questions », « todo »…) -> the page's view id, or '' when it names none.
 export function moduleOf(word) {
   const w = String(word || '').trim().toLowerCase()
-  const alias = { questions: 'inbox', checks: 'inbox', answers: 'inbox', 'to-do': 'todo', digest: 'watch', events: 'journal' }
+  const alias = { questions: 'inbox', checks: 'inbox', answers: 'inbox', 'to-do': 'todo', digest: 'watch', events: 'journal', plan: 'dispatch', messages: 'intake' }
   const id = alias[w] || w
   return MODULES.includes(id) ? id : ''
 }
@@ -162,18 +197,58 @@ const tsOf = (x) => {
   const t = Date.parse(str(x))
   return Number.isFinite(t) ? t : 0
 }
-// "2026-11-12T16:24:03Z" -> "12 Nov 16:24 UTC" (the hub writes UTC; the reader's clock is not assumed)
-export function when(x) {
-  const t = tsOf(x)
-  if (!t) return str(x)
+
+// ---- one clock -------------------------------------------------------------------------------------------------------
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const p2 = (n) => String(n).padStart(2, '0')
+const timeCfg = (c) => obj(c && c.time ? c.time : HUB_DEFAULTS.time)
+function partsOf(t, c) {
   const d = new Date(t)
-  const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]
-  return `${d.getUTCDate()} ${mon} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
+  return timeCfg(c).zone === 'utc'
+    ? { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), wd: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }
+    : { y: d.getFullYear(), mo: d.getMonth(), d: d.getDate(), wd: d.getDay(), h: d.getHours(), mi: d.getMinutes() }
 }
-export function hhmmUtc(t) {
-  const d = new Date(tsOf(t))
-  return Number.isFinite(d.getTime()) ? `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC` : ''
+const clockOf = (p, c) => {
+  if (!timeCfg(c).hour12) return `${p2(p.h)}:${p2(p.mi)}`
+  return `${((p.h + 11) % 12) + 1}:${p2(p.mi)} ${p.h < 12 ? 'AM' : 'PM'}`
 }
+// « 19:22 » the same day as now, « Fri 13 Nov 16:02 » another day; '' without a time
+export function at(x, now, c) {
+  const t = tsOf(x)
+  if (!t) return ''
+  const p = partsOf(t, c)
+  const n = now ? partsOf(now, c) : null
+  return n && n.y === p.y && n.mo === p.mo && n.d === p.d ? clockOf(p, c) : `${DAYS[p.wd]} ${p.d} ${MONS[p.mo]} ${clockOf(p, c)}`
+}
+// a calendar date the hub wrote without a time (« 2026-11-11 ») -> « Wed 11 Nov » (no zone shift: it is a date)
+export function dayOf(y, mo, d) {
+  const wd = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay()
+  return `${DAYS[wd]} ${Number(d)} ${MONS[Number(mo) - 1]}`
+}
+// Hub-written times inside a text, in the one format: ISO stamps, « 2026-11-12 18:00Z », bare dates, « 13 Nov 06:00 UTC »,
+// « 16:55 UTC ». Text without any is returned unchanged.
+export function localize(text, now, c) {
+  let s = str(text)
+  s = s.replace(/\b(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})(?![\w:])/g, (m, y, mo, d, h, mi, ss, z) => {
+    const t = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${ss || '00'}${z.length === 5 ? z.slice(0, 3) + ':' + z.slice(3) : z}`)
+    return Number.isFinite(t) ? at(t, now, c) : m
+  })
+  s = s.replace(/\b(\d{4})-(\d{2})-(\d{2})\b(?![T:\d-])/g, (m, y, mo, d) => (Number(mo) >= 1 && Number(mo) <= 12 ? dayOf(y, mo, d) : m))
+  s = s.replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{2}):(\d{2}) UTC\b/g, (m, d, mon, h, mi) => {
+    const y = new Date(now || Date.now()).getUTCFullYear()
+    return at(Date.UTC(y, MONS.indexOf(mon), Number(d), Number(h), Number(mi)), now, c)
+  })
+  s = s.replace(/\b(\d{2}):(\d{2}) UTC\b/g, (m, h, mi) => {
+    const n = new Date(now || Date.now())
+    return at(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), Number(h), Number(mi)), now, c)
+  })
+  return s
+}
+// kept for older callers: the one clock, no longer UTC
+export const hhmmUtc = (t, c) => at(t, t, c)
+export const when = (x, c) => at(x, 0, c)
 
 function sevRank(c, s) {
   const i = c.severity_order.indexOf(str(s).toLowerCase())
@@ -217,6 +292,39 @@ export function youList(items, max) {
   return { top: blocking.slice(0, max), blocking: blocking.length, all: blocking.concat(rest) }
 }
 
+// Related items of the list folded into one row (UX rule 13): items linked by `related` ids or `links`
+// (« fleet-todo:x » = the to-do x) form one group; its row is the question that can be answered (else the first item),
+// and it says what it covers. Order = the list's order of each group's first item.
+export function foldRelated(list) {
+  const items = arr(list)
+  const keyOf = new Map()
+  items.forEach((it, i) => {
+    keyOf.set(str(it.uid), i)
+    if (it.id) keyOf.set(str(it.id), keyOf.has(str(it.id)) ? keyOf.get(str(it.id)) : i)
+    if (it.type === 'todo') keyOf.set('fleet-todo:' + str(it.id), i)
+  })
+  const parent = items.map((_, i) => i)
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])))
+  const join = (a, b) => { const x = find(a), y = find(b); if (x !== y) parent[Math.max(x, y)] = Math.min(x, y) }
+  items.forEach((it, i) => {
+    for (const r of [...arr(it.related), ...arr(it.links)]) {
+      const k = str(r)
+      const j = keyOf.has(k) ? keyOf.get(k) : keyOf.has(k.replace(/^[a-z-]+:/, '')) && !/^fleet-todo:/.test(k) ? keyOf.get(k.replace(/^[a-z-]+:/, '')) : undefined
+      if (j !== undefined && j !== i) join(i, j)
+    }
+  })
+  const groups = new Map()
+  items.forEach((it, i) => {
+    const r = find(i)
+    if (!groups.has(r)) groups.set(r, [])
+    groups.get(r).push(it)
+  })
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([, members]) => {
+    const head = members.find((m) => m.type === 'question' && m.answerable) || members.find((m) => m.type === 'question') || members[0]
+    return { head, members, others: members.filter((m) => m !== head), blocks_work: members.some((m) => m.blocks_work) }
+  })
+}
+
 // The page's answer text (atlas issues_triage.py reads it back) and its buttons, recommended first.
 export function answerText(template, id, key) {
   if (!/^I\d+$/.test(String(id)) || !/^([a-z]|\d{1,2}|rec)$/.test(String(key))) return null
@@ -228,6 +336,15 @@ export function answerButtons(q) {
   if (q.rec_key === 'rec') opts.unshift({ key: 'rec', label: str(q.recommended), rec: true })
   return opts.sort((a, b) => Number(b.rec) - Number(a.rec))
 }
+
+// The page's live alerts of a workspace (logic.js alertsFor).
+export function alertsFor(data, org) {
+  const a = obj(obj(data).alerts_live)
+  if (org && obj(a.confidential)[org]) return arr(a.confidential[org]).slice()
+  const def = str(obj(obj(data).inbox).default_org || 'fleet')
+  return arr(a.rows).filter((r) => r && (!org || r.org === org || (!r.org && org === def)))
+}
+const isFleetWs = (data, org) => !org || org === str(obj(obj(data).inbox).default_org || 'fleet')
 
 // ---- the model -------------------------------------------------------------------------------------------------------
 
@@ -247,6 +364,7 @@ export function hubModel(local, data, cfg, opts = {}) {
   const ov = obj(D.overview)
   const inbox = obj(D.inbox)
   const PL = obj(inbox.labels) // the page's words
+  const PG = obj(D.page_labels) // the page's headings
   // an item of a confidential organization shows only in its own workspace, never under « All »
   const secret = new Set([...(Array.isArray(inbox.confidential) ? inbox.confidential.map(str) : Object.keys(obj(inbox.confidential))), ...orgsOf(D).filter((o) => o.confidential).map((o) => o.id)])
   const todoOrg = obj(inbox.todo_org)
@@ -256,19 +374,30 @@ export function hubModel(local, data, cfg, opts = {}) {
     if (!org) return !secret.has(o)
     return o ? o === org : inOrg(x, org)
   }
+  const T = (x) => at(x, now, c)
   const ovTs = tsOf(ov.generated_ts || ov.generated_utc)
+  const words = {
+    ...c.labels, ...pick(PL, ['show_all', 'recommended', 'answer_sent']),
+    ...pick(PG, ['needs_you', 'needs_you_none', 'errors_now', 'errors_now_none', 'alerts_none']),
+  }
+  // the page's headings are its own keys: needs_you -> you_block, errors_now -> errors
+  if (PG.needs_you) words.you_block = str(PG.needs_you)
+  if (PG.needs_you_none) words.you_none = str(PG.needs_you_none)
+  if (PG.errors_now) words.errors = str(PG.errors_now)
+  if (PG.errors_now_none) words.errors_none = str(PG.errors_now_none)
   const m = {
     machine, label: label(machine), version: str(L.version), viewer: Boolean(L.viewer), hubError: str(L.hub_error),
     fetchedAt: Number(L.fetched_at || 0), now, pulled: L.fetched_at ? ago(now - Number(L.fetched_at)) : 'never', hasData: Boolean(data),
-    built: D.generated_ts || D.generated_utc ? hhmmUtc(D.generated_ts || D.generated_utc) : '', generated: str(D.generated_utc),
-    orgs: orgsOf(D), org, labels, base: c.base,
-    words: { ...c.labels, ...pick(PL, ['you_block', 'show_all', 'recommended', 'answer_sent']) },
+    built: D.generated_ts || D.generated_utc ? T(D.generated_ts || D.generated_utc) : '', generated: str(D.generated_utc),
+    orgs: orgsOf(D), org, labels, base: c.base, cfg: c,
+    words,
     stale: ovTs && ov.stale_after_s && now - ovTs > Number(ov.stale_after_s) * 1000 ? fill(c.labels.stale, { h: Math.round(Number(ov.stale_after_s) / 3600) }) : '',
-    modules: arr(c.modules.order).filter((id) => MODULES.includes(id)).map((id) => ({ id, label: str(PL['tab_' + id] || c.modules.labels[id] || id), url: moduleUrl(c.base, id) })),
+    modules: modulesOf(D, c, PL),
   }
+  m.time = (x) => T(x)
   m.todo = todoModel(L, D, c, ofOrg, label)
   m.laptop = laptopModel(L, D, c, m.todo, label, ov, now)
-  m.global = globalModel(D, c, m.todo, ofOrg, org, label, ov, inbox, opts.answered || {})
+  m.global = globalModel(D, c, m.todo, ofOrg, org, label, ov, inbox, opts.answered || {}, now, machine)
   // the page's count: every item of this computer (delivered or not yet, marked done or not) - the status line
   m.hereOpen = m.todo.all.filter((t) => t.here).length
   return m
@@ -278,6 +407,16 @@ function pick(o, keys) {
   const out = {}
   for (const k of keys) if (o[k]) out[k] = str(o[k])
   return out
+}
+
+// The page's own module list (data.modules, its side bar) when published, else the configured order.
+function modulesOf(D, c, PL) {
+  const pub = arr(D.modules).filter((x) => x && MODULES.includes(str(x.id)))
+  const seen = new Set()
+  const list = pub.length
+    ? pub.map((x) => ({ id: str(x.id), label: str(x.label || x.id) }))
+    : arr(c.modules.order).filter((id) => MODULES.includes(id)).map((id) => ({ id, label: str(PL['tab_' + id] || c.modules.labels[id] || id) }))
+  return list.filter((x) => !seen.has(x.id) && seen.add(x.id)).map((x) => ({ ...x, url: moduleUrl(c.base, x.id) }))
 }
 
 function todoModel(L, D, c, ofOrg, label) {
@@ -313,6 +452,7 @@ function todoModel(L, D, c, ofOrg, label) {
 function machineOf(D, id) {
   return arr(obj(D.fleet).machines).find((x) => x && str(x.id) === id) || null
 }
+const tilesOf = (D) => arr(obj(D.fleet_view).tiles).filter((t) => t && t.id)
 
 // The hub's health reading of a machine when a lane publishes it: data.health.machines[id] (herd.health-summary/1),
 // or fleet.machines[].health; the mode from data.modes[id] or the machine; null fields stay unknown (said so).
@@ -322,102 +462,256 @@ function healthOf(D, x, id) {
   return { ...mh, ...h }
 }
 
+// One running job, the same words in the pane and /fleet; ETA from the overview when it has one for that job.
+function jobLine(j, etaOf, lab, now, T) {
+  const e = obj(etaOf.get(str(j.id)))
+  const started = j.started_ts || e.started_ts
+  const eta = j.eta_ts || e.eta_ts
+  const late = Boolean(now && eta && tsOf(eta) < now)
+  return {
+    text: `job #${str(j.id)} ${str(j.kind)}${j.tag ? ` (${str(j.tag)})` : ''}${started ? ' · ' + fill(lab.since, { d: T(started) }) : ''}${eta ? ' · ' + fill(late ? lab.eta_past : lab.eta, { at: T(eta) }) : ''}`.replace(/\s+·/g, ' ·').trim(),
+    tone: late ? 'warn' : 'running',
+  }
+}
+
 function laptopModel(L, D, c, todo, label, ov, now) {
   const id = str(L.machine)
+  const T = (x) => at(x, now, c)
+  const tile = tilesOf(D).find((t) => str(t.id) === id) || null
   const x = machineOf(D, id)
   const lab = c.labels
-  const out = { id, label: label(id), known: Boolean(x), lines: [], warn: [], work: [], todos: todo.here, tone: '' }
-  const ld = obj(x && x.load)
-  const h = healthOf(D, x, id)
-  const modeRec = obj(obj(D.modes)[id])
-  const gaming = Boolean(L.gaming || (x && x.gaming) || obj(ld.gaming).flag)
-  const mode = str(modeRec.mode || (x && x.mode) || h.mode || (gaming ? 'gaming' : ''))
-  const state = str((x && (x.herd_state || x.state)) || (L.viewer ? 'viewer' : '?'))
-  const cpu = num(h.cpu_pct) ?? num(ld.cpu_pct)
-  const ram = ld.ram_total_mb ? Math.round((100 * Number(ld.ram_used_mb || 0)) / Number(ld.ram_total_mb)) : null
-  out.state = state
-  out.tone = c.state_tone[state] || ''
-  out.line = fill(lab.state, { state, mode: mode || lab.mode_unknown, cpu: cpu === null ? '—' : `${Math.round(cpu)} %`, ram: ram === null ? '—' : `${ram} %` })
-  // temperature: the health reading (CPU, GPU) when published, else the GPU sensor of the load sample
-  const gpu0 = obj(arr(ld.gpu)[0])
-  const cpuC = num(h.cpu_c)
-  const gpuC = num(h.gpu_c) ?? num(gpu0.temp_c)
-  const parts = [cpuC !== null ? `CPU ${Math.round(cpuC)} °C` : '', gpuC !== null ? `GPU ${Math.round(gpuC)} °C` : ''].filter(Boolean)
-  const hot = Math.max(cpuC ?? 0, gpuC ?? 0)
-  const tTone = hot >= c.temp.bad_c ? 'bad' : hot >= c.temp.warn_c ? 'warn' : ''
-  out.temp = { text: parts.length ? fill(lab.temp, { temp: parts.join(' · ') }) : lab.temp_none, tone: parts.length ? tTone : 'dim' }
-  // health status of the hub (hot streak, throttle, agent cap…): its own reasons and severity
-  const reasons = arr(h.reasons).map(str).filter(Boolean)
-  const hs = str(h.severity || (h.status && h.status !== 'ok' ? 'high' : ''))
-  for (const r of reasons) out.warn.push({ text: r, tone: sevTone(c, hs) || 'warn' })
-  if (tTone) out.warn.push({ text: out.temp.text, tone: tTone })
-  const agents = obj(ld.agents)
-  const nAg = num(h.agents) ?? (Number.isFinite(Number(agents.claude)) ? Number(agents.claude || 0) + Number(agents.codex || 0) : null)
-  out.agents = nAg !== null ? fill(lab.agents, { n: Math.round(nAg) }) : ''
-  for (const d of arr(ld.disks)) if (typeof d.free_pct === 'number' && d.free_pct < Number(c.disk_warn_pct)) out.warn.push({ text: fill(lab.disk_low, { mount: str(d.mount), pct: Math.round(d.free_pct) }), tone: d.free_pct < Number(c.disk_warn_pct) / 2 ? 'bad' : 'warn' })
-  if (typeof ld.battery_pct === 'number' && ld.on_ac === false && ld.battery_pct < Number(c.battery_warn_pct)) out.warn.push({ text: fill(lab.battery_low, { pct: Math.round(ld.battery_pct) }), tone: 'warn' })
-  if (ld.reboot_pending) out.warn.push({ text: lab.reboot, tone: 'warn' })
-  out.seen = x && x.seen && x.seen.age_s !== undefined ? fill(lab.seen, { ago: ago(Number(x.seen.age_s) * 1000) }) : ''
-  // current work: jobs running here (overview ETA when it has one), the queue's own, lanes owned by this machine
-  const run = obj(ov.running)
-  const seenJobs = new Set()
-  for (const j of arr(run.jobs)) {
-    if (str(j.machine) !== id) continue
-    seenJobs.add(str(j.id))
-    out.work.push({ text: `job #${str(j.id)} ${str(j.kind)}${j.tag ? ` (${str(j.tag)})` : ''}${j.started_ts ? ' · ' + fill(lab.since, { d: hhmmUtc(j.started_ts) }) : ''}${j.eta_ts ? ' · ' + fill(now && tsOf(j.eta_ts) < now ? lab.eta_past : lab.eta, { at: hhmmUtc(j.eta_ts) }) : ''}`, tone: now && j.eta_ts && tsOf(j.eta_ts) < now ? 'warn' : 'running' })
+  const out = { id, label: label(id), known: Boolean(tile || x), lines: [], warn: [], work: [], todos: todo.here, tone: '' }
+  const etaOf = new Map(arr(obj(ov.running).jobs).map((j) => [str(j.id), j]))
+  if (tile) {
+    // the page's tile, as the page prints it: power, mode, CPU, RAM, the hotter sensor, its red and yellow reasons
+    const state = tile.busy ? 'busy' : str(tile.power || '?')
+    const ram = num(tile.ram_total_gb) ? Math.round((100 * Number(tile.ram_used_gb || 0)) / Number(tile.ram_total_gb)) : null
+    out.state = state
+    out.tone = c.colour_tone[str(tile.colour)] || c.state_tone[state] || ''
+    out.line = fill(lab.state, { state, mode: str(tile.mode || (L.gaming ? 'gaming' : '')) || lab.mode_unknown, cpu: num(tile.cpu_pct) === null ? '—' : `${Math.round(tile.cpu_pct)} %`, ram: ram === null ? '—' : `${ram} %` })
+    const cpuC = num(tile.cpu_c)
+    const gpuC = num(tile.gpu_c)
+    const hot = cpuC === null && gpuC === null ? null : (cpuC ?? -1) >= (gpuC ?? -1) ? { k: 'CPU', v: cpuC } : { k: 'GPU', v: gpuC }
+    const max1h = num(tile.cpu_max_1h_c)
+    const tTone = hot && hot.v >= c.temp.bad_c ? 'bad' : hot && hot.v >= c.temp.warn_c ? 'warn' : ''
+    const maxTxt = max1h !== null && max1h >= c.temp.warn_c && (!hot || max1h > hot.v) ? ` (${fill(lab.temp_max, { c: Math.round(max1h) })})` : ''
+    out.temp = { text: hot ? fill(lab.temp, { temp: `${hot.k} ${Math.round(hot.v)} °C` }) + maxTxt : lab.temp_none, tone: hot ? (tTone || (maxTxt ? 'warn' : '')) : 'dim' }
+    for (const r of arr(tile.red)) out.warn.push({ text: str(r), tone: 'bad' })
+    for (const r of arr(tile.yellow)) out.warn.push({ text: str(r), tone: 'warn' })
+    if (tTone && !out.warn.some((w) => /°C|temperature|hot/i.test(w.text))) out.warn.push({ text: out.temp.text, tone: tTone })
+    const ag = obj(tile.agents)
+    out.agents = num(ag.total) !== null && !out.warn.some((w) => /agent process/i.test(w.text)) ? fill(lab.agents, { n: ag.total }) : ''
+    out.seen = num(tile.seen_age_s) !== null ? fill(lab.seen, { ago: ago(Number(tile.seen_age_s) * 1000) }) : ''
+    // current work: the tile's own running jobs (one source for the tile, Lanes and this pane), lanes this machine owns
+    for (const j of arr(tile.running)) out.work.push(jobLine(obj(j), etaOf, lab, now, T))
+  } else {
+    // older hub data without fleet_view: the fleet machine and the health / modes keys
+    const ld = obj(x && x.load)
+    const h = healthOf(D, x, id)
+    const modeRec = obj(obj(D.modes)[id])
+    const gaming = Boolean(L.gaming || (x && x.gaming) || obj(ld.gaming).flag)
+    const mode = str(modeRec.mode || (x && x.mode) || h.mode || (gaming ? 'gaming' : ''))
+    const state = str((x && (x.herd_state || x.state)) || (L.viewer ? 'viewer' : '?'))
+    const cpu = num(h.cpu_pct) ?? num(ld.cpu_pct)
+    const ram = ld.ram_total_mb ? Math.round((100 * Number(ld.ram_used_mb || 0)) / Number(ld.ram_total_mb)) : null
+    out.state = state
+    out.tone = c.state_tone[state] || ''
+    out.line = fill(lab.state, { state, mode: mode || lab.mode_unknown, cpu: cpu === null ? '—' : `${Math.round(cpu)} %`, ram: ram === null ? '—' : `${ram} %` })
+    const gpu0 = obj(arr(ld.gpu)[0])
+    const cpuC = num(h.cpu_c)
+    const gpuC = num(h.gpu_c) ?? num(gpu0.temp_c)
+    const hot = cpuC === null && gpuC === null ? null : (cpuC ?? -1) >= (gpuC ?? -1) ? { k: 'CPU', v: cpuC } : { k: 'GPU', v: gpuC }
+    const tTone = hot && hot.v >= c.temp.bad_c ? 'bad' : hot && hot.v >= c.temp.warn_c ? 'warn' : ''
+    out.temp = { text: hot ? fill(lab.temp, { temp: `${hot.k} ${Math.round(hot.v)} °C` }) : lab.temp_none, tone: hot ? tTone : 'dim' }
+    const reasons = arr(h.reasons).map(str).filter(Boolean)
+    const hs = str(h.severity || (h.status && h.status !== 'ok' ? 'high' : ''))
+    for (const r of reasons) out.warn.push({ text: r, tone: sevTone(c, hs) || 'warn' })
+    if (tTone) out.warn.push({ text: out.temp.text, tone: tTone })
+    const agents = obj(ld.agents)
+    const nAg = num(h.agents) ?? (Number.isFinite(Number(agents.claude)) ? Number(agents.claude || 0) + Number(agents.codex || 0) : null)
+    out.agents = nAg !== null ? fill(lab.agents, { n: Math.round(nAg) }) : ''
+    for (const d of arr(ld.disks)) if (typeof d.free_pct === 'number' && d.free_pct < Number(c.disk_warn_pct)) out.warn.push({ text: fill(lab.disk_low, { mount: str(d.mount), pct: Math.round(d.free_pct) }), tone: d.free_pct < Number(c.disk_warn_pct) / 2 ? 'bad' : 'warn' })
+    if (typeof ld.battery_pct === 'number' && ld.on_ac === false && ld.battery_pct < Number(c.battery_warn_pct)) out.warn.push({ text: fill(lab.battery_low, { pct: Math.round(ld.battery_pct) }), tone: 'warn' })
+    if (ld.reboot_pending) out.warn.push({ text: lab.reboot, tone: 'warn' })
+    out.seen = x && x.seen && x.seen.age_s !== undefined ? fill(lab.seen, { ago: ago(Number(x.seen.age_s) * 1000) }) : ''
+    // no tile: the queue's running jobs of the machine (the same source the tile is built from), else the overview's
+    const qrun = arr(obj(x && x.queue).running)
+    const src = qrun.length || x ? qrun : arr(obj(ov.running).jobs).filter((j) => str(j.machine) === id)
+    for (const j of src) out.work.push(jobLine(obj(j), etaOf, lab, now, T))
   }
-  for (const j of arr(obj(x && x.queue).running)) if (!seenJobs.has(str(obj(j).id))) out.work.push({ text: `job #${str(obj(j).id)} ${str(obj(j).kind)}`.trim(), tone: 'running' })
-  const lanes = arr(obj(D.lanes).running && obj(obj(D.lanes).running).lanes).length ? arr(obj(obj(D.lanes).running).lanes) : arr(run.lanes)
+  const lanes = arr(obj(D.lanes).running && obj(obj(D.lanes).running).lanes).length ? arr(obj(obj(D.lanes).running).lanes) : arr(obj(ov.running).lanes)
   for (const l of lanes) {
     const owner = str(obj(l).owner)
-    if (owner === id || owner.startsWith(id + '/')) out.work.push({ text: `${str(l.id)} · ${str(l.title)}`, tone: 'running' })
+    if (owner === id || owner.startsWith(id + '/')) out.work.push({ text: `${localize(str(l.title), now, c)}${l.since ? ' · ' + fill(lab.since, { d: localize(str(l.since), now, c) }) : ''} · ${str(l.id)}`, tone: 'running' })
   }
   if (!out.tone && out.warn.some((w) => w.tone === 'bad')) out.tone = 'bad'
   return out
 }
 
-function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered) {
+// The quota rows of « Problems now », built from quota.json (data.quota) as the Quota module reads it: one row per
+// provider in a quota.states state, one exhaust time, its reading time; Julian's quota mode (data.quota_mode) turns it
+// yellow with « unlimited mode until <date> ».
+function quotaRows(D, c, now) {
+  const q = obj(D.quota)
+  const provs = Array.isArray(q.providers) ? q.providers : Object.entries(obj(q.providers)).map(([id, p]) => ({ id, ...obj(p) }))
+  const qm = obj(D.quota_mode)
+  const mode = qm.expired ? '' : str(qm.mode)
+  const modeLabel = str((arr(D.quota_modes).find((x) => x && x.id === mode) || {}).label || mode)
+  const calm = Boolean(mode && arr(c.quota.calm_modes).includes(mode))
+  const lab = c.labels
+  const T = (x) => at(x, now, c)
+  const out = []
+  for (const p of provs) {
+    const wins = arr(p.windows).filter((w) => w && num(w.used_pct) !== null)
+    const st = str(p.state || (wins.find((w) => c.quota.states.includes(str(w.state))) || {}).state)
+    if (!c.quota.states.includes(st)) continue
+    const w = wins.find((x) => x.exhausts_before_reset) || wins.find((x) => c.quota.states.includes(str(x.state))) || wins[0]
+    if (!w) continue
+    const vars = { label: str(p.label || p.id), used: Math.round(Number(w.used_pct)), window: str(w.window).replace(/^(\d+)d$/, '$1-day').replace(/^(\d+)h$/, '$1-hour'), exhaust: T(w.exhaust_at), reset: T(w.resets_at) || '—' }
+    const text = w.exhaust_at && w.exhausts_before_reset !== false ? fill(lab.quota_row, vars) : fill(lab.quota_row_ok, vars)
+    const read = w.reading_at || q.generated_at
+    const sev = st === 'high' ? 'high' : 'urgent'
+    out.push({
+      kind: 'quota', provider: str(p.id), severity: calm ? 'high' : sev, tone: calm ? 'warn' : sevTone(c, sev) || 'bad', text,
+      meta: [read ? fill(lab.quota_read, { at: T(read) }) : '', mode ? fill(qm.until ? lab.quota_mode : lab.quota_mode_open, { mode: modeLabel.toLowerCase(), until: T(qm.until) }) : ''].filter(Boolean),
+      covers: [], link: 'quota',
+    })
+  }
+  return out
+}
+
+// « I13 Claude weekly quota … (owner lead) » -> { id: 'I13', title, owner }
+function splitIssue(text) {
+  const mm = /^(I\d{1,5})\s+([\s\S]*?)(?:\s+\(owner ([\w-]+)\))?$/.exec(str(text))
+  return mm ? { id: mm[1], title: mm[2], owner: mm[3] || '' } : { id: '', title: str(text), owner: '' }
+}
+
+function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered, now, me) {
   const lab = c.labels
   const max = Number(c.max_rows) || 5
-  const fl = obj(D.fleet)
-  const h = obj(fl.herd)
-  // one-line fleet status: workers busy of workers, jobs, alerts; one dot per machine coloured by its state
-  const machines = arr(fl.machines).filter((x) => x && x.id)
-  const workers = machines.filter((x) => x.role === 'worker' || x.worker)
-  const busy = workers.filter((x) => arr(obj(x.queue).running).length > 0 || x.herd_state === 'busy')
-  const fleetLine = machines.length ? fill(lab.fleet_line, { busy: busy.length, workers: workers.length, running: h.jobs_running ?? 0, queued: h.jobs_queued ?? 0, alerts: h.alerts_total ?? 0 }) : ''
-  const dots = machines.map((x) => {
-    const st = arr(obj(x.queue).running).length ? 'busy' : str(x.herd_state || x.state || '?')
-    return { id: str(x.id), label: str(x.label || label(x.id)), state: st, tone: c.state_tone[st] || '', alerts: arr(x.alerts).length }
-  })
-  // what blocks work: the page's « You » list of the workspace (inbox), else the overview's urgent questions
+  const T = (x) => at(x, now, c)
+  const fv = obj(D.fleet_view)
+  const tiles = tilesOf(D)
+  const fleetWs = isFleetWs(D, org)
+  // one-line fleet status: the page's own sentence and time; one dot per machine in the page's tile order
+  let fleetLine = ''
+  let dots = []
+  if (fv.sentence) {
+    fleetLine = fill(lab.fleet_at, { sentence: str(fv.sentence), at: T(fv.generated_ts) })
+    dots = tiles.map((t) => {
+      const st = t.busy ? 'busy' : str(t.power || '?')
+      return { id: str(t.id), label: str(t.label || label(t.id)), state: st, tone: c.colour_tone[str(t.colour)] || c.state_tone[st] || '', alerts: arr(t.alerts).length }
+    })
+  } else {
+    const fl = obj(D.fleet)
+    const h = obj(fl.herd)
+    const machines = arr(fl.machines).filter((x) => x && x.id)
+    const workers = machines.filter((x) => x.role === 'worker' || x.worker)
+    const busy = workers.filter((x) => arr(obj(x.queue).running).length > 0 || x.herd_state === 'busy')
+    fleetLine = machines.length ? fill(lab.fleet_line, { busy: busy.length, workers: workers.length, running: h.jobs_running ?? 0, queued: h.jobs_queued ?? 0 }) : ''
+    dots = machines.map((x) => {
+      const st = arr(obj(x.queue).running).length ? 'busy' : str(x.herd_state || x.state || '?')
+      return { id: str(x.id), label: str(x.label || label(x.id)), state: st, tone: c.state_tone[st] || '', alerts: arr(x.alerts).length }
+    })
+  }
+  // Needs you now: the page's « You » list of the workspace, related items folded into one row
   let you = []
   let total = 0
   let all = 0
+  const covered = new Set()
   if (Array.isArray(inbox.items)) {
-    const yl = youList(inboxItems(inbox, org), Number(inbox.you_max) || max)
-    total = yl.blocking
-    all = yl.all.length
-    you = yl.top.map((it) => ({
-      uid: str(it.uid || it.id), id: str(it.id), title: str(it.title), app: str(it.app_label || it.app), urgency: str(it.urgency),
-      tone: it.urgency === 'now' || it.severity === 'urgent' || it.severity === 'critical' ? 'bad' : 'warn',
-      answers: answerButtons(it), question: it.type === 'question', rec: str(it.recommended),
-      sent: answered[str(it.uid || it.id)] || null,
-    }))
+    const yl = youList(inboxItems(inbox, org), max)
+    const groups = foldRelated(yl.all)
+    for (const g of groups) for (const it of g.members) { covered.add(str(it.id)); covered.add(str(it.uid)) }
+    const blocking = groups.filter((g) => g.blocks_work)
+    total = blocking.length
+    all = groups.length
+    you = blocking.slice(0, Number(inbox.you_max) || max).map((g) => youRow(g, c, answered, now, label, me))
   } else {
     const qs = arr(obj(ov.you).questions).filter(ofOrg).filter((q) => sevRank(c, q.severity) <= 1)
     total = qs.length
-    you = qs.slice(0, max).map((q) => ({ uid: str(q.id), id: str(q.id), title: str(q.title), app: '', urgency: str(q.severity), tone: sevTone(c, q.severity), answers: [], question: true, rec: str(q.recommended), sent: null }))
+    all = qs.length
+    you = qs.slice(0, max).map((q) => ({ uid: str(q.id), id: str(q.id), title: localize(str(q.title), now, c), meta: [str(q.id)], covers: '', tone: sevTone(c, q.severity), answers: [], question: true, rec: str(q.recommended), sent: null }))
+    for (const q of qs) covered.add(str(q.id))
   }
-  const errs = arr(obj(ov.errors).rows).filter(ofOrg).filter((r) => c.error_severities.includes(str(r.severity).toLowerCase()))
-    .sort((a, b) => sevRank(c, a.severity) - sevRank(c, b.severity))
+  // Problems now: the page's list (red machines, then the overview's errors), minus what Needs you now already shows;
+  // the quota once, from quota.json, with the register's quota problems folded into it
+  const category = new Map(arr(inbox.items).map((it) => [str(it.id), str(it.category)]))
+  let quotaRe = null
+  try { quotaRe = new RegExp(c.quota.category_re) } catch { quotaRe = null }
+  const quota = fleetWs ? quotaRows(D, c, now) : []
+  const rows = []
+  let coveredN = 0
+  if (fleetWs) {
+    for (const t of tiles.filter((x) => x.colour === 'red')) rows.push({ kind: 'machine', severity: 'urgent', tone: 'bad', text: `${str(t.label)}: ${arr(t.red).map(str).join(', ')}`, meta: [], link: 'fleet' })
+    rows.push(...quota)
+    for (const e of arr(obj(ov.errors).rows)) {
+      if (!e) continue
+      if (e.kind === 'quota' && quota.length) continue
+      const s = splitIssue(e.text)
+      if (s.id && (covered.has(s.id) || covered.has('issue:' + s.id))) { coveredN++; continue }
+      if (s.id && quota.length && quotaRe && quotaRe.test(category.get(s.id) || '')) {
+        const prov = (category.get(s.id) || '').split('/')[1]
+        const qr = quota.find((x) => x.provider === prov) || quota[0]
+        qr.covers.push(s.id)
+        continue
+      }
+      rows.push({
+        kind: str(e.kind), severity: str(e.severity), tone: sevTone(c, e.severity) || 'bad', text: localize(s.title, now, c),
+        meta: [s.owner ? c.owner_words[s.owner] || s.owner : '', s.id].filter(Boolean), link: e.link ? str(e.link).replace(/^#/, '') : 'overview',
+      })
+    }
+  }
+  rows.sort((a, b) => sevRank(c, a.severity) - sevRank(c, b.severity))
+  for (const r of quota) if (r.covers.length) r.meta.push(fill(lab.covers, { list: r.covers.join(', ') }))
+  const emax = Number(c.errors_max) || 3
+  // alerts: the page's count of the workspace, minus the rows already shown above (Needs you now, the quota row)
+  const al = alertsFor(D, org)
+  let listed = 0
+  const rest = al.filter((a) => {
+    const dup = (a.issue && (covered.has(str(a.issue)) || quota.some((q) => q.covers.includes(str(a.issue))))) || (a.source === 'quota' && quota.length)
+    if (dup) listed++
+    return !dup
+  })
+  const open = rest.filter((a) => a.status === 'open')
+  const alerts = obj(D.alerts_live).rows
+    ? { text: rest.length ? fill(lab.alerts_line, { n: open.length, u: open.filter((a) => a.level === 'urgent').length }) : str(c.labels.alerts_none), listed: listed ? fill(lab.alerts_listed, { n: listed }) : '', total: al.length, tone: open.some((a) => a.level === 'urgent') ? 'bad' : open.length ? 'warn' : '' }
+    : null
   return {
     fleetLine, dots, you, youTotal: total, youAll: all,
-    errors: errs.slice(0, Number(c.errors_max) || 3).map((r) => ({ text: str(r.text), tone: sevTone(c, r.severity) || 'bad', kind: str(r.kind) })),
-    errorsMore: Math.max(0, errs.length - (Number(c.errors_max) || 3)),
+    errors: rows.slice(0, emax), errorsMore: Math.max(0, rows.length - emax), errorsTotal: rows.length, covered: coveredN, fleetWs,
+    alerts,
     urgentElsewhere: todo.urgentElsewhere.length,
     answerMachine: str(inbox.answer_machine || 'oracle'), answerTemplate: str(inbox.answer_text || 'Answer {id}: {key}'),
     targets: Object.keys(obj(D.labels)),
+  }
+}
+
+// One « Needs you now » row: the plain title first, the meta line in plain words with the id small at the end,
+// « covers I2, I4 and 1 to-do » when related items are folded into it.
+function youRow(g, c, answered, now, label, me) {
+  const it = g.head
+  const lab = c.labels
+  const isTodo = it.type === 'todo'
+  const prio = /^p(\d)$/i.exec(str(it.priority))
+  const meta = [
+    str(it.app_label || ''),
+    isTodo ? (str(it.deliver_to) === me ? lab.todo_on_here : fill(lab.todo_on, { machine: label(str(it.deliver_to)) })) : c.state_words[str(it.state)] || '',
+    prio ? fill(lab.priority, { n: Number(prio[1]) + 1 }) : '',
+    isTodo ? '' : str(it.id),
+  ].filter(Boolean)
+  const ids = g.others.filter((x) => x.type !== 'todo').map((x) => str(x.id))
+  const nTodo = g.others.filter((x) => x.type === 'todo').length
+  const parts = [...ids]
+  if (nTodo) parts.push(fill(nTodo === 1 ? lab.todos_n : lab.todos_n_pl, { n: nTodo }))
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} ${lab.and} ${parts[parts.length - 1]}` : parts.join('')
+  const title = str(it.title).replace(new RegExp(c.todo.tag_re), '')
+  return {
+    uid: str(it.uid || it.id), id: str(it.id), title: localize(title, now, c), app: str(it.app_label || it.app), urgency: str(it.urgency), meta,
+    covers: list ? fill(lab.covers, { list }) : '', coversIds: g.others.map((x) => str(x.id)),
+    tone: it.urgency === 'now' || it.severity === 'urgent' || it.severity === 'critical' ? 'bad' : 'warn',
+    answers: answerButtons(it), question: it.type === 'question', rec: str(it.recommended),
+    sent: answered[str(it.uid || it.id)] || null,
   }
 }
 
@@ -457,13 +751,14 @@ export function sendResult(kind, r) {
   return `${kind}: ok`
 }
 
-// The dispatcher as text: /fleet's answer, and the headless proof of both blocks.
+// The dispatcher as text: /fleet's answer, and the headless proof of both blocks. Same rows, words and counts as the pane.
 export function summaryText(m, cfg) {
   const c = hubConfig(cfg)
   if (!m) return fill(c.labels.offline, { base: c.base })
   const W = m.words
   const P = m.laptop
   const G = m.global
+  const tmax = Number(c.todo.max) || 3
   const lines = [`${fill(W.laptop, { machine: m.label })} (${fill(W.pulled, { ago: m.pulled, built: m.built || '?' })}${m.hubError ? `; ${m.hubError}` : ''})`]
   if (m.stale) lines.push(`! ${m.stale}`)
   if (!P.known) lines.push(fill(W.laptop_unknown, { machine: m.machine }))
@@ -472,8 +767,8 @@ export function summaryText(m, cfg) {
   lines.push(`  ${W.working}: ${P.work.length ? P.work.map((w) => w.text).join('; ') : W.working_none}`)
   lines.push(`  ${fill(W.todo_here, { n: P.todos.length })}`)
   if (!P.todos.length) lines.push(`    ${W.todo_none}`)
-  for (const t of P.todos.slice(0, Number(c.max_rows) || 5)) lines.push(`    ${t.urgent ? '!' : '*'} ${t.nn} ${t.title}${t.marked ? ` (${W.marked})` : t.pending ? ` (${W.pending})` : ''}`)
-  if (P.todos.length > (Number(c.max_rows) || 5)) lines.push(`    ${fill(W.show_all, { n: P.todos.length })}: ${moduleUrl(m.base, 'todo')}`)
+  for (const t of P.todos.slice(0, tmax)) lines.push(`    ${t.urgent ? '!' : '*'} ${t.title}${t.marked ? ` (${W.marked})` : t.pending ? ` (${W.pending})` : ''}`)
+  if (P.todos.length > tmax) lines.push(`    ${fill(W.show_all, { n: P.todos.length })}: ${moduleUrl(m.base, 'todo')}`)
   lines.push(`${W.global}${m.org ? ` (${(m.orgs.find((o) => o.id === m.org) || {}).label || m.org})` : ''}`)
   if (G.fleetLine) lines.push(`  ${G.fleetLine}`)
   if (G.dots.length) lines.push(`  ${G.dots.map((d) => `${d.label} ${d.state}`).join(' · ')}`)
@@ -481,14 +776,18 @@ export function summaryText(m, cfg) {
   if (!G.you.length) lines.push(`    ${W.you_none}`)
   for (const q of G.you) {
     const rec = q.answers.find((a) => a.rec)
-    lines.push(`    ${q.id} · ${q.title}${q.app ? ` [${q.app}]` : ''}${rec ? ` · ${W.recommended}: ${rec.key === 'rec' ? rec.label : `${rec.key}) ${rec.label}`}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: hhmmUtc(q.sent.t) }) : ''}`)
+    lines.push(`    ${q.title}${rec ? ` · ${W.recommended}: ${rec.key === 'rec' ? rec.label : `${rec.key}) ${rec.label}`}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }) : ''}`)
+    lines.push(`      ${[...q.meta, q.covers].filter(Boolean).join(' · ')}`)
   }
-  if (G.youTotal > G.you.length) lines.push(`    ${fill(W.show_all, { n: G.youTotal })}: ${moduleUrl(m.base, 'overview')}`)
-  if (G.errors.length) {
+  if (G.youAll > G.you.length) lines.push(`    ${fill(W.show_all, { n: G.youAll })}: ${moduleUrl(m.base, 'overview')}`)
+  if (G.fleetWs) {
     lines.push(`  ${W.errors}`)
-    for (const e of G.errors) lines.push(`    ! ${e.text}`)
-    if (G.errorsMore) lines.push(`    ${fill(W.show_all, { n: G.errors.length + G.errorsMore })}: ${moduleUrl(m.base, 'overview')}`)
+    if (!G.errors.length) lines.push(`    ${W.errors_none}`)
+    for (const e of G.errors) lines.push(`    ! ${e.text}${e.meta.length ? ` (${e.meta.join(' · ')})` : ''}`)
+    if (G.errorsMore) lines.push(`    ${fill(W.show_all, { n: G.errorsTotal })}: ${moduleUrl(m.base, 'overview')}`)
+    if (G.covered) lines.push(`    ${fill(W.covered, { n: G.covered })}`)
   }
+  if (G.alerts) lines.push(`  ${G.alerts.text}${G.alerts.listed ? ` (${G.alerts.listed})` : ''}: ${moduleUrl(m.base, 'alerts')}`)
   if (G.urgentElsewhere) lines.push(`  ${fill(W.urgent_elsewhere, { n: G.urgentElsewhere })}: ${moduleUrl(m.base, 'todo')}`)
   lines.push(`  ${W.actions}: /dispatch <machine> <text> · /todo <machine> <text> (machines: ${G.targets.join(', ')})`)
   lines.push(`${W.open}: ${m.modules.map((x) => `${x.label} ${x.url}`).join(' · ')}`)

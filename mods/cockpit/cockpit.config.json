@@ -42,20 +42,21 @@
       "conv"
     ]
   },
-  "_hub": "The dispatcher (UX-PRINCIPLES rule 7, 12 Nov 2026): ONE narrow pane read from the same data as the local Cockpit page (herd-worker, http://127.0.0.1:24365): block 1 This laptop (to-dos here urgent first with Run / Mark done; mode, CPU, RAM, temperature, agents, warnings; what runs here), block 2 Global (fleet line and one dot per machine; the page's You list of the workspace with one-click answers; errors of error_severities; urgent to-dos elsewhere; quick actions that fill the prompt with /dispatch or /todo), then Open in Cockpit links to the page's modules (base/#<module>). At most max_rows per block, the rest is a show-all link. start: home (the dispatcher) or panneau (this computer's conversations). Words: the page's inbox.labels first, then hub.labels (lib/hub.mjs HUB_DEFAULTS has them all). enabled false: no dispatcher, the Panneau again.",
+  "_hub": "The dispatcher (UX-PRINCIPLES rule 7, 12 Nov 2026; review fixes the same evening): ONE narrow pane read from the same data as the local Cockpit page (herd-worker, http://127.0.0.1:24365), never recomputing what the page prints. Block 1 This laptop from the page's own fleet_view tile (power, mode, CPU, RAM, the hotter temperature sensor and its 1 h maximum, the tile's red / yellow reasons, its running jobs: one source with the tile), then todo.max to-dos one line each, Run / Mark done on the first only, the rest behind show all. Block 2 Global: the page's fleet sentence and time, one dot per tile in the page's order, the page's headings (page_labels) Needs you now (related items folded into one row: the question with its buttons, « covers I2, I4 and 1 to-do ») and Problems now (red machines and the overview's errors, minus what Needs you now already shows; the quota ONCE, built from quota.json with its exhaust and reading time, the register's quota problems (quota.category_re) folded into it, yellow with « unlimited mode until … » when the quota mode is in quota.calm_modes), errors_max rows then show all, the page's alerts count minus the rows listed above; quick actions fill the prompt with /dispatch or /todo. Then Open in Cockpit: the page's module list (data.modules, else modules.order). Every time in one format (time: zone local|utc, hour12), hub-written dates inside texts included. max_rows caps a block. start: home (the dispatcher) or panneau. Words: the page's page_labels and inbox.labels first, then hub.labels; state_words / owner_words / type_words translate the register's codes (lib/hub.mjs HUB_DEFAULTS has them all). enabled false: no dispatcher, the Panneau again.",
   "hub": {
     "enabled": true,
     "base": "http://127.0.0.1:24365",
     "start": "home",
     "refresh_s": 60,
     "status_line": true,
-    "modules": { "order": ["overview", "todo", "inbox", "fleet", "quota", "alerts", "journal", "watch", "lanes"] },
+    "modules": { "order": ["overview", "inbox", "todo", "fleet", "alerts", "quota", "dispatch", "intake", "lanes", "journal", "watch"] },
     "max_rows": 5,
     "errors_max": 3,
-    "error_severities": ["critical", "urgent"],
     "temp": { "warn_c": 85, "bad_c": 95 },
     "disk_warn_pct": 10,
-    "todo": { "urgent_prio": 8 }
+    "todo": { "max": 3, "urgent_prio": 8 },
+    "time": { "zone": "local", "hour12": false },
+    "quota": { "states": ["critical", "stop", "high"], "calm_modes": ["unlimited"], "category_re": "^quota(/|$)" }
   },
   "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them. relais = Claude ↔ Codex (the ci mod's ~/.claude/ci-cache/interactions.json: who opened, fixed, merged, hand-offs, dependencies, green rate per agent); galerie = the Reference Gallery views (Équipe: lead → advisor / worker / explorer / researcher lanes and return to lead; Carte: the control layers; Codex: approvals and cost); nuit = « Bilan avant la nuit », opened by the Nuit button of the Cockpit tab (add it to order to get a tab button too).",
   "tabs": {

@@ -3,7 +3,7 @@
 // kit `h` and the callbacks in S.act.
 // S = { cfg, model, error, busy, msg, columns, act: { hubTab(id), panneau(), refresh(), org(id), run(id), done(id),
 //       answer(uid, key), fill(text), open(url) } }
-import { hubConfig, hubTabs, fill, moduleUrl, hhmmUtc } from '../lib/hub.mjs'
+import { hubConfig, hubTabs, fill, moduleUrl } from '../lib/hub.mjs'
 
 const clip = (s, n) => { const t = String(s || ''); return n > 3 && t.length > n ? t.slice(0, n - 1) + '…' : t }
 
@@ -57,24 +57,26 @@ function drawLaptop(h, m, c, S, width) {
   const W = m.words
   const P = m.laptop
   const max = Number(c.max_rows) || 5
+  const tmax = Number(c.todo.max) || 3
   const rows = []
   if (!P.known) rows.push(h.T(fill(W.laptop_unknown, { machine: m.machine }), { dim: true, key: 'lp-unknown', wrap: 'wrap' }))
-  rows.push(h.T(P.line, { tone: P.tone || undefined, key: 'lp-state', wrap: 'wrap' }))
+  rows.push(h.T(P.line, { tone: P.tone && P.tone !== 'dim' ? P.tone : undefined, dim: P.tone === 'dim', key: 'lp-state', wrap: 'wrap' }))
   rows.push(h.T([P.temp.text, P.agents, P.seen].filter(Boolean).join(' · '), { tone: P.temp.tone === 'dim' ? undefined : P.temp.tone || undefined, dim: P.temp.tone === 'dim', key: 'lp-temp', wrap: 'wrap' }))
   P.warn.forEach((w, i) => rows.push(h.T(`! ${w.text}`, { tone: w.tone || 'warn', key: 'lp-w' + i, wrap: 'wrap' })))
   rows.push(h.T(`${W.working}: ${P.work.length ? '' : W.working_none}`, { dim: !P.work.length, key: 'lp-work', wrap: 'wrap' }))
   P.work.slice(0, max).forEach((w, i) => rows.push(h.T(`  ${clip(w.text, width * 2)}`, { tone: w.tone, key: 'lp-wk' + i, wrap: 'wrap' })))
   rows.push(h.T(fill(W.todo_here, { n: P.todos.length }), { bold: true, key: 'lp-todo-head' }))
   if (!P.todos.length) rows.push(h.T(W.todo_none, { dim: true, key: 'lp-todo-none' }))
-  P.todos.slice(0, max).forEach((t) => rows.push(h.col([
-    h.row([
-      h.T(`${t.nn ? t.nn + ' ' : ''}${t.title}`, { bold: t.urgent, tone: t.urgent ? 'bad' : t.marked ? 'ok' : undefined, wrap: 'wrap' }),
-      t.canRun ? h.btn(W.run, () => S.act.run(t.id), t.urgent, 'run-' + t.id) : null,
-      t.canRun ? h.btn(W.done, () => S.act.done(t.id), false, 'done-' + t.id) : null,
-    ], { alignItems: 'center' }),
-    t.tags.length || t.marked || t.pending ? h.T([t.tags.map((x) => `[${x}]`).join(' '), t.marked ? W.marked : t.pending ? W.pending : ''].filter(Boolean).join(' · '), { dim: true, key: 'sub', wrap: 'wrap' }) : null,
-  ], { key: `todo-${t.id}` })))
-  if (P.todos.length > max) rows.push(link(h, fill(W.show_all, { n: P.todos.length }), moduleUrl(c.base, 'todo'), 'lp-todo-all'))
+  // one line per to-do; Run and Mark done only on the first one that can run (the rest is one click away in the page)
+  const first = P.todos.slice(0, tmax).find((t) => t.canRun)
+  P.todos.slice(0, tmax).forEach((t) => {
+    const note = t.marked ? W.marked : t.pending ? W.pending : ''
+    const title = h.T(`${t.title}${note ? ` (${note})` : ''}`, { bold: t.urgent && !t.marked, tone: t.marked ? 'ok' : t.urgent ? 'bad' : undefined, wrap: 'wrap', key: 'title' })
+    rows.push(t === first
+      ? h.col([title, h.row([h.btn(W.run, () => S.act.run(t.id), true, 'run-' + t.id), h.btn(W.done, () => S.act.done(t.id), false, 'done-' + t.id)], { key: 'btns' })], { key: `todo-${t.id}` })
+      : h.col([title], { key: `todo-${t.id}` }))
+  })
+  if (P.todos.length > tmax) rows.push(link(h, fill(W.show_all, { n: P.todos.length }), moduleUrl(c.base, 'todo'), 'lp-todo-all'))
   return h.box(fill(W.laptop, { machine: m.label }), rows, { key: 'blk-laptop', tone: P.tone === 'bad' || P.todos.some((t) => t.urgent && !t.marked) ? 'bad' : undefined })
 }
 
@@ -84,29 +86,35 @@ function drawGlobal(h, m, c, S, width) {
   const rows = []
   if (G.fleetLine) rows.push(h.T(G.fleetLine, { key: 'gl-fleet', wrap: 'wrap' }))
   if (G.dots.length) {
-    rows.push(h.row(G.dots.map((d) => h.T(`● ${d.label}${d.alerts ? ` (${d.alerts})` : ''}`, { tone: d.tone || undefined, dim: d.tone === 'dim', key: 'dot-' + d.id, wrap: 'truncate-end' })),
+    rows.push(h.row(G.dots.map((d) => h.T(`● ${d.label}${d.state === 'busy' ? ' busy' : d.state && d.state !== 'on' ? ` ${d.state}` : ''}`, { tone: d.tone && d.tone !== 'dim' ? d.tone : undefined, dim: d.tone === 'dim', key: 'dot-' + d.id, wrap: 'truncate-end' })),
       { key: 'gl-dots', marginBottom: 1 }))
   }
   rows.push(h.T(`${W.you_block} (${G.youTotal})`, { bold: true, key: 'gl-you-head' }))
   if (!G.you.length) rows.push(h.T(W.you_none, { dim: true, key: 'gl-you-none' }))
   for (const q of G.you) {
     const parts = [
-      h.T(`${q.id} · ${q.title}`, { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
-      q.app || q.urgency ? h.T([q.app, q.urgency].filter(Boolean).join(' · '), { dim: true, key: 'meta', wrap: 'truncate-end' }) : null,
+      h.T(q.title, { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
+      h.T([...q.meta, q.covers].filter(Boolean).join(' · '), { dim: true, key: 'meta', wrap: 'wrap' }),
     ]
-    if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: hhmmUtc(q.sent.t) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
+    if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
     else if (q.answers.length) {
       parts.push(h.row(q.answers.map((a) => h.btn(`${a.key === 'rec' ? clip(a.label, width - 16) : `${a.key}) ${clip(a.label, width - 18)}`}${a.rec ? ` · ${W.recommended}` : ''}`,
         () => S.act.answer(q.uid, a.key), a.rec, `ans-${q.id}-${a.key}`)), { key: 'answers' }))
     } else if (q.question) parts.push(h.T(`${q.rec ? fill(W.rec_text, { rec: q.rec }) + ' ' : ''}${W.no_answer}`, { dim: true, key: 'hint', wrap: 'wrap' }))
     rows.push(h.col(parts.filter(Boolean), { key: 'you-' + q.uid, marginBottom: 1 }))
   }
-  if (G.youTotal > G.you.length) rows.push(link(h, fill(W.show_all, { n: G.youTotal }), moduleUrl(c.base, 'overview'), 'gl-you-all'))
-  if (G.errors.length) {
+  if (G.youAll > G.you.length) rows.push(link(h, fill(W.show_all, { n: G.youAll }), moduleUrl(c.base, 'overview'), 'gl-you-all'))
+  if (G.fleetWs) {
     rows.push(h.T(W.errors, { bold: true, key: 'gl-err-head' }))
-    G.errors.forEach((e, i) => rows.push(h.T(`! ${e.text}`, { tone: e.tone, key: 'gl-e' + i, wrap: 'wrap' })))
-    if (G.errorsMore) rows.push(link(h, fill(W.show_all, { n: G.errors.length + G.errorsMore }), moduleUrl(c.base, 'overview'), 'gl-err-all'))
+    if (!G.errors.length) rows.push(h.T(W.errors_none, { dim: true, key: 'gl-err-none' }))
+    G.errors.forEach((e, i) => rows.push(h.col([
+      h.T(`! ${e.text}`, { tone: e.tone || undefined, key: 'text', wrap: 'wrap' }),
+      e.meta.length ? h.T(e.meta.join(' · '), { dim: true, key: 'meta', wrap: 'wrap' }) : null,
+    ].filter(Boolean), { key: 'gl-e' + i })))
+    if (G.errorsMore) rows.push(link(h, fill(W.show_all, { n: G.errorsTotal }), moduleUrl(c.base, 'overview'), 'gl-err-all'))
+    if (G.covered) rows.push(h.T(fill(W.covered, { n: G.covered }), { dim: true, key: 'gl-err-covered', wrap: 'wrap' }))
   }
+  if (G.alerts) rows.push(h.row([link(h, G.alerts.text, moduleUrl(c.base, 'alerts'), 'gl-alerts'), G.alerts.listed ? h.T(G.alerts.listed, { dim: true, key: 'gl-alerts-listed', wrap: 'wrap' }) : null].filter(Boolean), { key: 'gl-alerts-row', alignItems: 'center' }))
   if (G.urgentElsewhere) rows.push(link(h, fill(W.urgent_elsewhere, { n: G.urgentElsewhere }), moduleUrl(c.base, 'todo'), 'gl-urgent-else'))
   rows.push(h.T(W.actions, { bold: true, key: 'gl-act-head' }))
   rows.push(h.row([

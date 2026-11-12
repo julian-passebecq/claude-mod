@@ -1,14 +1,15 @@
 // lib/hub.mjs (the dispatcher's model of the local Cockpit's data) and hooks/hub_view.mjs (drawing), on invented fixtures.
 // node --test mods/cockpit/tests/hub.test.mjs
+process.env.TZ = 'UTC' // the one clock is local; the tests pin it
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hubModel, hubTabs, hubIdOf, tabKey, hubConfig, parseTarget, sendResult, summaryText, badgeText, tokenOf, inOrg, orgsOf, moduleOf, moduleUrl,
-  answerText, answerButtons, youList, HUB_TABS, MODULES } from '../lib/hub.mjs'
+  answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated } from '../lib/hub.mjs'
 import { drawHub, hubBar } from '../hooks/hub_view.mjs'
 import { kit, drawCockpit } from '../hooks/view.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
-import { LOCAL, DATA } from '../scripts/fixtures/hub.mjs'
+import { LOCAL, DATA, DATA2 } from '../scripts/fixtures/hub.mjs'
 
 const NOW = LOCAL.now
 const ACT = { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done() {}, answer() {}, fill() {}, open() {} }
@@ -40,9 +41,10 @@ test('This laptop: to-dos here urgent first (marked done last), Run only for del
   assert.deepEqual(P.todos[0].tags, ['security'])
   assert.ok(!P.todos[2].canRun && P.todos[2].marked)
   assert.equal(P.label, 'Computer one')
-  assert.match(P.line, /^live · mode not published · CPU 12 % · RAM 50 %$/)
+  assert.match(P.line, /^live · mode unknown · CPU 12 % · RAM 50 %$/)
   assert.equal(P.temp.text, 'temperature: no sensor reading in the hub data')
-  assert.equal(P.work[0].text, 'job #9 claude · since 11:59 UTC · ETA 12:01 UTC')
+  // the machine's own queue is the one source of running jobs: pc1's is empty, so the overview's job 9 is not shown
+  assert.deepEqual(P.work, [])
   assert.equal(m.hereOpen, 3) // the page's count: marked done ones too
   assert.equal(badgeText(m), 'Fleet: 3 to do')
   assert.equal(badgeText(null), 'Fleet: offline')
@@ -54,13 +56,14 @@ test('This laptop: health and mode when the hub publishes them; hot, low disk an
   data.modes = { pc1: { mode: 'coding' } }
   data.fleet.machines[0].load.disks = [{ mount: 'C:', free_pct: 4 }]
   data.overview.running.jobs[0].eta_ts = NOW / 1000 - 600
+  data.fleet.machines[0].queue.running = [{ id: 9, kind: 'claude' }]
   const P = hubModel(LOCAL, data, {}, { now: NOW }).laptop
   assert.match(P.line, /mode coding · CPU 80 %/)
-  assert.equal(P.temp.text, 'temperature CPU 97 °C · GPU 60 °C')
+  assert.equal(P.temp.text, 'temperature CPU 97 °C') // the hotter sensor
   assert.equal(P.temp.tone, 'bad')
   assert.equal(P.agents, '25 agent processes')
-  assert.deepEqual(P.warn.map((w) => [w.text, w.tone]), [['hot for 2 readings', 'bad'], ['temperature CPU 97 °C · GPU 60 °C', 'bad'], ['disk C: 4 % free', 'bad']])
-  assert.match(P.work[0].text, /past its ETA 11:50 UTC/)
+  assert.deepEqual(P.warn.map((w) => [w.text, w.tone]), [['hot for 2 readings', 'bad'], ['temperature CPU 97 °C', 'bad'], ['disk C: 4 % free', 'bad']])
+  assert.equal(P.work[0].text, 'job #9 claude · since 11:59 · past its ETA 11:50')
   assert.equal(P.work[0].tone, 'warn')
   // gaming from the worker, GPU sensor of the load sample
   const d2 = structuredClone(DATA)
@@ -79,14 +82,15 @@ test('Global: the page’s You list (blocking only, most urgent first), answers 
   assert.equal(G.answerMachine, 'hub')
   assert.equal(answerText(G.answerTemplate, 'I1', 'a'), 'Answer I1: a')
   assert.equal(answerText('x', 'Q2', 'a'), null) // only register questions are answered this way, as on the page
-  assert.deepEqual(G.errors.map((e) => e.text), ['Claude quota at 40 % of the week']) // high is in the page's Overview
-  assert.equal(G.fleetLine, '1 of 2 workers busy · jobs: 1 running, 0 queued · 2 alerts')
+  // the page's Problems now, every severity, most severe first (no quota.json reading in this old fixture: its row stays)
+  assert.deepEqual(G.errors.map((e) => e.text), ['Claude quota at 40 % of the week', 'job 14 lost on Computer two'])
+  assert.equal(G.fleetLine, '1 of 2 workers busy · jobs: 1 running, 0 queued')
   assert.deepEqual(G.dots.map((d) => [d.label, d.state, d.tone]), [['Computer one', 'live', 'ok'], ['Computer two', 'busy', 'running']])
   assert.equal(G.urgentElsewhere, 0)
   // an answer sent from the pane replaces the buttons by its confirmation
   const sent = hubModel(LOCAL, DATA, {}, { now: NOW, answered: { 'issue:I1': { key: 'a', label: 'a) cap at 3', t: NOW } } })
   assert.equal(sent.global.you[0].sent.label, 'a) cap at 3')
-  assert.match(draw(sent, 160), /Sent "a\) cap at 3" at 12:00 UTC; Oracle records it within about 2 minutes\./)
+  assert.match(draw(sent, 160), /Sent "a\) cap at 3" at 12:00; Oracle records it within about 2 minutes\./)
 })
 
 test('workspaces: All hides confidential items; an org shows only its own, the confidential one its own key', () => {
@@ -118,7 +122,8 @@ test('absent parts: no inbox (overview questions), no organizations, no data at 
   assert.equal(bare.todo.all.length, 0)
   assert.equal(bare.laptop.known, false)
   assert.match(draw(bare, 60), /Nothing to do here\./)
-  assert.match(draw(bare, 60), /Nothing waits on you\./)
+  assert.match(draw(bare, 60), /Nothing needs you now\./)
+  assert.match(draw(bare, 60), /No problem now\./)
   assert.equal(hubModel(LOCAL, null, {}, { now: NOW }).hasData, false)
   assert.match(summaryText(null, {}), /not reachable/)
 })
@@ -127,7 +132,7 @@ test('the dispatcher draws both blocks and the Open in Cockpit links at 45 and 9
   const m = hubModel(LOCAL, DATA, {}, { now: NOW })
   for (const cols of [45, 90]) {
     const text = draw(m, cols)
-    for (const re of [/This laptop · Computer one/, /Global/, /You: what blocks work now \(2\)/, /\[a\) cap at 3 · recommended\]/, /Errors now/,
+    for (const re of [/This laptop · Computer one/, /Global/, /Needs you now \(2\)/, /\[a\) cap at 3 · recommended\]/, /Problems now/,
       /\[Job or prompt to a machine…\]/, /\[To-do for Julian…\]/, /Open in Cockpit/, /\[Questions and checks\]/, /\[Dispatcher\]/, /\[Conversations\]/]) assert.match(text, re, `${re} at ${cols}`)
     assert.ok(text.indexOf('This laptop') < text.indexOf('Global') && text.indexOf('Global') < text.indexOf('Open in Cockpit'))
     for (const gone of [/Watch digest/, /Answer sheet/, /By application/, /Lost jobs/, /Fleet quota/]) assert.doesNotMatch(text, gone)
@@ -137,8 +142,8 @@ test('the dispatcher draws both blocks and the Open in Cockpit links at 45 and 9
   assert.match(off, /\[Open in Cockpit\]/)
   assert.ok(hubBar(kit(el, {}), { hub: { enabled: false } }, 'home', m, ACT) === null)
   assert.deepEqual(m.modules.map((x) => x.id), MODULES)
-  assert.equal(m.modules[2].url, 'http://127.0.0.1:24365/#inbox')
-  assert.equal(m.modules[2].label, 'Questions and checks')
+  assert.equal(m.modules[1].url, 'http://127.0.0.1:24365/#inbox')
+  assert.equal(m.modules[1].label, 'Questions and checks')
 })
 
 test('the pane: the dispatcher takes the whole width (no left menu); /fleet text and module links', () => {
@@ -147,10 +152,10 @@ test('the pane: the dispatcher takes the whole width (no left menu); /fleet text
   assert.match(text, /This laptop · Computer one/)
   assert.doesNotMatch(text, /Jauge/)
   const s = summaryText(m, {})
-  assert.match(s, /^This laptop · Computer one \(pulled 20 s ago · built 12:00 UTC\)/)
-  assert.match(s, /\n {4}! 01 Rotate the test key\n/)
+  assert.match(s, /^This laptop · Computer one \(pulled 20 s ago · built 12:00\)/)
+  assert.match(s, /\n {4}! Rotate the test key\n/)
   assert.match(s, /\nGlobal\n/)
-  assert.match(s, /I1 · Cap tool work\? \[Tools\] · recommended: a\) cap at 3/)
+  assert.match(s, /\n {4}Cap tool work\? · recommended: a\) cap at 3\n {6}Tools · I1\n/)
   assert.equal(moduleOf('questions'), 'inbox')
   assert.equal(moduleOf('fleet'), 'fleet')
   assert.equal(moduleOf('nope'), '')
@@ -166,4 +171,113 @@ test('sending: targets, results, token', () => {
   assert.equal(sendResult('dispatch', { status: 200, ok: true, text: '{"job":7}' }), 'dispatch: sent as job 7')
   assert.match(sendResult('todo', null), /did not answer/)
   assert.equal(tokenOf('<meta name="cockpit-token" content="abcdef0123456789">'), 'abcdef0123456789')
+})
+
+// ---- review of 12 Nov (rules 7, 8, 11-16): one quota story, the page's counts, folded rows, one clock, plain labels ----
+
+test('quota: one row from quota.json (the Quota module reading), its exhaust and reading time; unlimited mode = yellow', () => {
+  const m = hubModel(LOCAL, DATA2, {}, { now: NOW })
+  const q = m.global.errors.find((e) => e.kind === 'quota')
+  assert.equal(q.text, 'Claude quota: 20 % used of the 7-day window, empties Sat 3 Jan 15:02 at this pace (resets Thu 8 Jan 12:00)')
+  assert.deepEqual(q.meta, ['read 11:29', 'unlimited mode until Thu 8 Jan 12:00', 'covers I13'])
+  assert.equal(q.tone, 'warn') // the unlimited mode he set: yellow, not red
+  // the overview's own quota row (19.0 %, 07:31) and I13 are gone: one story
+  const all = m.global.errors.map((e) => e.text).join('\n')
+  assert.doesNotMatch(all, /19\.0%|07:31|I13|burns/)
+  assert.equal(m.global.errors.filter((e) => /quota/i.test(e.text)).length, 1)
+  // normal mode: red; expired unlimited: red again
+  const d = structuredClone(DATA2)
+  d.quota_mode = { mode: 'normal', source: 'file' }
+  assert.equal(hubModel(LOCAL, d, {}, { now: NOW }).global.errors.find((e) => e.kind === 'quota').tone, 'bad')
+  d.quota_mode = { mode: 'unlimited', expired: true }
+  assert.equal(hubModel(LOCAL, d, {}, { now: NOW }).global.errors.find((e) => e.kind === 'quota').tone, 'bad')
+})
+
+test('the page counts and sentence, not recomputed: fleet sentence, tiles order, Problems now total, alerts', () => {
+  const m = hubModel(LOCAL, DATA2, {}, { now: NOW })
+  const G = m.global
+  assert.equal(G.fleetLine, 'Fleet coding is working: 1 of 2 machines busy, utilisation 50 % (at 11:59)')
+  assert.deepEqual(G.dots.map((d) => [d.label, d.state, d.tone]), [['Computer two', 'busy', 'ok'], ['Computer one', 'on', 'warn'], ['Tablet', 'off', 'dim']])
+  // Problems now: quota (once), I10, the job row; I2 is under Needs you now and only counted
+  assert.deepEqual(G.errors.map((e) => e.kind), ['quota', 'issue', 'job'])
+  assert.equal(G.errorsTotal, 3)
+  assert.equal(G.covered, 1)
+  // alerts: the page's rows of the workspace (5), minus I2 and I90 (Needs you now) and the quota alert (the quota row)
+  assert.equal(G.alerts.text, 'Alerts: 1 open, 0 urgent')
+  assert.equal(G.alerts.listed, '3 more are listed above')
+  assert.equal(G.alerts.total, 5)
+  // the running job comes from the tile alone: pc1's tile has none, so the overview's stale job 9 is not running here
+  assert.deepEqual(m.laptop.work, [])
+  const d = structuredClone(DATA2)
+  d.fleet_view.tiles[1].running = [{ id: 9, kind: 'claude' }]
+  assert.equal(hubModel(LOCAL, d, {}, { now: NOW }).laptop.work[0].text, 'job #9 claude · since 11:59 · ETA 12:01')
+})
+
+test('Needs you now: related items folded into one row (the question with its buttons, covers I2, I4 and 1 to-do)', () => {
+  const m = hubModel(LOCAL, DATA2, {}, { now: NOW })
+  const G = m.global
+  assert.deepEqual(G.you.map((q) => q.id), ['I90', 'Q1'])
+  assert.equal(G.you[0].covers, 'covers I2, I4 and 1 to-do')
+  assert.deepEqual(G.you[0].answers.map((a) => a.key), ['a', 'b'])
+  assert.equal(G.youTotal, 2)
+  const groups = foldRelated(DATA2.inbox.items.filter((x) => x.you))
+  assert.equal(groups.length, 3) // I90 group, Q1, I3
+  const text = draw(m, 50)
+  assert.equal((text.match(/Port 22/g) || []).length, 0) // I2 shows nowhere else in the pane
+})
+
+test('one clock: local 24 h, 19:22 today, Fri 13 Nov 16:02 another day; hub-written dates formatted in the renderer', () => {
+  const now = Date.parse('2026-11-12T18:24:00Z')
+  assert.equal(at('2026-11-12T18:22:00Z', now), '18:22')
+  assert.equal(at('2026-11-13T16:02:36Z', now), 'Fri 13 Nov 16:02')
+  assert.equal(at(1794507842, now), '18:24')
+  assert.equal(at('2026-11-12T19:05:00Z', now, { time: { hour12: true } }), '7:05 PM')
+  assert.equal(localize('empties 2026-11-13T07:31:57Z before its reset', now), 'empties Fri 13 Nov 07:31 before its reset')
+  assert.equal(localize('last check 2026-11-12 18:00Z', now), 'last check 18:00')
+  assert.equal(localize('since 2026-11-11', now), 'since Wed 11 Nov')
+  assert.equal(localize('empty around 13 Nov 06:00 UTC', now), 'empty around Fri 13 Nov 06:00')
+  assert.equal(localize('built 16:55 UTC', now), 'built 16:55')
+  assert.equal(localize('no date here: 7 jobs, 2026 lines', now), 'no date here: 7 jobs, 2026 lines')
+  // another zone: the clock follows this computer
+  process.env.TZ = 'Europe/Paris'
+  try { assert.equal(at('2026-11-12T18:22:00Z', now), '19:22') } finally { process.env.TZ = 'UTC' }
+  // the rows of the pane carry no ISO stamp
+  const text = draw(hubModel(LOCAL, DATA2, {}, { now: NOW }), 60)
+  assert.doesNotMatch(text, /\d{4}-\d{2}-\d{2}|UTC/)
+  assert.match(text, /3 failed jobs in 24 h, last check 11:00/)
+  assert.match(text, /Hub disk at 74 % since Thu 1 Jan/)
+})
+
+test('plain labels: title first, the id small at the end of a plain-word meta line; to-dos one line, Run on the first only', () => {
+  const m = hubModel(LOCAL, DATA2, {}, { now: NOW })
+  const q1 = m.global.you.find((q) => q.id === 'Q1')
+  assert.equal(q1.title, 'Pick the backup disk')
+  assert.deepEqual(q1.meta, ['App one', 'waits on you', 'priority 1', 'Q1'])
+  const i10 = m.global.errors.find((e) => e.text.startsWith('Hub disk'))
+  assert.deepEqual(i10.meta, ['an agent works on it', 'I10'])
+  const text = draw(m, 50)
+  assert.match(text, /Pick the backup disk\s*│\n│ App one · waits on you · priority 1 · Q1/)
+  assert.doesNotMatch(text, /blocked-user|waiting-julian|\bp0\b|not published/)
+  // headings and module list are the page's
+  assert.match(text, /Needs you now \(2\)/)
+  assert.match(text, /Problems now/)
+  assert.deepEqual(m.modules.map((x) => x.label), ['Overview', 'Questions and checks', 'To do', 'Fleet', 'Alerts', 'Quota', 'Dispatch plan', 'My messages'])
+  // This laptop from its tile: power, mode, the hotter sensor and the 1 h maximum, the tile's yellow reasons
+  assert.equal(m.laptop.line, 'on · mode normal · CPU 5 % · RAM 50 %')
+  assert.equal(m.laptop.temp.text, 'temperature CPU 59 °C (max 95 °C in the last hour)')
+  assert.deepEqual(m.laptop.warn.map((w) => w.text), ['27 agent processes, cap 12', 'disk C: 8.4 % free'])
+  assert.equal(m.laptop.agents, '')
+  // 3 to-dos, one line each, Run only on the first, then show all
+  const d = structuredClone(DATA2)
+  d.todo.pc1 = Array.from({ length: 12 }, (_, i) => ({ id: `pc1-t${i}`, nn: String(i + 1).padStart(2, '0'), title: `Step ${i + 1}` }))
+  const L2 = { ...LOCAL, delivered: d.todo.pc1.map((t) => ({ id: t.id })), marked_done: [] }
+  const t2 = draw(hubModel(L2, d, {}, { now: NOW }), 50)
+  assert.equal((t2.match(/\[Run\]/g) || []).length, 1)
+  assert.match(t2, /\[show all 12\]/)
+  assert.doesNotMatch(t2, /Step 4\b/)
+})
+
+test('the pane at 50 columns stays short with today-shaped data', () => {
+  const text = draw(hubModel(LOCAL, DATA2, {}, { now: NOW }), 50)
+  assert.ok(text.split('\n').length < 75, `${text.split('\n').length} lines`)
 })
