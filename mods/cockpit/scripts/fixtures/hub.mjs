@@ -155,3 +155,24 @@ export const DATA3 = (() => {
   }
   return d
 })()
+
+// DATA3 plus the page's folded decisions (glance.py decisions(), data.glance.decisions): its counts and its top rows,
+// each with its buttons (a register question, a decide row with the hub's yes / no / later, advice that is no option).
+export const DATA4 = (() => {
+  const d = structuredClone(DATA3)
+  const yn = [{ key: 'yes', label: 'I will do it' }, { key: 'no', label: 'Not needed' }, { key: 'later', label: 'Later' }]
+  const rows = [
+    { uid: 'issue:I90', id: 'I90', title: 'Security hour: 2FA and token rotation', codes: [], org: 'tools', urgency: 'now', blocks: true,
+      covers: ['issue:I2', 'issue:I4', 'todo:pc2-2fa'], options: [{ key: 'a', label: '30 minutes' }, { key: 'b', label: 'later' }], rec_key: 'a', recommended: 'a', answer: 'register',
+      option_notes: { a: 'Half an hour with you; the keys are rotated tonight.', b: 'Nothing changes; asked again tomorrow.' }, why: 'The keys leak while this waits.', owner: 'julian' },
+    { uid: 'todo:pc1-mail', id: 'pc1-mail', title: 'Mail app password for the away e-mails', codes: [], org: 'tools', urgency: 'now', blocks: true, covers: [], options: yn, rec_key: 'yes', answer: 'decide' },
+    { uid: 'issue:I72', id: 'I72', title: 'Are the old targets superseded?', codes: ['Sheet Q1'], org: 'acme', urgency: 'now', blocks: true, covers: ['issue:I123', 'backlog:Q1'],
+      options: [{ key: 'a', label: 'yes' }, { key: 'b', label: 'no' }], rec_key: 'rec', recommended: 'Keep the plan', answer: 'register' },
+    { uid: 'backlog:Q9', id: 'Q9', title: 'Pick a name', codes: [], org: 'acme', urgency: 'week', blocks: false, covers: [], options: yn, rec_key: 'later', answer: 'decide' },
+  ]
+  d.glance.decisions = {
+    counts: { now: 3, waiting: 7, rows: 10, open_items: 14, covered: 4, settled_by_cover: 0, decided: 0, later: 0, by_type: { todo: 2, question: 6, issue: 4, backlog: 2 } },
+    top: rows.filter((r) => r.blocks), rows, covers: [],
+  }
+  return d
+})()

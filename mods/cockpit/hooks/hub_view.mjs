@@ -3,7 +3,7 @@
 // kit `h` and the callbacks in S.act.
 // S = { cfg, model, error, busy, msg, columns, act: { hubTab(id), panneau(), refresh(), org(id), run(id), done(id),
 //       answer(uid, key), fill(text), open(url) } }
-import { hubConfig, hubTabs, fill, moduleUrl } from '../lib/hub.mjs'
+import { hubConfig, hubTabs, fill, moduleUrl, buttonLabel } from '../lib/hub.mjs'
 
 const clip = (s, n) => { const t = String(s || ''); return n > 3 && t.length > n ? t.slice(0, n - 1) + '…' : t }
 
@@ -44,6 +44,14 @@ export function drawHub(h, S) {
   if (m.orgs.length) {
     out.push(h.row([h.T(W.workspace, { dim: true }), h.btn(W.org_all, () => S.act.org(''), !m.org, 'org-all'),
       ...m.orgs.map((o) => h.btn(o.label, () => S.act.org(o.id), m.org === o.id, 'org-' + o.id))], { key: 'hub-orgs', alignItems: 'center', marginBottom: 1 }))
+  }
+  // the critical strip on top of everything (UX rule 20: work is stopped), when the page data has one
+  if ((m.critical || []).length) {
+    out.push(h.box(W.critical, m.critical.map((r, i) => h.col([
+      h.T(`! ${clip(r.text, width * 2)}`, { tone: 'bad', bold: true, key: 'text', wrap: 'wrap' }),
+      [r.orgLabel, r.id].filter(Boolean).length ? h.T(clip([r.orgLabel, r.id].filter(Boolean).join(' · '), width), { dim: true, key: 'meta', wrap: 'truncate-end' }) : null,
+      link(h, W.more_row, moduleUrl(c.base, r.link), 'crit-more-' + i),
+    ].filter(Boolean), { key: 'crit-' + i })), { key: 'blk-critical', tone: 'bad' }))
   }
   out.push(drawLaptop(h, m, c, S, width))
   out.push(drawGlobal(h, m, c, S, width))
@@ -94,8 +102,9 @@ function drawGlobal(h, m, c, S, width) {
       { key: 'gl-dots', marginBottom: 1 }))
   }
   // about global_max rows in all: Needs you now first, then at least one Problems now row when there is one
+  // the page's decisions: all its top rows (the page shows them all), then one Problems now row at least
   const errN = G.showErrors || G.fleetWs ? Math.min(G.errors.length, G.errors.length ? Math.max(1, gmax - G.you.length) : 0) : 0
-  const youN = Math.max(0, Math.min(G.you.length, gmax - errN))
+  const youN = G.decisions ? G.you.length : Math.max(0, Math.min(G.you.length, gmax - errN))
   // the page's heading, then its own count sentence (« 14 need you now (at 21:16) ») on the same line
   rows.push(G.youCount
     ? h.T(clip(`${W.you_block} · ${G.youCount}`, width), { bold: true, key: 'gl-you-head', wrap: 'truncate-end' })
@@ -107,7 +116,16 @@ function drawGlobal(h, m, c, S, width) {
       h.T(clip([q.covers, ...q.meta].filter(Boolean).join(' · '), width), { dim: true, key: 'meta', wrap: 'truncate-end' }),
     ]
     if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
-    else if (q.answers.length) {
+    else if (q.url) {
+      // the page's recommended answer (primary button, one click sends it), then « more »: the page at that row, where
+      // every option and what it changes is shown (UX rule 19)
+      const rec = q.answers.find((a) => a.rec)
+      const btns = []
+      if (rec) btns.push(h.btn(clip(buttonLabel(rec), width - 10), () => S.act.answer(q.uid, rec.key), true, `ans-${q.uid}-${rec.key}`))
+      btns.push(link(h, W.more_row, q.url, `more-${q.uid}`))
+      parts.push(h.row(btns, { key: 'answers' }))
+      if (q.why) parts.push(h.T(clip(q.why, width), { dim: true, key: 'why', wrap: 'truncate-end' }))
+    } else if (q.answers.length) {
       // the recommended answer, then « more » for the other options (unfolded in place)
       const open = Boolean(S.more && S.more[q.uid])
       const rec = q.answers.find((a) => a.rec) || q.answers[0]
@@ -122,6 +140,7 @@ function drawGlobal(h, m, c, S, width) {
     rows.push(h.col(parts.filter(Boolean), { key: 'you-' + q.uid }))
   }
   if (G.youTotal > youN) rows.push(link(h, fill(W.show_all, { n: G.youTotal }), moduleUrl(c.base, 'overview'), 'gl-you-all'))
+  if (G.waitingLine) rows.push(link(h, G.waitingLine, moduleUrl(c.base, 'inbox'), 'gl-waiting'))
   if (G.showErrors || G.fleetWs) {
     rows.push(h.T(clip(`${W.errors}${G.errorsAt ? ` · ${G.errorsAt}` : ''}`, width), { bold: true, key: 'gl-err-head', wrap: 'truncate-end' }))
     if (!G.errors.length) rows.push(h.T(W.errors_none, { dim: true, key: 'gl-err-none' }))
