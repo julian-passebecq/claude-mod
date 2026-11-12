@@ -49,7 +49,10 @@ const HUB_DATA = { schema: 'herd.cockpit/1', labels: { pc1: 'Computer one', pc2:
   fleet: { herd: { machines_up: 2, jobs_running: 0, jobs_queued: 0, todo_open_total: 1, alerts_total: 0 },
     machines: [{ id: 'pc1', label: 'Computer one', state: 'live' }, { id: 'pc2', label: 'Computer two', state: 'live' }] },
   overview: { schema: 'herd.overview/1', you: { todos: [{ id: 'pc1-a', machine: 'pc1', title: 'Rotate the test key', prio: 9 }], questions: [], counts: { todos_open: 1 } },
-    errors: { rows: [{ kind: 'job', severity: 'high', text: 'job 14 lost on Computer two' }] }, apps: [], running: { jobs: [], lanes: [] } } }
+    errors: { rows: [{ kind: 'job', severity: 'urgent', text: 'job 14 lost on Computer two' }] }, apps: [], running: { jobs: [], lanes: [] } },
+  inbox: { schema: 'herd.inbox/1', answer_machine: 'hub', answer_text: 'Answer {id}: {key}', you_max: 5, orgs: [],
+    items: [{ uid: 'issue:I7', type: 'question', section: 'question', id: 'I7', title: 'Cap tool work?', you: true, blocks_work: true, urgency: 'now',
+      options: [{ key: 'a', label: 'cap at 3' }, { key: 'b', label: 'no cap' }], rec_key: 'a', recommended: 'a', answerable: true }] } }
 
 function world(on: any, o: { clock?: boolean; commands?: { name: string; plugin?: string }[]; self?: string; engine?: string; cockpitCfg?: unknown; hub?: boolean; dispatch?: number } = {}) {
   const posts: any[] = []
@@ -319,12 +322,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-// ---- the Panneau (default view): one scrolling column, no tab bar; macro rows, details one click away ----------------
+// ---- the Panneau (« Conversations »): one scrolling column; macro rows, details one click away ------------------------
 
+// These four were « Panneau by default » and failed since #78 made panel.detail « normal » the shipped preset (the 5 h
+// figure moved from the folded Quotas line to its own row): they now pin the « compact » preset they were written for;
+// the « normal » rows are covered by « Panneau: folded lines unfold… » and panel.test.mjs. The pane opens on the
+// dispatcher since 12 Nov; without the local Cockpit (this world) the Panneau is what /cockpit shows here.
 for (const surface of ['terminal', 'desktop'] as const) {
   for (const columns of [60, 75]) {
-    test(`Panneau by default: banners, ONE list of conversations, then Quotas, Débit, Graphe, Fichiers one folded line each; no tab bar (${surface}, ${columns} col.)`, async ($, on) => {
-      world(on)
+    test(`Panneau (compact preset): banners, ONE list of conversations, then Quotas, Débit, Graphe, Fichiers one folded line each (${surface}, ${columns} col.)`, async ($, on) => {
+      world(on, { cockpitCfg: { panel: { detail: 'compact' } } })
       mock.store(on)
       await $.command.run({ command: 'cockpit', args: '' } as any)
       const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns, rows: 200 }, props: { ...PANE, bodyColumns: columns } } as any)
@@ -537,24 +544,44 @@ test('Panneau: another conversation’s details unfold under its row on a click 
 // ---- the hub tabs (local Cockpit data) -----------------------------------------------------------------------------
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`hub tabs: Overview, the tab bar switches to To do and Fleet; Mark done posts with the page token (${surface})`, async ($, on) => {
+  test(`dispatcher: This laptop and Global from the local Cockpit; Mark done and a one-click answer post with the page token (${surface})`, async ($, on) => {
     const w = world(on, { hub: true })
+    const kept: Record<string, unknown> = {}
+    on('store.get', ($: any, e: any) => ({ value: kept[e.key] }))
+    on('store.set', ($: any, e: any) => { kept[e.key] = e.value; return { value: undefined } })
+    const fills: any[] = []
+    on('prompt.fill', ($: any, e: any) => { fills.push(e); return { isFilled: true } })
     on('session.start', ($: any, e: any) => e)
     await $.session.start({ cwd: 'C:/code/eta', surface, isInteractive: true } as any)
-    await $.command.run({ command: 'cockpit', args: 'overview' } as any)
-    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
+    await $.command.run({ command: 'cockpit', args: 'fleet' } as any)
+    const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 60, rows: 120 }, props: { ...PANE, bodyColumns: 60 } } as any)
+    expect(await has(ui, /^This laptop · Computer one$/)).toBe(true)
+    expect(await has(ui, /^01 Rotate the test key$/)).toBe(true)
+    expect(await has(ui, /^Global$/)).toBe(true)
+    expect(await has(ui, /^You: what blocks work now \(1\)$/)).toBe(true)
     expect(await has(ui, /job 14 lost on Computer two/)).toBe(true)
+    expect(await has(ui, /^Open in Cockpit$/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'open-fleet' })
+    await (async () => { for (let i = 0; i < 20 && !w.argvs.some((x) => x.includes('http://127.0.0.1:24365/#fleet')); i++) await new Promise((r) => setTimeout(r, 10)) })()
+    expect(w.argvs.find((x) => x.includes('http://127.0.0.1:24365/#fleet'))).toEqual(['xdg-open', 'http://127.0.0.1:24365/#fleet'])
     expect(await ui.find({ key: 'hubtab-panneau' })).toBeDefined()
-    await ui.press({ plugin: 'cockpit', key: 'hubtab-todo' })
-    expect(await has(ui, /Rotate the test key/)).toBe(true)
-    expect(await has(ui, /\[security\]/)).toBe(true)
+    // no full tab of the page in the mod
+    for (const re of [/^Errors and blocks$/, /^Watch digest$/, /^By application$/, /^Lost jobs/]) expect(await has(ui, re)).toBe(false)
     await ui.press({ plugin: 'cockpit', key: 'done-pc1-a' })
     const p = w.posts.find((x) => x.path === '/api/done')
     expect(p?.body).toEqual({ id: 'pc1-a' })
     expect(p?.headers['X-Cockpit-Token']).toBe('tok0123456789abcd')
     expect(p?.headers.Origin).toBe('http://127.0.0.1:24365')
-    await ui.press({ plugin: 'cockpit', key: 'hubtab-fleet' })
-    expect(await has(ui, /2 machines up/)).toBe(true)
+    await ui.press({ plugin: 'cockpit', key: 'ans-I7-a' })
+    await (async () => { for (let i = 0; i < 20 && !w.posts.some((x) => x.path === '/api/todo'); i++) await new Promise((r) => setTimeout(r, 10)) })()
+    expect(w.posts.find((x) => x.path === '/api/todo')?.body).toEqual({ machine: 'hub', text: 'Answer I7: a' })
+    await (async () => { for (let i = 0; i < 20 && !(await has(ui, /^Sent "a\) cap at 3"/)); i++) await new Promise((r) => setTimeout(r, 10)) })()
+    expect(await has(ui, /^Sent "a\) cap at 3" at \d\d:\d\d UTC/)).toBe(true)
+    expect(JSON.stringify(kept.hub)).toContain('issue:I7')
+    // a quick action fills the prompt, sends nothing
+    await ui.press({ plugin: 'cockpit', key: 'act-dispatch' })
+    expect(fills[0]?.text).toBe('/dispatch ')
+    expect(w.posts.some((x) => x.path === '/api/dispatch')).toBe(false)
     expect(w.status).toContain('Fleet: 1 to do')
     await ui.unmount()
   })
@@ -570,7 +597,10 @@ test('hub: /fleet, /dispatch, /todo are registered when no loaded mod has them, 
   expect(w.registered).toContain('dispatch')
   expect(w.registered).toContain('todo')
   const f = await $.command.run({ command: 'fleet', args: '' } as any)
-  expect((f as any).text).toMatch(/Fleet on Computer one: 1 to-do here/)
+  expect((f as any).text).toMatch(/^This laptop · Computer one \(pulled 20 s ago/)
+  expect((f as any).text).toMatch(/\nGlobal\n/)
+  const q = await $.command.run({ command: 'fleet', args: 'questions' } as any)
+  expect((q as any).text).toMatch(/\nOpen in Cockpit: http:\/\/127\.0\.0\.1:24365\/#inbox$/)
   const d = await $.command.run({ command: 'dispatch', args: 'pc2 run the backup' } as any)
   expect((d as any).text).toMatch(/not available yet/)
   expect(w.posts.find((x) => x.path === '/api/dispatch')?.body).toEqual({ machine: 'pc2', text: 'run the backup' })
@@ -595,6 +625,7 @@ test('hub: the local Cockpit down shows the reason, the status line says offline
   await $.command.run({ command: 'cockpit', args: 'todo' } as any)
   const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface: 'desktop', viewport: { columns: 100, rows: 80 }, props: WIDE } as any)
   expect(await has(ui, /not reachable on http:\/\/127\.0\.0\.1:24365/)).toBe(true)
+  expect(await ui.find({ key: 'open-page' })).toBeDefined()
   expect(w.status).toContain('Fleet: offline')
   await ui.unmount()
 })

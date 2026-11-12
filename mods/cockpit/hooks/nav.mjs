@@ -3,7 +3,7 @@
 // spawnedFrom link) > medium (one conversation: its Workflows and agents) > micro (one agent). The input is the JSON of
 // factory's scanner (lib/factory/scanner/factory_scan.py): sessions with sid, parent (spawnedFrom), subs; detail of one
 // conversation. Every label and limit comes from cockpit.config.json.
-import { hubIdOf, hubTabs, tabKey } from '../lib/hub.mjs'
+import { hubIdOf, hubTabs } from '../lib/hub.mjs'
 import { titleOf, repoOf, short, ctxPct, billByModel, sumCost, tokensOf, family, fmtTokens, fmtUsd, hhmm } from '../lib/factory/hooks/logic.mjs'
 import { sessionState, mission, effortBars, screensConfig } from '../lib/factory/hooks/screens.mjs'
 import { rank } from '../lib/usage/lib/classement.mjs'
@@ -612,7 +612,7 @@ export function tabsOf(cfg) {
 
 // A tab id the pane can show: one of the tab bar, or the Nuit screen (opened by its button) while enabled.
 export function tabValid(cfg, id) {
-  if (hubIdOf(id)) return hubTabs(cfg).some((t) => tabKey(t.id) === id)
+  if (hubIdOf(id)) return hubTabs(cfg).length > 0
   const c = cockpitConfig(cfg).tabs
   const dep = (cfg && cfg.depuis) || {}
   if (id === 'panneau') return !(cfg && cfg.panel && cfg.panel.enabled === false)
@@ -651,10 +651,10 @@ const TAB_WORDS = {
   workflow: 'workflow', workflows: 'workflow', wf: 'workflow',
   machine: 'machine', systeme: 'machine', 'système': 'machine', system: 'machine',
   depuis: 'depuis', since: 'depuis', matin: 'depuis', reveil: 'depuis', 'réveil': 'depuis', resume: 'depuis', 'résumé': 'depuis',
-  // the hub tabs (lib/hub.mjs); « journal » stays factory's, the hub's is « events »
-  overview: 'hub-overview', apercu: 'hub-overview', 'aperçu': 'hub-overview', todo: 'hub-todo', 'to-do': 'hub-todo', afaire: 'hub-todo',
-  questions: 'hub-questions', checks: 'hub-questions', fleet: 'hub-fleet', flotte: 'hub-fleet', quota: 'hub-quota', quotas: 'hub-quota',
-  alerts: 'hub-alerts', alertes: 'hub-alerts', events: 'hub-journal', watch: 'hub-watch', digest: 'hub-watch', lanes: 'hub-lanes',
+  // the dispatcher (lib/hub.mjs); the words of the nine hub tabs of #82/#83 open it too; « journal » stays factory's
+  dispatch: 'hub-home', dispatcher: 'hub-home', hub: 'hub-home', overview: 'hub-home', apercu: 'hub-home', 'aperçu': 'hub-home', todo: 'hub-home', 'to-do': 'hub-home',
+  afaire: 'hub-home', questions: 'hub-home', checks: 'hub-home', fleet: 'hub-home', flotte: 'hub-home', quota: 'hub-home', quotas: 'hub-home',
+  alerts: 'hub-home', alertes: 'hub-home', events: 'hub-home', watch: 'hub-home', digest: 'hub-home', lanes: 'hub-home',
   nuit: 'nuit', night: 'nuit', bilan: 'nuit', relais: 'relais', codex: 'relais', galerie: 'galerie', gallery: 'galerie', vues: 'galerie',
 }
 const LEVEL_WORDS = { mega: 'mega', 'méga': 'mega', macro: 'macro', projet: 'macro', project: 'macro', medium: 'medium', conversation: 'medium', conv: 'medium', micro: 'micro', agent: 'micro' }

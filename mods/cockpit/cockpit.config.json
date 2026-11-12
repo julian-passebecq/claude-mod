@@ -42,16 +42,20 @@
       "conv"
     ]
   },
-  "_hub": "The hub tabs (12 Nov 2026: one mod, one window): Overview, To do, Questions and checks, Fleet, Quota, Alerts, Journal, Watch, Lanes, drawn from the SAME data as the local Cockpit page and the VS Code extension: herd-worker's http://127.0.0.1:24365/local.json and /data.json (loopback; lib/hub.mjs). Their tab bar sits above every view, « Conversations » last (the Panneau). start: the view the pane opens on (a hub tab id, or \"panneau\"). refresh_s: how often the local Cockpit is read (also for the status line « Fleet: N to do »; status_line false = only while a hub tab is shown). tabs.order / tabs.labels: which hub tabs, in which order, and their names. todo.urgent_prio: a to-do whose hub priority is at or above it is Urgent (first); Ongoing = marked done here or with a check already run; then this computer, then elsewhere; todo.tag_re takes a [tag] off the title. A workspace switch shows when the data carries organizations (data.organizations; items name theirs by org). Quota, Alerts, Journal, Watch and Lanes use data.quota / alerts / journal / watch / lanes when the hub adds them and derive from overview, fleet and digest otherwise. Run / Mark done and /dispatch, /todo POST to the same endpoints as the page with its Origin and per-start token. Every label in hub.labels (lib/hub.mjs HUB_DEFAULTS has them all). enabled false: no hub tabs, the Panneau again by default.",
+  "_hub": "The dispatcher (UX-PRINCIPLES rule 7, 12 Nov 2026): ONE narrow pane read from the same data as the local Cockpit page (herd-worker, http://127.0.0.1:24365): block 1 This laptop (to-dos here urgent first with Run / Mark done; mode, CPU, RAM, temperature, agents, warnings; what runs here), block 2 Global (fleet line and one dot per machine; the page's You list of the workspace with one-click answers; errors of error_severities; urgent to-dos elsewhere; quick actions that fill the prompt with /dispatch or /todo), then Open in Cockpit links to the page's modules (base/#<module>). At most max_rows per block, the rest is a show-all link. start: home (the dispatcher) or panneau (this computer's conversations). Words: the page's inbox.labels first, then hub.labels (lib/hub.mjs HUB_DEFAULTS has them all). enabled false: no dispatcher, the Panneau again.",
   "hub": {
     "enabled": true,
     "base": "http://127.0.0.1:24365",
-    "start": "overview",
+    "start": "home",
     "refresh_s": 60,
     "status_line": true,
-    "tabs": { "order": ["overview", "todo", "questions", "fleet", "quota", "alerts", "journal", "watch", "lanes"] },
-    "max_rows": 8,
-    "todo": { "urgent_prio": 8, "why_lines": 2 }
+    "modules": { "order": ["overview", "todo", "inbox", "fleet", "quota", "alerts", "journal", "watch", "lanes"] },
+    "max_rows": 5,
+    "errors_max": 3,
+    "error_severities": ["critical", "urgent"],
+    "temp": { "warn_c": 85, "bad_c": 95 },
+    "disk_warn_pct": 10,
+    "todo": { "urgent_prio": 8 }
   },
   "_tabs": "Tabs of the one pane. home = « Cockpit » (cards + sections, always first); mission, focus, arbre, pipeline, journal = factory's screens (synced copies in lib/factory); workflow = factory's Workflow screen (Gantt, Vitesse; lib/core/gantt.mjs); machine = this PC's load (lib/machine/scanner/machine.py copy) and the runner load (lib/core/runner.mjs). factory's Quotas and Système are not here: the Quota card and Machine replace them. relais = Claude ↔ Codex (the ci mod's ~/.claude/ci-cache/interactions.json: who opened, fixed, merged, hand-offs, dependencies, green rate per agent); galerie = the Reference Gallery views (Équipe: lead → advisor / worker / explorer / researcher lanes and return to lead; Carte: the control layers; Codex: approvals and cost); nuit = « Bilan avant la nuit », opened by the Nuit button of the Cockpit tab (add it to order to get a tab button too).",
   "tabs": {

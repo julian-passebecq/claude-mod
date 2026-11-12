@@ -1,5 +1,6 @@
 // cockpit - the one zoomable side pane (méga › projet › conversation › agent), read-only, with tabs:
-//   Panneau  the DEFAULT view, one scrolling column with no tab bar (lib/panel.mjs, lib/panel_conv.mjs, hooks/panel_view.mjs,
+//   Dispatcher  the DEFAULT view since 12 Nov 2026 (lib/hub.mjs, hooks/hub_view.mjs): This laptop, Global, Open in Cockpit
+//   Panneau  « Conversations », one scrolling column with no tab bar (lib/panel.mjs, lib/panel_conv.mjs, hooks/panel_view.mjs,
 //            hooks/files.mjs): Fichiers (data-goblin's tree, embedded), Cette conversation (factory view), Contexte, Toutes
 //            les conversations, Graphe des conversations (reserved slot); the views below by their /cockpit command
 //   Cockpit  summary cards (Qui consomme, T'attend, À toi, CI, Quota, Problèmes du jour, En cours), each a button to
@@ -37,7 +38,7 @@ import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
 import { quotaCurves } from '../lib/viz_quota.mjs'
 import { tpsHourly } from '../lib/viz_spark.mjs'
-import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, HUB_TABS } from '../lib/hub.mjs'
+import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, moduleOf, moduleUrl, answerText } from '../lib/hub.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -104,11 +105,11 @@ async function loadConfig($) {
   return CFG
 }
 
-// ---- the hub tabs: the local Cockpit (herd-worker, loopback) read and its POSTs sent with the page's own checks -------
-// (Origin + per-start token). /fleet [tab], /dispatch, /todo come from the separate Fleet mod this replaces; they are
+// ---- the dispatcher: the local Cockpit (herd-worker, loopback) read and its POSTs sent with the page's own checks -----
+// (Origin + per-start token). /fleet [module], /dispatch, /todo come from the separate Fleet mod this replaces; they are
 // registered only when no loaded mod answers them already. Kept in this file: $ is passed only to functions declared here.
 
-const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set() }
+const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set(), answered: {} }
 
 async function hubGet($, base, path) {
   const r = await $.http.fetch(base + path, { headers: { Accept: 'application/json' } })
@@ -141,12 +142,12 @@ function refreshHub($, cfg) {
   return H.inflight
 }
 
-// The model for the tabs, kept until a new read, another workspace or new local readings.
-function hubModelOf(cfg, local = {}) {
+// The dispatcher's model, kept until a new read, another workspace or a new answer.
+function hubModelOf(cfg) {
   if (!H.local) return null
-  const key = [H.local, H.data, H.org, local.usage, local.veille]
+  const key = [H.local, H.data, H.org, H.answered]
   if (H.memo && H.memo.key.every((k, i) => k === key[i])) return H.memo.m
-  const m = hubModel(H.local, H.data, cfg, { org: H.org, usage: local.usage, veille: local.veille })
+  const m = hubModel(H.local, H.data, cfg, { org: H.org, answered: H.answered })
   H.memo = { key, m }
   return m
 }
@@ -198,15 +199,53 @@ async function hubSend($, cfg, kind, args) {
   return { text: sendResult(kind, r) }
 }
 
-function fleetText(cfg) {
-  return summaryText(hubModelOf(cfg), cfg)
+// One click on an answer of the « You » list: the page's own send (POST /api/todo « Answer I90: a » to the answer
+// machine), confirmed on screen and kept ($.store) so the question shows « Sent … » instead of its buttons.
+async function hubAnswer($, cfg, uid, key) {
+  const c = hubConfig(cfg)
+  const m = hubModelOf(cfg)
+  const q = m && m.global.you.find((x) => x.uid === uid)
+  const a = q && q.answers.find((x) => x.key === key)
+  const text = q && a ? answerText(m.global.answerTemplate, q.id, key) : null
+  if (!text) { H.msg = 'This answer cannot be sent from here.'; $.ui.invalidate('ui.render'); return }
+  H.msg = '…'
+  $.ui.invalidate('ui.render')
+  const r = await hubPost($, c.base, '/api/todo', { machine: m.global.answerMachine, text })
+  if (r && r.ok) {
+    let t = 0
+    try { t = await $.clock.now() } catch { t = 0 }
+    H.answered = { ...H.answered, [uid]: { key, label: key === 'rec' ? a.label : `${key}) ${a.label}`, t } }
+    H.memo = null
+    saveHubState($)
+    H.msg = `${q.id}: ${m.words.answer_sent}`
+  } else H.msg = `Could not send the answer: ${sendResult('todo', r)}`
+  try { $.ui.toast(H.msg) } catch { /* no toast here */ }
+  $.ui.invalidate('ui.render')
 }
 
-// /fleet's argument -> a hub tab id ("" -> the To do tab, as the old Fleet mod opened on it)
-function fleetTab(args) {
-  const a = String(args || '').trim().toLowerCase()
-  if (!a || a === 'todo' || a === 'to-do') return 'todo'
-  return HUB_TABS.includes(a) ? a : 'todo'
+// « Open in Cockpit »: the page at a module (base/#<module>) in the default browser. Only the configured loopback base
+// is opened, as an argv (never a shell string): rundll32's URL handler on Windows, open on macOS, xdg-open elsewhere.
+async function openPage($, cfg, url) {
+  const c = hubConfig(cfg)
+  if (!String(url).startsWith(String(c.base).replace(/\/+$/, '') + '/')) return
+  let win = false
+  try { win = (await $.env.get('OS')) === 'Windows_NT' } catch { win = false }
+  let mac = false
+  if (!win) { try { mac = (await $.process.run(['uname', '-s'], { timeoutMs: 5000 })).stdout.trim() === 'Darwin' } catch { mac = false } }
+  const argv = win ? ['rundll32', 'url.dll,FileProtocolHandler', url] : [mac ? 'open' : 'xdg-open', url]
+  try {
+    const r = await $.process.run(argv, { timeoutMs: 15000 })
+    H.msg = r.exitCode === 0 ? '' : `Could not open ${url} (exit ${r.exitCode})`
+  } catch { H.msg = `Could not open ${url}: open it in a browser` }
+  $.ui.invalidate('ui.render')
+}
+
+// /fleet [module]: the dispatcher as text, and the page's link of the module named
+function fleetText(cfg, args) {
+  const c = hubConfig(cfg)
+  const mod = moduleOf(String(args || '').trim().split(/\s+/)[0])
+  const text = summaryText(hubModelOf(cfg), cfg)
+  return mod ? `${text}\n${c.labels.open}: ${moduleUrl(c.base, mod)}` : text
 }
 
 // Register /fleet, /dispatch, /todo when no loaded command has the name (the old Fleet mod keeps them while loaded).
@@ -214,8 +253,8 @@ async function registerHubCommands($) {
   let names = []
   try { names = ((await $.command.list()) || []).map((c) => c.name) } catch { return }
   const defs = [
-    { name: 'fleet', immediate: true, description: 'Cockpit hub tabs: this computer\'s to-dos and the fleet from the local Cockpit (/fleet [todo|fleet|overview|questions|quota|alerts|journal|watch|lanes])', argumentHint: '[todo|fleet|overview|questions|quota|alerts|journal|watch|lanes]' },
-    { name: 'dispatch', immediate: true, description: 'Send a job to a machine through the local Cockpit: /dispatch <machine> <text>', argumentHint: '<machine> <text>' },
+    { name: 'fleet', immediate: true, description: 'Cockpit dispatcher: this laptop (to-dos, mode, load, temperature, work) and the fleet\'s urgent items; with a module, its link in the Cockpit page', argumentHint: '[overview|todo|questions|fleet|quota|alerts|journal|watch|lanes]' },
+    { name: 'dispatch', immediate: true, description: 'Send a job or a Claude prompt to a machine through the local Cockpit: /dispatch <machine> <text>', argumentHint: '<machine> <text>' },
     { name: 'todo', immediate: true, description: 'Add a to-do for Julian on a machine through the local Cockpit: /todo <machine> <text>', argumentHint: '<machine> <text>' },
   ]
   for (const d of defs) {
@@ -496,13 +535,17 @@ async function viewAgent($, target) {
 
 // ---- the Panneau ------------------------------------------------------------------------------------------------------
 
-// The hub tabs' workspace (organization), kept across sessions ($.store 'hub').
+// The dispatcher's workspace (organization) and the answers sent from it, kept across sessions ($.store 'hub').
 function saveHubState($) {
-  try { void Promise.resolve($.store.set('hub', { v: 1, org: H.org })).catch(() => undefined) } catch { /* not kept */ }
+  try { void Promise.resolve($.store.set('hub', { v: 1, org: H.org, answered: H.answered })).catch(() => undefined) } catch { /* not kept */ }
 }
 
 async function loadHubState($) {
-  try { const s = await $.store.get('hub'); if (s && s.v === 1 && typeof s.org === 'string') H.org = s.org } catch { /* none */ }
+  try {
+    const s = await $.store.get('hub')
+    if (s && s.v === 1 && typeof s.org === 'string') H.org = s.org
+    if (s && s.v === 1 && s.answered && typeof s.answered === 'object') H.answered = s.answered
+  } catch { /* none */ }
 }
 
 // The viewer's sections, folded nodes and filters, kept across sessions ($.store, this mod's own).
@@ -699,11 +742,7 @@ function safe(f) {
 
 // What the tab on screen needs, now.
 async function refreshTab($) {
-  if (hubIdOf(D.tab)) {
-    const id = hubIdOf(D.tab)
-    if (id === 'quota' || id === 'alerts') await refreshLocal($).catch(() => undefined)
-    return refreshHub($, CFG || {})
-  }
+  if (hubIdOf(D.tab)) return refreshHub($, CFG || {})
   if (D.tab === 'panneau') { await rescan($); return refreshPanel($) }
   if (D.tab === 'workflow') return rescanWorkflow($)
   if (D.tab === 'machine') return sampleMachine($)
@@ -717,16 +756,6 @@ async function refreshTab($) {
   }
   await rescan($)
   if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
-}
-
-// The local readings the Quota and Alerts hub tabs show under the hub's: the engine's usage figures, veille's files.
-async function refreshLocal($) {
-  const now = await $.clock.now()
-  try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
-  const me = D.scan ? findSession(D.scan, D.self) : null
-  D.usage = usageCard(D.usageRaw, me, FCFG || {}, now)
-  await loadVeille($).catch(() => undefined)
-  $.ui.invalidate('ui.render')
 }
 
 // Shown = open, placed, and the tab on screen (another pane, e.g. filetree, may be the one shown).
@@ -805,8 +834,12 @@ function actions($) {
     filesMore: () => { D.fLimit += panelConfig(CFG || {}).fichiers.more_step || 30; redraw() },
     filesRefresh: () => refreshFiles($),
     tab: (id) => setTab($, id),
-    // the hub tabs (lib/hub.mjs, hooks/hub_view.mjs)
+    // the dispatcher (lib/hub.mjs, hooks/hub_view.mjs)
     hubTab: (id) => setTab($, tabKey(id)),
+    answer: (uid, key) => { void hubAnswer($, CFG || {}, uid, key) },
+    open: (url) => { void openPage($, CFG || {}, url) },
+    // a quick action fills the prompt with the command; the person completes and sends it (nothing is sent by itself)
+    fill: (text) => { void Promise.resolve($.prompt.fill({ text, mode: 'replace' })).catch(() => { H.msg = `Type ${text.trim()} <machine> <text>`; redraw() }) },
     panneau: () => setTab($, 'panneau'),
     org: (id) => { H.org = id; H.memo = null; saveHubState($); redraw() },
     run: (id) => { void hubAct($, CFG || {}, 'run', id) },
@@ -951,10 +984,10 @@ async function fleetHook($, e, next) {
   if (!H.cmds.has('fleet')) return next(e)
   await loadConfig($)
   await openPane($, true)
-  D.tab = tabKey(fleetTab(e.args))
+  D.tab = tabKey('home')
   $.ui.invalidate('ui.render')
   await refreshTab($)
-  return { text: fleetText(CFG || {}) }
+  return { text: fleetText(CFG || {}, e.args) }
 }
 
 async function aliasHook($, e, next, name) {
@@ -1051,7 +1084,7 @@ export function register(on, opts) {
       depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
       panel: D.tab === 'panneau' ? { ...panelView(now || D.at || 0), act: actions($) } : null,
-      hub: { model: hubModelOf(CFG || {}, { usage: D.usage, veille: D.veille }), error: H.error, busy: H.busy, msg: H.msg },
+      hub: { model: hubModelOf(CFG || {}), error: H.error, busy: H.busy, msg: H.msg },
     })
   })
 }

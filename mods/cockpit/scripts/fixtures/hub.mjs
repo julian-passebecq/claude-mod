@@ -1,5 +1,5 @@
 // Invented local Cockpit data (shape of herd-worker's /local.json and the hub's /data.json, schema herd.cockpit/1)
-// for tests and `node mods/cockpit/scripts/preview.mjs --hub <tab>`. Nothing here is read from a machine.
+// for tests and `node mods/cockpit/scripts/preview.mjs --hub`. Nothing here is read from a machine.
 const T0 = Date.parse('2026-01-02T12:00:00Z')
 
 export const LOCAL = {
@@ -33,6 +33,20 @@ export const DATA = {
     ],
   },
   digest: { name: 'DIGEST-2026-01-02.md', date: '2026-01-02', text: '# Watch digest\n\n## Summary\n\n- **Plan impact:** none.\n- Tool A 1.2 released.', cut: false },
+  // herd.inbox/1: the page's « You » list and its answers (one confidential org: never under All)
+  inbox: {
+    schema: 'herd.inbox/1', default_org: 'tools', you_max: 5, answer_machine: 'hub', answer_text: 'Answer {id}: {key}',
+    orgs: [{ id: 'acme', label: 'Acme', confidential: false }, { id: 'tools', label: 'Fleet and tooling', confidential: false }, { id: 'secret', label: 'Secret org', confidential: true }],
+    labels: { you_block: 'You: what blocks work now', show_all: 'show all {n}', recommended: 'recommended', tab_inbox: 'Questions and checks', tab_overview: 'Overview' },
+    todo_org: { 'pc2-item': 'acme' },
+    items: [
+      { uid: 'issue:I1', type: 'question', section: 'question', id: 'I1', title: 'Cap tool work?', org: 'tools', app_label: 'Tools', urgency: 'now', you: true, blocks_work: true, app_rank: 1,
+        options: [{ key: 'a', label: 'cap at 3' }, { key: 'b', label: 'no cap' }], rec_key: 'a', recommended: 'a', answerable: true },
+      { uid: 'backlog:Q2', type: 'backlog', section: 'yours', id: 'Q2', title: 'Pick the backup disk', org: 'acme', app_label: 'App one', urgency: 'today', you: true, blocks_work: true, app_rank: 2 },
+      { uid: 'issue:I3', type: 'question', section: 'question', id: 'I3', title: 'Keep the old view?', org: 'tools', urgency: 'week', you: true, blocks_work: false, recommended: 'b', options: [], answerable: false },
+    ],
+    confidential: { secret: { apps: [], items: [{ uid: 'issue:I9', type: 'question', section: 'question', id: 'I9', title: 'Secret question', org: 'secret', urgency: 'now', you: true, blocks_work: true }] } },
+  },
   answers: { source: 'ANSWERS.md', open: [{ n: 7, q: 'Which box stays awake?', options: 'a) one b) two', rec: 'a' }] },
   quota: { schema: 'herd.quota/1', generated_at: '2026-01-02T11:58:00Z', providers: {
     claude: { label: 'Claude', windows: [{ account: 'subscription', window: '7d', used_pct: 40, resets_at: '2026-01-05T12:00:00Z', reading_at: '2026-01-02T11:57:00Z', state: 'ok' }] },
