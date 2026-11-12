@@ -9,7 +9,9 @@
 #   1. msi: the main checkout D:/PROJ/claude-mod fast-forwards to origin/main (only when it is on main; never resets).
 #   2. a tarball of origin/main's mods/cockpit goes to the hub (~/tmp/cockpit-deploy/cockpit-<sha>.tar), sha256 checked
 #      on both ends.
-#   3. one herdq job per machine (scripts/deploy/<machine>.ps1|.sh): imac fast-forwards its claude-mod checkout; msiold
+#   3. one herdq job per machine (scripts/deploy/<machine>.ps1|.sh), sent through `herdq submit job msi` (the narrow
+#      path a laptop's Cockpit uses; `herdq add` is refused over plain ssh by design and is not worked around):
+#      imac fast-forwards its claude-mod checkout; msiold
 #      and mbp copy the tarball into ~/.claude/mods/cockpit (old copy kept in ~/.claude/mods-backup), after checking
 #      its sha256; each validates the mod and answers /fleet.
 #   4. waits for the jobs and prints their output. Exit 0 only when every job ended done.
@@ -45,17 +47,23 @@ echo "hub: $TAR sha256=$SUM"
 
 # 3. one queue job per machine
 declare -A JOB
+RCQ=0
 for M in "${MACHINES[@]}"; do
   if [ -f "$HERE/deploy/$M.ps1" ]; then KIND=ps; SRC="$HERE/deploy/$M.ps1"
   elif [ -f "$HERE/deploy/$M.sh" ]; then KIND=sh; SRC="$HERE/deploy/$M.sh"
   else echo "$M: no deploy/$M.ps1 or .sh, skipped"; continue; fi
   sed -e "s|@SHA@|$SHA|g" -e "s|@SUM@|$SUM|g" -e "s|@TAR@|$TAR|g" "$SRC" | tr -d '\r' > "$WORK/$M.job"
-  ID="$(ssh -o BatchMode=yes "$HUB" "$HERDQ add --to $M --kind $KIND --timeout 300 --stdin" < "$WORK/$M.job" | grep -Eo '[0-9]+' | head -1)"
-  [ -n "$ID" ] && JOB[$M]="$ID" && echo "$M: queued job $ID" || echo "$M: could not queue"
+  # one JSON object {machine, kind, text}: what the Cockpit's Send posts
+  python -c 'import json,sys; print(json.dumps({"machine": sys.argv[1], "kind": sys.argv[2], "text": open(sys.argv[3], encoding="utf-8").read()}))' "$M" "$KIND" "$WORK/$M.job" > "$WORK/$M.json"
+  ANS="$(ssh -o BatchMode=yes "$HUB" "$HERDQ submit job ${SENDER:-msi} --stdin" < "$WORK/$M.json" 2>&1)"
+  ID="$(printf '%s' "$ANS" | python -c 'import json,sys
+try: print(json.load(sys.stdin).get("id") or "")
+except Exception: print("")')"
+  [ -n "$ID" ] && JOB[$M]="$ID" && echo "$M: queued job $ID" || { echo "$M: could not queue: $ANS"; RCQ=1; }
 done
 
 # 4. results
-RC=0
+RC=${RCQ:-0}
 for M in "${!JOB[@]}"; do
   ID="${JOB[$M]}"
   ssh -o BatchMode=yes "$HUB" "$HERDQ wait $ID --max 600" >/dev/null 2>&1
