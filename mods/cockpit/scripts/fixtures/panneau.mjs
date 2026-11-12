@@ -187,7 +187,9 @@ export function panneauView(columns, o = {}) {
   // o.detail: panel.detail (compact | normal | full)
   const pcfg = { ...(o.indent === undefined ? {} : { list: { indent: o.indent } }), ...(o.detail ? { detail: o.detail } : {}) }
   if (o.detail === 'full' && !o.open) panel.open = { ...panel.open, debit: true }
-  return { cfg: Object.keys(pcfg).length ? { panel: pcfg } : {}, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
+  // o.hub: the hub tab bar above the Panneau (off by default here: these fixtures test the Panneau alone; hub.test.mjs has the bar)
+  const hub = o.hub ? {} : { hub: { enabled: false } }
+  return { cfg: { ...(Object.keys(pcfg).length ? { panel: pcfg } : {}), ...hub }, fcfg: {}, scan, nav: { level: 'mega' }, self: 'lead', busy: false, error: '', at: NOW, columns, filter: 'all',
     usage: null, veille: null, open: {}, act: { tab: noop, menu: noop }, tab: 'panneau', panel }
 }
 

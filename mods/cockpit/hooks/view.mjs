@@ -20,6 +20,8 @@ import { drawDepuis } from './depuis_view.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { drawPanel } from './panel_view.mjs'
 import { panelConfig, otherViews } from '../lib/panel.mjs'
+import { drawHub, hubBar } from './hub_view.mjs'
+import { hubIdOf } from '../lib/hub.mjs'
 
 const NOOP = () => {}
 
@@ -60,7 +62,7 @@ export function kit(el, cfg) {
 export function drawCockpit(el, V0) {
   const h0 = kit(el, V0.cfg)
   // the Panneau (default view) takes the whole width: the band's buttons above the prompt replace the left menu
-  const menu = V0.tab === 'panneau' ? { position: 'off', items: [], width: 0 } : menuOf(V0.cfg, V0.columns)
+  const menu = V0.tab === 'panneau' || hubIdOf(V0.tab) ? { position: 'off', items: [], width: 0 } : menuOf(V0.cfg, V0.columns)
   const V = { ...V0, el, columns: menu.position === 'left' && V0.columns ? Math.max(30, V0.columns - menu.width - 1) : V0.columns }
   const body = drawBody(el, V)
   if (menu.position === 'off') return body
@@ -77,6 +79,10 @@ function drawBody(el, V) {
   const L = h.c.labels
   const tabs = tabsOf(V.cfg)
   const pc = panelConfig(V.cfg)
+  // the hub tabs (Overview, To do, … Lanes): the local Cockpit's data, one tab bar shared by every view of the pane
+  const hub = V.hub || {}
+  if (hubIdOf(V.tab)) return drawHub(h, { cfg: V.cfg, tab: hubIdOf(V.tab), model: hub.model, error: hub.error, busy: hub.busy, msg: hub.msg, columns: V.columns, act: V.act })
+  const bar = hubBar(h, V.cfg, V.tab === 'panneau' ? 'panneau' : '', hub.model, V.act)
   const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' || (V.tab === 'panneau' && pc.enabled !== false) ? V.tab : 'home'
   // The Panneau is one scrolling column with no tab bar at all (Julian, 17 Oct): the old views are reached by their
   // /cockpit command only, listed in one grey line at its bottom. On an old view the tab row shows, « Panneau » first.
@@ -84,9 +90,9 @@ function drawBody(el, V) {
     const extra = [tabValid(V.cfg, 'depuis') ? 'depuis' : '', tabValid(V.cfg, 'nuit') ? 'nuit' : ''].filter(Boolean)
     const out = drawPanel(h, { now: V.at, ...V.panel, cfg: V.cfg, columns: V.columns, otherViews: otherViews(tabs, extra, V.cfg), colors: { track: '#8b949e33', ...(h.c.colors || {}) } })
     if (V.error) out.push(h.T(`scanner : ${V.error}`, { tone: 'bad', key: 'scan-error' }))
-    return h.col(out)
+    return h.col([bar, ...out])
   }
-  const out = [h.row([
+  const out = [bar, h.row([
     pc.enabled !== false ? h.btn(pc.labels.panneau, () => V.act.tab('panneau'), false, 'tab-panneau') : null,
     ...tabs.map((t) => h.btn(t.label, () => V.act.tab(t.id), t.id === tab, 'tab-' + t.id)),
   ], { key: 'tabs', marginBottom: 1 })]

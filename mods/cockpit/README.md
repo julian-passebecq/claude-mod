@@ -1,6 +1,41 @@
 # cockpit
 
-## Panneau (default view; one list since 22 Oct)
+## Hub tabs (default view since 12 Nov 2026: one mod, one window)
+
+The pane opens on **Overview**, with one tab bar above every view: **Overview · To do · Questions and checks · Fleet ·
+Quota · Alerts · Journal · Watch · Lanes · Conversations** (Conversations = the Panneau below). The hub tabs show the
+SAME data as the local Cockpit page and the VS Code extension, so the three never disagree: herd-worker serves it on
+every laptop at `http://127.0.0.1:24365` (loopback only), `GET /local.json` (this computer: machine, delivered to-dos,
+marked done, last pull) and `GET /data.json` (the hub's `herd.cockpit/1`: labels, to-dos per machine, fleet, watch
+digest, answer sheet, overview). Read every `hub.refresh_s` (60 s); the last copy stays with its age when the worker
+or the hub is down. Code: `lib/hub.mjs` (model, pure), `hooks/hub_view.mjs` (drawing), `hooks/register.mjs` (engine glue: reads, POSTs, commands).
+
+| Tab | From the data |
+|---|---|
+| Overview | `overview`: You (to-dos by priority, questions with the recommended answer, counts), Errors and blocks, By application (rank, ETA, next step), Running now and ETA; the hub's own labels; a stale line past `stale_after_s` |
+| To do | `todo` of every machine: **Urgent** (hub priority at or above `todo.urgent_prio`), **Ongoing** (marked done here, or a check already run), this computer, elsewhere; `[tag]` from the title, machine and `p<prio>` as tags; **Run** and **Mark done** on items delivered here |
+| Questions and checks | overview questions (severity first), the answer sheet's open rows, to-dos that close by themselves |
+| Fleet | herd line, one block per machine (state, worker, jobs, CPU, RAM, disks, to-dos, alerts, last seen), lost jobs; the send hint |
+| Quota | `data.quota` (`herd.quota/1`: provider, window, %, empties-before-reset, reset) when the hub adds it, its quota warnings, and this computer's Claude Code windows (`$.session.usage`) |
+| Alerts | `data.alerts` or the overview's errors, machine alerts, and veille's open alerts on this computer |
+| Journal | `data.journal` when present, else the dated events the data carries (runner, jobs, lost jobs, to-dos added, watch digest) |
+| Watch | the newest technology watch digest |
+| Lanes | `data.lanes` or overview lanes, running jobs with ETA, the backlog runner's last line |
+
+A **workspace** row (All · one button per organization) shows when the data carries `organizations`; items name
+theirs with `org` and items naming none show in every workspace (another lane adds them; absent = no row).
+`/fleet [tab]`, `/dispatch <machine> <text>` (a herdq job) and `/todo <machine> <text>` (an item for Julian) come from
+the separate Fleet mod this replaces ([`mods/fleet`](../fleet) is now a thin redirect); Cockpit registers them only when
+no loaded mod has the name. Run, Mark done, dispatch and todo POST to the worker with the page's Origin and per-start
+token (`<meta name="cockpit-token">`); a 404 says « not available yet ». The status line reads « Fleet: N to do »
+(`hub.status_line`). Nothing blocks, rewrites or adds to a tool call or prompt. Settings under `hub` in
+`cockpit.config.json` (start view, refresh, tab order and labels, thresholds, every label); `hub.start: "panneau"` opens on
+the Panneau again, `hub.enabled: false` removes the hub tabs.
+
+Preview: `node mods/cockpit/scripts/preview.mjs --hub <tab> --cols 60` (invented fixtures), `--hub-live <tab>` (this
+computer's local Cockpit, read-only; private output, never commit it).
+
+## Panneau (« Conversations »; one list since 22 Oct)
 
 Opening Cockpit shows **one scrolling column with no tab bar at all**. Since 22 Oct (Julian: « a lot going on, it's not clear; way better UI/UX: visibility, indentation, bullets, agents, sub-agents, workflows, progress bars ») it reads top to bottom as **status banners, ONE list of conversations, then one folded line each** for Quotas, Débit, Graphe and Fichiers. Every detail of the earlier cards is still there, one click away on a title or its `›` (`⌄` folds it back), and what you unfold is kept in `$.store`.
 

@@ -37,6 +37,7 @@ import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
 import { quotaCurves } from '../lib/viz_quota.mjs'
 import { tpsHourly } from '../lib/viz_spark.mjs'
+import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, HUB_TABS } from '../lib/hub.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -101,6 +102,126 @@ async function loadConfig($) {
   FCFG = deepMerge(deepMerge(fbase, wf ? { workflow: wf } : {}), (await readJson($, (await board($)) + '/factory.config.json')) || {})
   if (!D.strips) D.strips = Object.fromEntries(cockpitConfig(CFG).sections.open.map((k) => [k, true]))
   return CFG
+}
+
+// ---- the hub tabs: the local Cockpit (herd-worker, loopback) read and its POSTs sent with the page's own checks -------
+// (Origin + per-start token). /fleet [tab], /dispatch, /todo come from the separate Fleet mod this replaces; they are
+// registered only when no loaded mod answers them already. Kept in this file: $ is passed only to functions declared here.
+
+const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set() }
+
+async function hubGet($, base, path) {
+  const r = await $.http.fetch(base + path, { headers: { Accept: 'application/json' } })
+  if (!r.ok) throw new Error(`${path} answered ${r.status}`)
+  return r.text
+}
+
+async function hubLoad($, cfg) {
+  const c = hubConfig(cfg)
+  H.busy = true
+  $.ui.invalidate('ui.render')
+  try {
+    H.local = JSON.parse(await hubGet($, c.base, '/local.json'))
+    try { H.data = JSON.parse(await hubGet($, c.base, '/data.json')); H.error = '' } catch { H.error = c.labels.no_data }
+  } catch {
+    H.local = null
+    H.error = c.labels.offline.replace('{base}', c.base)
+  } finally {
+    H.busy = false
+    H.memo = null
+  }
+  if (c.status_line !== false) {
+    try { $.ui.status(badgeText(H.local ? hubModelOf(cfg) : null)) } catch { /* no status line here */ }
+  }
+  $.ui.invalidate('ui.render')
+}
+
+function refreshHub($, cfg) {
+  H.inflight = H.inflight || hubLoad($, cfg).finally(() => { H.inflight = null })
+  return H.inflight
+}
+
+// The model for the tabs, kept until a new read, another workspace or new local readings.
+function hubModelOf(cfg, local = {}) {
+  if (!H.local) return null
+  const key = [H.local, H.data, H.org, local.usage, local.veille]
+  if (H.memo && H.memo.key.every((k, i) => k === key[i])) return H.memo.m
+  const m = hubModel(H.local, H.data, cfg, { org: H.org, usage: local.usage, veille: local.veille })
+  H.memo = { key, m }
+  return m
+}
+
+async function hubToken($, base, fresh) {
+  if (H.token && !fresh) return H.token
+  try {
+    const r = await $.http.fetch(base + '/', { headers: { Accept: 'text/html' } })
+    H.token = r.ok ? tokenOf(r.text) : null
+  } catch { H.token = null }
+  return H.token
+}
+
+// One POST with the page's checks. A 403 on a stale token (worker restarted) retries once with a fresh one.
+async function hubPost($, base, path, body) {
+  for (const fresh of [false, true]) {
+    const t = await hubToken($, base, fresh)
+    if (!t) return null
+    let r
+    try {
+      r = await $.http.fetch(base + path, { method: 'POST', body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json', Origin: base, 'X-Cockpit-Token': t } })
+    } catch { return null }
+    if (r.status !== 403 || fresh) return r
+  }
+  return null
+}
+
+// Run / Mark done of a to-do delivered to this computer.
+async function hubAct($, cfg, kind, id) {
+  const c = hubConfig(cfg)
+  H.msg = '…'
+  $.ui.invalidate('ui.render')
+  const r = await hubPost($, c.base, `/api/${kind}`, { id })
+  H.msg = sendResult(kind, r)
+  try { $.ui.toast(H.msg) } catch { /* no toast here */ }
+  await refreshHub($, cfg)
+}
+
+// /dispatch and /todo
+async function hubSend($, cfg, kind, args) {
+  const c = hubConfig(cfg)
+  if (!H.local) await refreshHub($, cfg)
+  const labels = (H.data && H.data.labels) || {}
+  const p = parseTarget(args, labels)
+  if (p.error) return { text: `/${kind}: ${p.error}` }
+  const r = await hubPost($, c.base, `/api/${kind}`, { machine: p.machine, text: p.text })
+  void refreshHub($, cfg)
+  return { text: sendResult(kind, r) }
+}
+
+function fleetText(cfg) {
+  return summaryText(hubModelOf(cfg), cfg)
+}
+
+// /fleet's argument -> a hub tab id ("" -> the To do tab, as the old Fleet mod opened on it)
+function fleetTab(args) {
+  const a = String(args || '').trim().toLowerCase()
+  if (!a || a === 'todo' || a === 'to-do') return 'todo'
+  return HUB_TABS.includes(a) ? a : 'todo'
+}
+
+// Register /fleet, /dispatch, /todo when no loaded command has the name (the old Fleet mod keeps them while loaded).
+async function registerHubCommands($) {
+  let names = []
+  try { names = ((await $.command.list()) || []).map((c) => c.name) } catch { return }
+  const defs = [
+    { name: 'fleet', immediate: true, description: 'Cockpit hub tabs: this computer\'s to-dos and the fleet from the local Cockpit (/fleet [todo|fleet|overview|questions|quota|alerts|journal|watch|lanes])', argumentHint: '[todo|fleet|overview|questions|quota|alerts|journal|watch|lanes]' },
+    { name: 'dispatch', immediate: true, description: 'Send a job to a machine through the local Cockpit: /dispatch <machine> <text>', argumentHint: '<machine> <text>' },
+    { name: 'todo', immediate: true, description: 'Add a to-do for Julian on a machine through the local Cockpit: /todo <machine> <text>', argumentHint: '<machine> <text>' },
+  ]
+  for (const d of defs) {
+    if (names.includes(d.name) || H.cmds.has(d.name)) continue
+    try { await $.command.register(d); H.cmds.add(d.name) } catch { /* refused: nothing */ }
+  }
 }
 
 // ---- data ------------------------------------------------------------------------------------------------------------
@@ -375,6 +496,15 @@ async function viewAgent($, target) {
 
 // ---- the Panneau ------------------------------------------------------------------------------------------------------
 
+// The hub tabs' workspace (organization), kept across sessions ($.store 'hub').
+function saveHubState($) {
+  try { void Promise.resolve($.store.set('hub', { v: 1, org: H.org })).catch(() => undefined) } catch { /* not kept */ }
+}
+
+async function loadHubState($) {
+  try { const s = await $.store.get('hub'); if (s && s.v === 1 && typeof s.org === 'string') H.org = s.org } catch { /* none */ }
+}
+
 // The viewer's sections, folded nodes and filters, kept across sessions ($.store, this mod's own).
 async function loadPanelState($) {
   if (D.pLoaded) return
@@ -569,6 +699,11 @@ function safe(f) {
 
 // What the tab on screen needs, now.
 async function refreshTab($) {
+  if (hubIdOf(D.tab)) {
+    const id = hubIdOf(D.tab)
+    if (id === 'quota' || id === 'alerts') await refreshLocal($).catch(() => undefined)
+    return refreshHub($, CFG || {})
+  }
   if (D.tab === 'panneau') { await rescan($); return refreshPanel($) }
   if (D.tab === 'workflow') return rescanWorkflow($)
   if (D.tab === 'machine') return sampleMachine($)
@@ -582,6 +717,16 @@ async function refreshTab($) {
   }
   await rescan($)
   if (D.tab === 'home') await refreshStrips($).catch(() => undefined)
+}
+
+// The local readings the Quota and Alerts hub tabs show under the hub's: the engine's usage figures, veille's files.
+async function refreshLocal($) {
+  const now = await $.clock.now()
+  try { D.usageRaw = await $.session.usage() } catch { D.usageRaw = null }
+  const me = D.scan ? findSession(D.scan, D.self) : null
+  D.usage = usageCard(D.usageRaw, me, FCFG || {}, now)
+  await loadVeille($).catch(() => undefined)
+  $.ui.invalidate('ui.render')
 }
 
 // Shown = open, placed, and the tab on screen (another pane, e.g. filetree, may be the one shown).
@@ -660,6 +805,12 @@ function actions($) {
     filesMore: () => { D.fLimit += panelConfig(CFG || {}).fichiers.more_step || 30; redraw() },
     filesRefresh: () => refreshFiles($),
     tab: (id) => setTab($, id),
+    // the hub tabs (lib/hub.mjs, hooks/hub_view.mjs)
+    hubTab: (id) => setTab($, tabKey(id)),
+    panneau: () => setTab($, 'panneau'),
+    org: (id) => { H.org = id; H.memo = null; saveHubState($); redraw() },
+    run: (id) => { void hubAct($, CFG || {}, 'run', id) },
+    done: (id) => { void hubAct($, CFG || {}, 'done', id) },
     crumb: (level) => { D.nav = zoomTo(D.nav, level); redraw() },
     select: (node) => {
       const before = D.nav && D.nav.conv
@@ -773,7 +924,8 @@ async function runCockpit($, args) {
   }
   if (p.scope) D.wfScope = p.scope
   D.tab = p.tab && tabValid(CFG, p.tab) ? p.tab : p.level || p.rest ? (D.tab === 'arbre' ? 'arbre' : 'home') : D.tab
-  if (D.tab === 'home') { await rescan($); await refreshStrips($).catch(() => undefined) } else await refreshTab($)
+  if (hubIdOf(D.tab)) await refreshTab($)
+  else if (D.tab === 'home') { await rescan($); await refreshStrips($).catch(() => undefined) } else await refreshTab($)
   return {}
 }
 
@@ -794,6 +946,17 @@ async function registerAliases($) {
   }
 }
 
+// /fleet, /dispatch, /todo: answered here only when this mod registered them (the old Fleet mod keeps them otherwise).
+async function fleetHook($, e, next) {
+  if (!H.cmds.has('fleet')) return next(e)
+  await loadConfig($)
+  await openPane($, true)
+  D.tab = tabKey(fleetTab(e.args))
+  $.ui.invalidate('ui.render')
+  await refreshTab($)
+  return { text: fleetText(CFG || {}) }
+}
+
 async function aliasHook($, e, next, name) {
   if (!ALIASES.has(name)) return next(e)
   return runCockpit($, aliasArgs(name, e.args))
@@ -811,17 +974,33 @@ export function register(on, opts) {
     await loadConfig($).catch(() => { CFG = {}; FCFG = {} })
     const c = cockpitConfig(CFG)
     if (D.tab === 'panneau' && panelConfig(CFG).enabled === false) D.tab = 'home'
+    // the hub tabs: the view the pane opens on (hub.start), the workspace kept in $.store, a read every refresh_s
+    const hc = hubConfig(CFG)
+    if (D.tab === 'panneau' && hubTabs(CFG).some((t) => t.id === hc.start)) D.tab = tabKey(hc.start)
+    await loadHubState($)
+    if (hc.enabled !== false) {
+      void refreshHub($, CFG).catch(() => undefined)
+      $.clock.every(Math.max(15, Number(hc.refresh_s) || 60) * 1000, () => {
+        // the status line wants a reading even with the pane closed; otherwise only while a hub tab is shown
+        if (hc.status_line !== false) { void refreshHub($, CFG).catch(() => undefined); return }
+        void shown($).then((s) => (s && hubIdOf(D.tab) ? refreshHub($, CFG) : undefined))
+      })
+      // now (a headless prompt runs at once) and again after the other mods registered theirs (a name they have stays theirs)
+      await registerHubCommands($).catch(() => undefined)
+      $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerHubCommands($).catch(() => undefined) })
+    }
     try {
       await $.command.register({ name: 'cockpit', immediate: true, description: 'Cockpit : Depuis ton dernier message (le résumé de la nuit), cartes (conso, t’attend, à toi, Claude Control, CI, quota, problèmes, en cours), Méga › Projet › Conversation › Agent, écrans Factory, Machine, Claude ↔ Codex, Galerie, Bilan avant la nuit',
         argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit|depuis [8h|24h|nuit|HH:MM]] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
     $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
-    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' ? rescan($) : undefined)) })
-    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : D.tab === 'panneau' ? refreshPanel($) : refreshStrips($)) : undefined)) })
+    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' && !hubIdOf(D.tab) ? rescan($) : undefined)) })
+    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : D.tab === 'panneau' ? refreshPanel($) : hubIdOf(D.tab) ? refreshTab($) : refreshStrips($)) : undefined)) })
     $.clock.every(Math.max(3, c.machine_refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab === 'machine' ? sampleMachine($) : undefined)) })
     if (c.auto_open && options.start !== 'off') {
       void (async () => {
         await openPane($, false).catch(() => undefined)
+        if (hubIdOf(D.tab)) { await refreshTab($); return }
         await rescan($)
         if (D.tab === 'panneau') await refreshPanel($).catch(() => undefined)
         else await refreshStrips($).catch(() => undefined)
@@ -843,6 +1022,9 @@ export function register(on, opts) {
   }).catch(($, e, next) => next(e))
   on('command.run', { command: 'factory' }, async ($, e, next) => aliasHook($, e, next, 'factory')).catch(($, e, next) => next(e))
   on('command.run', { command: 'machine' }, async ($, e, next) => aliasHook($, e, next, 'machine')).catch(($, e, next) => next(e))
+  on('command.run', { command: 'fleet' }, async ($, e, next) => fleetHook($, e, next)).catch(($, e, next) => next(e))
+  on('command.run', { command: 'dispatch' }, async ($, e, next) => (H.cmds.has('dispatch') ? hubSend($, CFG || {}, 'dispatch', e.args) : next(e))).catch(($, e, next) => next(e))
+  on('command.run', { command: 'todo' }, async ($, e, next) => (H.cmds.has('todo') ? hubSend($, CFG || {}, 'todo', e.args) : next(e))).catch(($, e, next) => next(e))
 
   on('ui.close', { id: PANE }, async ($, e, next) => { D.open = false; return next(e) }).catch(($, e, next) => next(e))
 
@@ -869,6 +1051,7 @@ export function register(on, opts) {
       depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
       panel: D.tab === 'panneau' ? { ...panelView(now || D.at || 0), act: actions($) } : null,
+      hub: { model: hubModelOf(CFG || {}, { usage: D.usage, veille: D.veille }), error: H.error, busy: H.busy, msg: H.msg },
     })
   })
 }

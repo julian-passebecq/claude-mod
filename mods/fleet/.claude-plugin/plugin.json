@@ -1,0 +1,9 @@
+{
+  "name": "fleet",
+  "version": "0.2.0",
+  "description": "Fleet moved into Cockpit (one mod, one window): its To-do and Fleet tabs and /fleet, /dispatch, /todo are now Cockpit's hub tabs. This folder stays only so a machine that still lists it in CLAUDE_CODE_PLUGIN_DIRS loads nothing old: it registers no command, opens no pane and hooks nothing but session.start.",
+  "author": {
+    "name": "Julian Passebecq"
+  },
+  "license": "MIT"
+}
