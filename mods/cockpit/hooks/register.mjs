@@ -38,7 +38,7 @@ import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
 import { quotaCurves } from '../lib/viz_quota.mjs'
 import { tpsHourly } from '../lib/viz_spark.mjs'
-import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, moduleOf, moduleUrl, answerText } from '../lib/hub.mjs'
+import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, moduleOf, moduleUrl, answerText, decisionText, buttonLabel } from '../lib/hub.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -206,7 +206,8 @@ async function hubAnswer($, cfg, uid, key) {
   const m = hubModelOf(cfg)
   const q = m && m.global.you.find((x) => x.uid === uid)
   const a = q && q.answers.find((x) => x.key === key)
-  const text = q && a ? answerText(m.global.answerTemplate, q.id, key) : null
+  // a row of the page's decisions: the page's own text (register answer or decide choice, with its click line)
+  const text = q && a ? (q.row ? decisionText(q.row, key, m.global.answerTemplate, m.global.clickLine) : answerText(m.global.answerTemplate, q.id, key)) : null
   if (!text) { H.msg = 'This answer cannot be sent from here.'; $.ui.invalidate('ui.render'); return }
   H.msg = '…'
   $.ui.invalidate('ui.render')
@@ -214,7 +215,7 @@ async function hubAnswer($, cfg, uid, key) {
   if (r && r.ok) {
     let t = 0
     try { t = await $.clock.now() } catch { t = 0 }
-    H.answered = { ...H.answered, [uid]: { key, label: key === 'rec' ? a.label : `${key}) ${a.label}`, t } }
+    H.answered = { ...H.answered, [uid]: { key, label: buttonLabel(a), t } }
     H.memo = null
     saveHubState($)
     H.msg = `${q.id}: ${m.words.answer_sent}`

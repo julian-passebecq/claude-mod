@@ -8,3 +8,4 @@ One file per lane that changed code here: what changed, how it was verified, pro
 | 2026-11-12 | mod-dispatcher (Cockpit mod trimmed to one dispatcher pane) | [2026-11-12-mod-dispatcher.md](2026-11-12-mod-dispatcher.md) |
 | 2026-11-12 | mod-dispatcher-fix (review fixes: one quota story, page counts, folded rows, one clock, plain labels) | [2026-11-12-mod-dispatcher-fix.md](2026-11-12-mod-dispatcher-fix.md) |
 | 2026-11-12 | mod-same-numbers (the mod reads the page's data.glance and inbox covers: same counts and words, short pane) | [2026-11-12-mod-same-numbers.md](2026-11-12-mod-same-numbers.md) |
+| 2026-11-12 | mod-one-count (Needs you now = the page's glance.decisions: one count, a button on every row, more opens the page row, critical strip, one deploy command) | [2026-11-12-mod-one-count.md](2026-11-12-mod-one-count.md) |

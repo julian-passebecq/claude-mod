@@ -40,6 +40,23 @@ the last line of `/fleet` says which path was used. Global shows about `global_m
 `title_lines` (1) line, and a question's options folded to its recommended answer plus « more ». Times: `time.zone`
 `Europe/Paris` (or `local`, `utc`), 24-hour unless the page's `glance.time.hour12` says otherwise.
 
+**One count (12 Nov, fourth review)**: when `glance.decisions` is published, Needs you now is the page's own fold:
+« 11 decisions need you now » = `decisions.counts.now`, « 101 more wait on you without blocking work » =
+`counts.waiting`, the rows = `decisions.top` in its order (a workspace: the `decisions.rows` of that organization).
+Each row: title, sub-line « application · organization · urgency · covers … · codes · id », the page's recommended
+answer as one button (register answers « Answer I90: a », the hub's yes / no / later on to-dos and plan items as
+« Cockpit: decide todo:x: yes », both with the page's click line), and « more », which opens the page at that row
+(`#r-<uid>`, every option and what it changes). A row's `why` (shared contract) shows dimmed under its buttons. A
+critical strip (UX rule 20) sits above both blocks when the page data has one (`glance.critical`, else
+`glance.problems` of severity critical), and is not repeated under Problems now. This laptop lists only this
+machine's to-dos.
+
+**Deploy after each merge** (I145): `bash mods/cockpit/scripts/deploy-fleet.sh` on the MSI, Git Bash. It fast-forwards
+the MSI main checkout, puts a tarball of origin/main's `mods/cockpit` on the hub (sha256 checked), queues one herdq
+job per machine (`scripts/deploy/imac.ps1`: fast-forward of its checkout; `msiold.ps1`, `mbp.sh`: copy into
+`~/.claude/mods/cockpit`, old copy kept in `~/.claude/mods-backup`), waits, and prints each machine's version,
+validate result and the first lines of `/fleet`. Exit 0 only when every job ended done.
+
 Preview: `node mods/cockpit/scripts/preview.mjs --hub --cols 50` (invented fixtures), `--hub-live` (this computer's
 local Cockpit, read-only; private output, never commit it), `--text` for /fleet's text.
 

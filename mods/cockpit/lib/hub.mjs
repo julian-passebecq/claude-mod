@@ -98,6 +98,14 @@ export const HUB_DEFAULTS = {
     you_none: 'Nothing needs you now.',
     you_count: '{n} need you now (at {at})',
     you_count_1: '{n} needs you now (at {at})',
+    // the page's sentences over data.glance.decisions.counts (app.js renderYou)
+    you_count_dec: '{n} decisions need you now (at {at})',
+    you_count_dec_1: '{n} decision needs you now (at {at})',
+    waiting_more: '{n} more wait on you without blocking work',
+    // a row's « more »: opens the Cockpit page at that row (#r-<uid>), where every option and its effect is shown
+    more_row: 'more',
+    // the strip above both blocks when the page data has critical problems (UX rule 20: work is stopped)
+    critical: 'Critical: work is stopped',
     more_answers: 'more',
     less_answers: 'less',
     look_later: 'to look at when you have time',
@@ -107,6 +115,7 @@ export const HUB_DEFAULTS = {
     job_on: '{what} job on {machine} (job {id})',
     started: 'started {at}',
     source_glance: 'numbers: the page\'s own (data.glance of {at})',
+    source_decisions: 'numbers: the page\'s own (data.glance.decisions of {at})',
     source_computed: 'numbers: computed here (this hub data has no glance)',
     covers: 'covers {list}',
     todos_n: '{n} to-do',
@@ -374,6 +383,63 @@ export function answerButtons(q) {
   return opts.sort((a, b) => Number(b.rec) - Number(a.rec))
 }
 
+// ---- the page's decisions (data.glance.decisions, herd/cockpit/glance.py decisions()) ----------------------------------
+
+// The page's element id of a row (app.js uidKey + itemRow): « more » opens the page at base/#r-<key>.
+export const uidKey = (u) => String(u).replace(/[^A-Za-z0-9-]/g, '-')
+export const rowUrl = (base, uid) => moduleUrl(base, 'r-' + uidKey(uid))
+export const CLICK_LINE = 'Clicked by Julian in the Cockpit'
+
+// The buttons of one decisions row, as the page draws them (logic.js answerButtons): « decide » rows (no register
+// options) carry the hub's yes / no / later with one recommended; register rows their options, « rec » first when the
+// advice is not an option. A recommended KEY (shared contract of 12 Nov) marks that option when rec_key is absent.
+export function decisionButtons(r) {
+  const row = obj(r)
+  const opts = arr(row.options).filter((o) => o && o.key !== undefined && o.key !== null)
+  const keys = new Set(opts.map((o) => str(o.key)))
+  const recKey = row.rec_key ? str(row.rec_key) : keys.has(str(row.recommended)) ? str(row.recommended) : ''
+  const notes = obj(row.option_notes)
+  const synth = row.answer === 'decide'
+  const out = opts.map((o) => ({ key: str(o.key), label: str(o.label), rec: str(o.key) === recKey, note: str(notes[str(o.key)] || ''), ...(synth ? { synth: true } : {}) }))
+  if (!synth && recKey === 'rec' && str(row.recommended)) out.unshift({ key: 'rec', label: str(row.recommended), rec: true, note: '' })
+  return out.sort((a, b) => Number(b.rec) - Number(a.rec))
+}
+export const buttonLabel = (a) => (a.key === 'rec' || a.synth ? a.label : `${a.key}) ${a.label}`)
+
+// The text a click sends (POST /api/todo to the answer machine), the page's own: a register answer « Answer I90: a »,
+// a decide choice « Cockpit: decide todo:x: yes », each with the page's click line. null = not sendable from here.
+export function decisionText(row, key, template, clickLine) {
+  const r = obj(row)
+  let t = null
+  if (r.answer === 'decide') {
+    if (/^(todo|backlog|issue|question):[A-Za-z0-9._-]{1,80}$/.test(str(r.uid)) && ['yes', 'no', 'later'].includes(str(key))) t = `Cockpit: decide ${str(r.uid)}: ${str(key)}`
+  } else t = answerText(template, str(r.id), key)
+  if (!t) return null
+  const l = str(clickLine || CLICK_LINE)
+  return t.split(/\r?\n/).some((x) => x.trim() === l) ? t : `${t}\n${l}`
+}
+
+// « covers I4, I2 and 3 to-dos » from a decisions row's covers (uids « issue:I4 », « todo:x »), the page's coversText.
+export function coversOfUids(uids, lab) {
+  const l = { covers: 'covers {list}', and: 'and', todos_n: '{n} to-do', todos_n_pl: '{n} to-dos', ...obj(lab) }
+  const c = arr(uids).map(str).filter(Boolean)
+  if (!c.length) return ''
+  const ids = c.filter((u) => !u.startsWith('todo:')).map((u) => u.replace(/^[a-z-]+:/, ''))
+  const n = c.length - ids.length
+  return fill(l.covers, { list: [ids.join(', '), n ? fill(n === 1 ? l.todos_n : l.todos_n_pl, { n }) : ''].filter(Boolean).join(` ${l.and} `) })
+}
+
+// The critical strip (UX rule 20: work is stopped), read when the page data has one: glance.critical as a list or
+// {rows | items}, else glance.problems rows of severity critical. Each row: its text, organization, id and page link.
+export function criticalRows(G, org, orgLabel, isFleet) {
+  const g = obj(G)
+  const src = Array.isArray(g.critical) ? g.critical : g.critical ? arr(obj(g.critical).rows || obj(g.critical).items) : arr(g.problems).filter((r) => r && str(r.severity).toLowerCase() === 'critical')
+  return src.filter((r) => r && (r.text || r.title)).filter((r) => (!org ? true : r.org ? r.org === org : isFleet)).map((r) => ({
+    text: str(r.text || r.title), id: str(r.id || ''), org: str(r.org || ''), orgLabel: r.org ? orgLabel(str(r.org)) : '',
+    why: str(r.why || ''), link: str(r.link || '').replace(/^#/, '') || (r.uid ? 'r-' + uidKey(r.uid) : 'overview'),
+  }))
+}
+
 // The page's live alerts of a workspace (logic.js alertsFor).
 export function alertsFor(data, org) {
   const a = obj(obj(data).alerts_live)
@@ -446,6 +512,22 @@ export function hubModel(local, data, cfg, opts = {}) {
   m.laptop = laptopModel(L, D, c, m.todo, label, ov, now)
   m.global = globalModel(D, c, m.todo, ofOrg, org, label, ov, inbox, opts.answered || {}, now, machine)
   if (glance) Object.assign(m.global, glanceGlobal(D, G, c, org, inbox, opts.answered || {}, now, machine, label, words))
+  // Needs you now = the page's decisions (counts and top rows as they are) when the hub publishes them
+  const dg = decisionsGlobal(D, G, c, org, inbox, opts.answered || {}, now)
+  if (dg) {
+    Object.assign(m.global, dg)
+    m.source = 'decisions'
+    m.sourceLine = fill(c.labels.source_decisions, { at: T(G.generated_ts) })
+  }
+  const orgLab = (o) => str((m.orgs.find((x) => x.id === o) || {}).label || o)
+  m.critical = criticalRows(G, org, orgLab, isFleetWs(D, org))
+  // one problem, one place (UX rule 13): a critical row on the strip is not repeated under Problems now
+  if (m.critical.length && Array.isArray(m.global.errors)) {
+    const onStrip = new Set(m.critical.map((r) => localize(r.text, now, c)))
+    const kept = m.global.errors.filter((e) => !onStrip.has(e.text))
+    m.global.errorsTotal = Math.max(0, (m.global.errorsTotal || 0) - (m.global.errors.length - kept.length))
+    m.global.errors = kept
+  }
   // the page's count: every item of this computer (delivered or not yet, marked done or not) - the status line
   m.hereOpen = m.todo.all.filter((t) => t.here).length
   return m
@@ -483,7 +565,8 @@ function todoModel(L, D, c, ofOrg, label) {
       const mm = tagRe && tagRe.exec(title)
       if (mm) { tags.push(mm[1].trim()); title = title.slice(mm[0].length) }
       const p = prio.has(str(t.id)) ? prio.get(str(t.id)) : Number.isFinite(Number(t.prio)) && t.prio !== null && t.prio !== undefined ? Number(t.prio) : null
-      const here = mid === machine
+      // This laptop lists only this machine's items: its own list, never one addressed to another machine
+      const here = mid === machine && (!t.deliver_to || str(t.deliver_to) === machine)
       const marked = here && done.has(str(t.id))
       all.push({
         id: str(t.id), nn: str(t.nn), machine: mid, machineLabel: label(mid), title, tags, prio: p, here, marked,
@@ -546,7 +629,7 @@ function laptopModel(L, D, c, todo, label, ov, now) {
     out.temp = { text: hot ? fill(lab.temp, { temp: `${hot.k} ${Math.round(hot.v)} °C` }) + maxTxt : lab.temp_none, tone: hot ? (tTone || (maxTxt ? 'warn' : '')) : 'dim' }
     for (const r of arr(tile.red)) out.warn.push({ text: str(r), tone: 'bad' })
     for (const r of arr(tile.yellow)) out.warn.push({ text: str(r), tone: 'warn' })
-    if (tTone && !out.warn.some((w) => /°C|temperature|hot/i.test(w.text))) out.warn.push({ text: out.temp.text, tone: tTone })
+    if (tTone && !out.warn.some((w) => /°C|\d\s*C\b|temperature|hot/i.test(w.text))) out.warn.push({ text: out.temp.text, tone: tTone })
     const ag = obj(tile.agents)
     out.agents = num(ag.total) !== null && !out.warn.some((w) => /agent process/i.test(w.text)) ? fill(lab.agents, { n: ag.total }) : ''
     out.seen = num(tile.seen_age_s) !== null ? fill(lab.seen, { ago: ago(Number(tile.seen_age_s) * 1000) }) : ''
@@ -739,7 +822,7 @@ function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered, now, me
     errors: rows.slice(0, emax), errorsMore: Math.max(0, rows.length - emax), errorsTotal: rows.length, covered: coveredN, fleetWs,
     alerts,
     urgentElsewhere: todo.urgentElsewhere.length,
-    answerMachine: str(inbox.answer_machine || 'oracle'), answerTemplate: str(inbox.answer_text || 'Answer {id}: {key}'),
+    answerMachine: str(inbox.answer_machine || 'oracle'), answerTemplate: str(inbox.answer_text || 'Answer {id}: {key}'), clickLine: str(inbox.click_line || CLICK_LINE),
     targets: Object.keys(obj(D.labels)),
   }
 }
@@ -800,6 +883,51 @@ function glanceGlobal(D, G, c, org, inbox, answered, now, me, label, words) {
     errorsAt: G.generated_ts ? fill(lab.errors_at, { at: T(G.generated_ts) }) : '',
     alerts,
   }
+}
+
+// Needs you now from the page's own fold (data.glance.decisions): its counts as they are, its top rows in its order,
+// each with the page's buttons (recommended first) and its sub-line (application · organization · urgency · covers ·
+// codes · id). A workspace: the decisions rows of that organization. null when the data has no decisions, or the
+// workspace is one the decisions leave out (a confidential organization): the inbox path then draws it as before.
+function decisionsGlobal(D, G, c, org, inbox, answered, now) {
+  const dec = obj(G.decisions)
+  if (!obj(dec.counts) || num(obj(dec.counts).now) === null || !Array.isArray(dec.top)) return null
+  const lab = c.labels
+  const T = (x) => at(x, now, c)
+  const urgW = obj(obj(D.words).urgency)
+  const orgs = orgsOf(D)
+  const orgLabel = (o) => str((orgs.find((x) => x.id === o) || {}).label || o)
+  const items = new Map()
+  for (const it of [...arr(inbox.items), ...Object.values(obj(inbox.confidential)).flatMap((x) => arr(obj(x).items))]) if (it && it.uid) items.set(str(it.uid), it)
+  const topN = Math.max(dec.top.length, 1)
+  let top, nNow, nWait
+  if (!org) {
+    top = dec.top
+    nNow = Number(dec.counts.now)
+    nWait = num(dec.counts.waiting) ?? 0
+  } else {
+    const rows = arr(dec.rows).filter((r) => r && rowIn(D, org, r))
+    if (!rows.length && !isFleetWs(D, org)) return null
+    const blocking = rows.filter((r) => r.blocks)
+    top = blocking.slice(0, topN)
+    nNow = blocking.length
+    nWait = rows.length - blocking.length
+  }
+  const you = top.filter(Boolean).map((r) => {
+    const it = obj(items.get(str(r.uid)))
+    const answers = decisionButtons(r)
+    const meta = [str(it.app_label || ''), !org && r.org ? orgLabel(str(r.org)) : '', str(urgW[str(r.urgency)] || r.urgency || ''), coversOfUids(r.covers, lab),
+      ...arr(r.codes).map(str), str(r.id || '')].filter(Boolean)
+    return {
+      uid: str(r.uid), id: str(r.id), title: localize(str(r.title), now, c), app: str(it.app_label || ''), org: str(r.org || ''), orgLabel: r.org ? orgLabel(str(r.org)) : '',
+      urgency: str(r.urgency), meta, covers: '', coversIds: arr(r.covers).map((u) => str(u).replace(/^[a-z-]+:/, '')),
+      tone: r.urgency === 'now' ? 'bad' : 'warn', answers, decide: r.answer === 'decide', row: r,
+      question: r.answer !== 'decide', rec: str(r.recommended || ''), why: str(r.why || ''), owner: str(r.owner || ''),
+      url: rowUrl(c.base, r.uid), sent: answered[str(r.uid)] || null,
+    }
+  })
+  const youCount = nNow ? fill(nNow === 1 ? lab.you_count_dec_1 : lab.you_count_dec, { n: nNow, at: T(inbox.generated_ts || G.generated_ts) }) : ''
+  return { you, youTotal: nNow, youAll: nNow + nWait, youCount, waiting: nWait, waitingLine: nWait ? fill(lab.waiting_more, { n: nWait }) : '', decisions: true }
 }
 
 // One « Needs you now » row: the plain title first, the meta line in plain words with the id small at the end,
@@ -874,7 +1002,13 @@ export function summaryText(m, cfg) {
   const P = m.laptop
   const G = m.global
   const tmax = Number(c.todo.max) || 3
-  const lines = [`${fill(W.laptop, { machine: m.label })} (${fill(W.pulled, { ago: m.pulled, built: m.built || '?' })}${m.hubError ? `; ${m.hubError}` : ''})`]
+  const lines = []
+  // the critical strip on top (UX rule 20), when the page data has one
+  if (arr(m.critical).length) {
+    lines.push(`!! ${W.critical}`)
+    for (const r of m.critical) lines.push(`   ! ${r.text}${[r.orgLabel, r.id].filter(Boolean).length ? ` (${[r.orgLabel, r.id].filter(Boolean).join(' · ')})` : ''}`)
+  }
+  lines.push(`${fill(W.laptop, { machine: m.label })} (${fill(W.pulled, { ago: m.pulled, built: m.built || '?' })}${m.hubError ? `; ${m.hubError}` : ''})`)
   if (m.stale) lines.push(`! ${m.stale}`)
   if (!P.known) lines.push(fill(W.laptop_unknown, { machine: m.machine }))
   lines.push(`  ${P.line} · ${P.temp.text}${P.agents ? ' · ' + P.agents : ''}`)
@@ -892,10 +1026,19 @@ export function summaryText(m, cfg) {
   if (!G.you.length) lines.push(`    ${W.you_none}`)
   for (const q of G.you) {
     const rec = q.answers.find((a) => a.rec)
-    lines.push(`    ${q.title}${rec ? ` · ${W.recommended}: ${rec.key === 'rec' ? rec.label : `${rec.key}) ${rec.label}`}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }) : ''}`)
-    lines.push(`      ${[q.covers, ...q.meta].filter(Boolean).join(' · ')}`)
+    if (!q.url) {
+      // older hub data (no decisions): the earlier one-line form
+      lines.push(`    ${q.title}${rec ? ` · ${W.recommended}: ${buttonLabel(rec)}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }) : ''}`)
+      lines.push(`      ${[q.covers, ...q.meta].filter(Boolean).join(' · ')}`)
+      continue
+    }
+    // the page's row: title, sub-line, then its buttons (the recommended answer, « more » = the page at that row)
+    lines.push(`    ${q.title}`)
+    lines.push(`      ${q.meta.join(' · ')}`)
+    lines.push(q.sent ? `      ${fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) })}` : `      ${rec ? `[${buttonLabel(rec)} · ${W.recommended}] ` : ''}[${W.more_row}] ${q.url}`)
   }
   if (G.youCount ? G.youTotal > G.you.length : G.youAll > G.you.length) lines.push(`    ${fill(W.show_all, { n: G.youCount ? G.youTotal : G.youAll })}: ${moduleUrl(m.base, 'overview')}`)
+  if (G.waitingLine) lines.push(`    ${G.waitingLine}: ${moduleUrl(m.base, 'inbox')}`)
   if (G.showErrors || G.fleetWs) {
     lines.push(`  ${W.errors}${G.errorsAt ? ` · ${G.errorsAt}` : ''}`)
     if (!G.errors.length) lines.push(`    ${W.errors_none}`)

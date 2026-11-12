@@ -4,12 +4,12 @@ process.env.TZ = 'UTC' // the one clock is local; the tests pin it
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hubModel, hubTabs, hubIdOf, tabKey, hubConfig, parseTarget, sendResult, summaryText, badgeText, tokenOf, inOrg, orgsOf, moduleOf, moduleUrl,
-  answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated } from '../lib/hub.mjs'
+  answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated, decisionButtons, decisionText, coversOfUids, rowUrl } from '../lib/hub.mjs'
 import { drawHub, hubBar } from '../hooks/hub_view.mjs'
 import { kit, drawCockpit } from '../hooks/view.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
-import { LOCAL, DATA, DATA2, DATA3 } from '../scripts/fixtures/hub.mjs'
+import { LOCAL, DATA, DATA2, DATA3, DATA4 } from '../scripts/fixtures/hub.mjs'
 
 const NOW = LOCAL.now
 const ACT = { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done() {}, answer() {}, fill() {}, open() {} }
@@ -354,4 +354,87 @@ test('one clock in a named zone: Europe/Paris, 24 h, whatever this computer zone
   const m = hubModel(LOCAL, DATA3, { hub: { time: { zone: 'Europe/Paris' } } }, { now: NOW })
   assert.equal(m.global.youCount, '2 need you now (at 12:59)')
   assert.equal(at('2026-11-12T23:00:00Z', Date.parse('2026-11-12T20:00:00Z'), { time: { zone: 'Europe/Paris' } }), 'Fri 13 Nov 00:00')
+})
+
+test('decisions path: the page counts as they are, its top rows in its order, the organization on each row', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const G = m.global
+  assert.equal(m.source, 'decisions')
+  assert.equal(G.youTotal, 3)
+  assert.equal(G.waiting, 7) // counts.waiting printed, never recounted from the rows
+  assert.equal(G.youCount, '3 decisions need you now (at 11:59)')
+  assert.equal(G.waitingLine, '7 more wait on you without blocking work')
+  assert.deepEqual(G.you.map((q) => q.id), ['I90', 'pc1-mail', 'I72'])
+  // application · organization · urgency · covers · codes · id (the page's sub-line in All)
+  assert.deepEqual(G.you[0].meta, ['Security', 'Fleet and tooling', 'urgent', 'covers I2, I4 and 1 to-do', 'I90'])
+  assert.deepEqual(G.you[2].meta, ['Acme', 'urgent', 'covers I123, Q1', 'Sheet Q1', 'I72'])
+  // every row has the page's recommended button; « more » opens the page at that row
+  assert.deepEqual(G.you.map((q) => q.answers.find((a) => a.rec).key), ['a', 'yes', 'rec'])
+  assert.equal(G.you[1].url, 'http://127.0.0.1:24365/#r-todo-pc1-mail')
+  assert.equal(G.you[0].why, 'The keys leak while this waits.')
+  const text = summaryText(m, {})
+  assert.match(text, /Needs you now · 3 decisions need you now \(at 11:59\)\n/)
+  assert.match(text, /\[I will do it · recommended\] \[more\] http:\/\/127\.0\.0\.1:24365\/#r-todo-pc1-mail/)
+  assert.match(text, /\[Keep the plan · recommended\] \[more\]/)
+  assert.match(text, /7 more wait on you without blocking work: /)
+  assert.match(text, /\(numbers: the page's own \(data\.glance\.decisions of 11:59\)\)$/)
+  // a workspace: the decisions rows of that organization; no organization word (the switch names it)
+  const acme = hubModel(LOCAL, DATA4, {}, { now: NOW, org: 'acme' }).global
+  assert.deepEqual(acme.you.map((q) => q.id), ['I72'])
+  assert.equal(acme.youTotal, 1)
+  assert.equal(acme.waiting, 1)
+  assert.ok(!acme.you[0].meta.includes('Acme'))
+  // a confidential workspace the decisions leave out: the inbox path as before
+  assert.notEqual(hubModel(LOCAL, DATA4, {}, { now: NOW, org: 'secret' }).global.decisions, true)
+})
+
+test('decisions buttons and texts: the page’s own (register answer, decide choice, advice that is no option, click line)', () => {
+  const [reg, dec, rec] = DATA4.glance.decisions.top
+  assert.deepEqual(decisionButtons(dec).map((a) => [a.key, a.rec, Boolean(a.synth)]), [['yes', true, true], ['no', false, true], ['later', false, true]])
+  assert.deepEqual(decisionButtons(rec).map((a) => a.key), ['rec', 'a', 'b'])
+  assert.equal(decisionButtons(reg)[0].note, 'Half an hour with you; the keys are rotated tonight.')
+  // a recommended KEY without rec_key (shared contract) marks that option
+  assert.equal(decisionButtons({ options: [{ key: 'a', label: 'x' }, { key: 'b', label: 'y' }], recommended: 'b' })[0].key, 'b')
+  assert.equal(decisionText(reg, 'a', 'Answer {id}: {key}'), 'Answer I90: a\nClicked by Julian in the Cockpit')
+  assert.equal(decisionText(dec, 'yes', 'Answer {id}: {key}'), 'Cockpit: decide todo:pc1-mail: yes\nClicked by Julian in the Cockpit')
+  assert.equal(decisionText(dec, 'maybe', ''), null)
+  assert.equal(decisionText(rec, 'rec', 'Answer {id}: {key}', 'Clicked here'), 'Answer I72: rec\nClicked here')
+  assert.equal(coversOfUids(['todo:a', 'todo:b'], {}), 'covers 2 to-dos')
+  assert.equal(rowUrl('http://127.0.0.1:24365/', 'issue:I90'), 'http://127.0.0.1:24365/#r-issue-I90')
+})
+
+test('decisions in the pane: five rows with buttons on each (a to-do too), more, the waiting line; 50 columns', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const text = draw(m, 50)
+  assert.match(text, /3 decisions need you now/)
+  assert.match(text, /\[a\) 30 minutes\] \[more\]/)
+  assert.match(text, /\[I will do it\] \[more\]/)
+  assert.match(text, /\[Keep the plan\] \[more\]/)
+  assert.match(text, /Security · Fleet and tooling · urgent/)
+  assert.match(text, /\[7 more wait on you without blocking work\]/)
+  assert.doesNotMatch(text, /\[b\) later\]/)
+})
+
+test('critical strip: on top of both blocks when the page data has one, not repeated under Problems now', () => {
+  const d = structuredClone(DATA4)
+  assert.deepEqual(hubModel(LOCAL, d, {}, { now: NOW }).critical, [])
+  d.glance.problems.unshift({ kind: 'issue', severity: 'critical', text: 'The job queue is down', id: 'I3', org: 'tools', uid: 'issue:I3' })
+  let m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.deepEqual(m.critical.map((r) => [r.text, r.orgLabel, r.link]), [['The job queue is down', 'Fleet and tooling', 'r-issue-I3']])
+  assert.ok(!m.global.errors.some((e) => e.text === 'The job queue is down'))
+  const text = draw(m, 50)
+  assert.ok(text.indexOf('Critical: work is stopped') < text.indexOf('This laptop'))
+  assert.match(summaryText(m, {}), /^!! Critical: work is stopped\n {3}! The job queue is down \(Fleet and tooling · I3\)\n/)
+  // the other lane's own key, when present, wins
+  d.glance.critical = { rows: [{ text: 'Hub disk full', org: 'tools', link: '#fleet' }] }
+  m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.deepEqual(m.critical.map((r) => [r.text, r.link]), [['Hub disk full', 'fleet']])
+})
+
+test('This laptop lists only this machine’s items', () => {
+  const d = structuredClone(DATA4)
+  d.todo.pc1.push({ ...d.todo.pc1[0], id: 'pc1-for-pc2', title: 'Addressed elsewhere', deliver_to: 'pc2' })
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.ok(m.laptop.todos.every((t) => t.machine === 'pc1'))
+  assert.ok(!m.laptop.todos.some((t) => t.id === 'pc1-for-pc2'))
 })
