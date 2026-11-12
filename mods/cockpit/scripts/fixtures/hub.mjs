@@ -68,3 +68,54 @@ export const DATA = {
       runner: { t: '2026-01-02T11:55:00Z', text: 'picked R1' } },
   },
 }
+
+// The same computer with today's data.json keys (herd.cockpit/1 after the UI pass of 12 Nov): the page's fleet_view
+// tiles and sentence, its module list and headings, quota.json read with a quota mode, live alerts, related items.
+export const DATA2 = (() => {
+  const d = structuredClone(DATA)
+  d.page_labels = { needs_you: 'Needs you now', needs_you_none: 'Nothing needs you now.', errors_now: 'Problems now', errors_now_none: 'No problem now.' }
+  d.modules = [{ id: 'overview', label: 'Overview' }, { id: 'inbox', label: 'Questions and checks' }, { id: 'todo', label: 'To do' }, { id: 'fleet', label: 'Fleet' },
+    { id: 'alerts', label: 'Alerts' }, { id: 'quota', label: 'Quota' }, { id: 'dispatch', label: 'Dispatch plan' }, { id: 'intake', label: 'My messages' }, { id: 'nope', label: 'Unknown' }]
+  d.fleet_view = {
+    generated_ts: T0 / 1000 - 30, state: 'working', busy: 1, on: 2, workers: 2, util_pct: 50, sentence: 'Fleet coding is working: 1 of 2 machines busy, utilisation 50 %',
+    tiles: [
+      { id: 'pc2', label: 'Computer two', role: 'worker', power: 'on', mode: 'coding', colour: 'green', red: [], yellow: [], busy: true, running: [{ id: 9, kind: 'claude', tag: 'lane' }] },
+      { id: 'pc1', label: 'Computer one', role: 'worker', power: 'on', mode: 'normal', colour: 'yellow', red: [], yellow: ['27 agent processes, cap 12', 'disk C: 8.4 % free'], busy: false,
+        seen_age_s: 38, cpu_pct: 5, cpu_c: 59.1, gpu_c: 44, cpu_max_1h_c: 95.1, ram_used_gb: 32, ram_total_gb: 64, agents: { total: 27, cap: 12 }, running: [] },
+      { id: 'tab', label: 'Tablet', role: 'viewer', power: 'off', colour: 'grey', red: [], yellow: [], busy: false, running: [] },
+    ],
+  }
+  // the overview still lists job 9 on pc1 (a lost lease): the tiles are the one source of running jobs
+  d.quota = { generated_at: '2026-01-02T11:29:01Z', providers: [
+    { id: 'claude', label: 'Claude', state: 'critical', windows: [{ window: '7d', used_pct: 20, resets_at: '2026-01-08T12:00:00Z', exhaust_at: '2026-01-03T15:02:36Z', exhausts_before_reset: true, state: 'critical' }] },
+    { id: 'codex', label: 'Codex', state: 'ok', windows: [{ window: '7d', used_pct: 3, state: 'ok' }] },
+  ] }
+  d.quota_mode = { mode: 'unlimited', source: 'file', set_by: 'julian', at: '2026-01-02T10:00:00Z', until: '2026-01-08T12:00:00Z', expired: false }
+  d.quota_modes = [{ id: 'unlimited', label: 'Unlimited' }, { id: 'normal', label: 'Normal' }]
+  d.overview.errors.rows = [
+    { kind: 'quota', severity: 'urgent', text: 'Claude quota critical: 19.0% used of the 7d window, empties 2026-01-03T07:31:57Z before its reset' },
+    { kind: 'issue', severity: 'urgent', text: 'I13 Claude weekly quota burns at 6 points an hour, empty around 3 Jan 06:00 UTC (owner lead)' },
+    { kind: 'issue', severity: 'urgent', text: 'I2 Port 22 is open to the internet (owner julian)' },
+    { kind: 'issue', severity: 'high', text: 'I10 Hub disk at 74 % since 2026-01-01 (owner agent)' },
+    { kind: 'job', severity: 'high', text: '3 failed jobs in 24 h, last check 2026-01-02 11:00Z', link: '#fleet' },
+  ]
+  const sec = { uid: 'issue:I90', type: 'question', section: 'question', id: 'I90', title: 'Security hour: 2FA and token rotation', org: 'tools', app_label: 'Security', urgency: 'now', severity: 'urgent',
+    state: 'waiting-julian', you: true, blocks_work: true, app_rank: 0, related: ['I2', 'I4'], links: ['fleet-todo:pc2-2fa'], options: [{ key: 'a', label: '30 minutes' }, { key: 'b', label: 'later' }], rec_key: 'a', answerable: true }
+  d.inbox.items = [
+    { uid: 'issue:I2', type: 'issue', section: 'look', id: 'I2', title: 'Port 22 is open to the internet', org: 'tools', app_label: 'Security', urgency: 'now', you: true, blocks_work: true, app_rank: 0, related: ['I4', 'I90'], category: 'security/ssh' },
+    { uid: 'issue:I4', type: 'issue', section: 'look', id: 'I4', title: 'Leaked tokens are not rotated', org: 'tools', app_label: 'Security', urgency: 'now', you: true, blocks_work: true, app_rank: 0, related: ['I2', 'I90'] },
+    sec,
+    { uid: 'todo:pc2-2fa', type: 'todo', section: 'todo', id: 'pc2-2fa', title: '[security] 2FA and token rotation', org: 'tools', app_label: 'Security', urgency: 'now', you: true, blocks_work: true, deliver_to: 'pc2', related: ['I2', 'I4', 'I90'] },
+    { uid: 'backlog:Q1', type: 'backlog', section: 'yours', id: 'Q1', title: 'Pick the backup disk', org: 'acme', app_label: 'App one', urgency: 'today', state: 'blocked-user', priority: 'p0', you: true, blocks_work: true, app_rank: 2 },
+    { uid: 'issue:I13', type: 'issue', section: 'problem', id: 'I13', title: 'Claude weekly quota burns', org: 'tools', category: 'quota/claude', you: false },
+    ...DATA.inbox.items.filter((x) => x.id === 'I3'),
+  ]
+  d.alerts_live = { generated_at: '2026-01-02T11:50:00Z', rows: [
+    { key: 'issue:I2', level: 'urgent', status: 'open', title: 'I2 Port 22', issue: 'I2', org: 'tools' },
+    { key: 'issue:I90', level: 'urgent', status: 'open', title: 'I90 Security hour', issue: 'I90', org: 'tools' },
+    { key: 'quota:claude:critical', level: 'urgent', status: 'open', title: 'Quota Claude: critical', source: 'quota', issue: null, org: null },
+    { key: 'issue:I10', level: 'high', status: 'open', title: 'I10 Hub disk', issue: 'I10', org: 'tools' },
+    { key: 'issue:I12', level: 'high', status: 'acked', title: 'I12 Login expires', issue: 'I12', org: 'tools' },
+  ] }
+  return d
+})()

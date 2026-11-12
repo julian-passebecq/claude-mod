@@ -5,13 +5,15 @@
 The pane opens on the **dispatcher**: what needs Julian now, and a way to act on it, nothing else. The full workplace is
 the local **Cockpit page** (`http://127.0.0.1:24365`, side bar and modules); the mod does not repeat its tabs. Both read
 the SAME data (herd-worker on every laptop: `GET /local.json` this computer, `GET /data.json` the hub's
-`herd.cockpit/1`), every `hub.refresh_s` (60 s), and use the page's words (`inbox.labels`) first.
+`herd.cockpit/1`), every `hub.refresh_s` (60 s), and use the page's words (`page_labels`, `inbox.labels`) first. Every time
+is written one way (`hub.time`: this computer's clock, 24 h, « 19:22 » today, « Fri 13 Nov 16:02 » another day), hub-written
+dates inside texts included (« empties 2026-11-13T07:31:57Z » reads « empties Fri 13 Nov 08:31 »).
 
 | Block | What it shows |
 |---|---|
-| **This laptop · <machine>** | to-dos delivered here, urgent first (marked done last) with **Run** / **Mark done**, at most `max_rows` (5) then « show all N »; state, mode, CPU, RAM, temperature (the hub's health reading when published, else the GPU sensor of the load sample, else « no sensor reading »), agent processes, warnings (hot, low disk, battery, reboot), what runs here (jobs with since / ETA or « past its ETA », lanes this machine owns) |
-| **Global** | the fleet in one line (workers busy, jobs, alerts) and one dot per machine coloured by state (grey = off or viewer, never red for normal); the page's **You: what blocks work now** list of the workspace with **one-click answers** (recommended first; the page's own send, `POST /api/todo` « Answer I90: a » to `inbox.answer_machine`, confirmed on screen and kept); errors of `error_severities` (critical, urgent); urgent to-dos on other machines; quick actions **Job or prompt to a machine…** and **To-do for Julian…** that fill the prompt with `/dispatch ` or `/todo ` (nothing is sent until the person sends it) |
-| **Open in Cockpit** | one button per page module (Overview, To do, Questions and checks, Fleet, Quota, Alerts, Journal, Watch, Lanes) opening `base/#<module>` in the browser (rundll32 URL handler on Windows, `open` on macOS, `xdg-open` elsewhere, as an argv; only the configured loopback base). Every « show all N » is such a button too. |
+| **This laptop · <machine>** | read from the page's own Fleet tile (`fleet_view.tiles`): power, mode, CPU, RAM, the hotter temperature sensor (and its 1 h maximum when it passed `temp.warn_c`), the tile's red and yellow reasons, its running jobs (one source for the tile, the page's Lanes and this pane; ETA or « past its ETA » from the overview), lanes this machine owns; then the to-dos delivered here, urgent first (marked done last), `todo.max` (3) rows of one line each, **Run** / **Mark done** on the first only, « show all N ». Older data without tiles: the fleet machine and the hub's health / modes keys. |
+| **Global** | the page's fleet sentence with its time (`fleet_view.sentence`) and one dot per tile in the page's order, coloured by the tile (grey = off or viewer); the page's headings (`page_labels`): **Needs you now**, the page's list of the workspace with related items folded into one row (the question with its **one-click answers**, recommended first, and « covers I2, I4 and 1 to-do »; the page's own send, `POST /api/todo` « Answer I90: a » to `inbox.answer_machine`, confirmed on screen and kept), the plain title first and a meta line in plain words (`state_words`, `owner_words`, « priority 1 ») with the id small at its end; **Problems now**, the page's rows (red machines, the overview's errors) minus what Needs you now already shows, the quota ONCE built from `quota.json` (`data.quota`, as the Quota module reads it: used %, one exhaust time, reset, reading time) with the register's quota problems folded into it, yellow with « unlimited mode until … » when Julian's quota mode is in `quota.calm_modes`, `errors_max` rows then « show all N »; the page's alerts count minus the rows listed above; urgent to-dos on other machines; quick actions **Job or prompt to a machine…** and **To-do for Julian…** that fill the prompt with `/dispatch ` or `/todo ` (nothing is sent until the person sends it) |
+| **Open in Cockpit** | one button per page module, the page's own list (`data.modules`: Overview, Questions and checks, To do, Fleet, Alerts, Quota, Dispatch plan, My messages, Lanes, Journal, Watch) opening `base/#<module>` in the browser (rundll32 URL handler on Windows, `open` on macOS, `xdg-open` elsewhere, as an argv; only the configured loopback base). Every « show all N » is such a button too. |
 
 A **workspace** row (All · one button per organization) filters both blocks the page's way: All = every
 non-confidential item; an organization = its items; a confidential organization's items show only in its own workspace.
@@ -23,8 +25,8 @@ gone; their ids and words (`/cockpit fleet`, `hub.start: "overview"`) open the d
 to the worker with the page's Origin and per-start token (`<meta name="cockpit-token">`); a 404 says « not available
 yet ». Cockpit registers the three only when no loaded mod has the name ([`mods/fleet`](../fleet) is a thin redirect).
 The status line reads « Fleet: N to do ». Nothing blocks, rewrites or adds to a tool call or prompt. Settings under
-`hub` in `cockpit.config.json` (start, refresh, modules order and labels, `max_rows`, `errors_max`, `error_severities`,
-`temp`, `disk_warn_pct`, every label); `hub.start: "panneau"` opens on the Panneau again, `hub.enabled: false` removes
+`hub` in `cockpit.config.json` (start, refresh, modules order and labels, `max_rows`, `errors_max`, `todo.max`, `time`,
+`quota`, `temp`, `disk_warn_pct`, state / owner words, every label); `hub.start: "panneau"` opens on the Panneau again, `hub.enabled: false` removes
 the dispatcher.
 
 Preview: `node mods/cockpit/scripts/preview.mjs --hub --cols 50` (invented fixtures), `--hub-live` (this computer's
