@@ -71,7 +71,7 @@ function drawLaptop(h, m, c, S, width) {
   const first = P.todos.slice(0, tmax).find((t) => t.canRun)
   P.todos.slice(0, tmax).forEach((t) => {
     const note = t.marked ? W.marked : t.pending ? W.pending : ''
-    const title = h.T(`${t.title}${note ? ` (${note})` : ''}`, { bold: t.urgent && !t.marked, tone: t.marked ? 'ok' : t.urgent ? 'bad' : undefined, wrap: 'wrap', key: 'title' })
+    const title = h.T(clip(`${t.title}${note ? ` (${note})` : ''}`, width * Math.max(1, Number(c.title_lines) || 1)), { bold: t.urgent && !t.marked, tone: t.marked ? 'ok' : t.urgent ? 'bad' : undefined, wrap: 'wrap', key: 'title' })
     rows.push(t === first
       ? h.col([title, h.row([h.btn(W.run, () => S.act.run(t.id), true, 'run-' + t.id), h.btn(W.done, () => S.act.done(t.id), false, 'done-' + t.id)], { key: 'btns' })], { key: `todo-${t.id}` })
       : h.col([title], { key: `todo-${t.id}` }))
@@ -84,44 +84,62 @@ function drawGlobal(h, m, c, S, width) {
   const W = m.words
   const G = m.global
   const rows = []
+  const tl = Math.max(1, Number(c.title_lines) || 1)
+  const gmax = Math.max(1, Number(c.global_max) || 5)
   if (G.fleetLine) rows.push(h.T(G.fleetLine, { key: 'gl-fleet', wrap: 'wrap' }))
+  // the quota row, the page's Quota reading (glance.quota) under its fleet sentence, as on the page
+  if (G.quota) rows.push(h.T(`● ${G.quota.text}${G.quota.covers.length ? ` · ${fill(W.covers, { list: G.quota.covers.join(', ') })}` : ''}`, { tone: G.quota.tone || undefined, key: 'gl-quota', wrap: 'wrap' }))
   if (G.dots.length) {
     rows.push(h.row(G.dots.map((d) => h.T(`● ${d.label}${d.state === 'busy' ? ' busy' : d.state && d.state !== 'on' ? ` ${d.state}` : ''}`, { tone: d.tone && d.tone !== 'dim' ? d.tone : undefined, dim: d.tone === 'dim', key: 'dot-' + d.id, wrap: 'truncate-end' })),
       { key: 'gl-dots', marginBottom: 1 }))
   }
-  rows.push(h.T(`${W.you_block} (${G.youTotal})`, { bold: true, key: 'gl-you-head' }))
+  // about global_max rows in all: Needs you now first, then at least one Problems now row when there is one
+  const errN = G.showErrors || G.fleetWs ? Math.min(G.errors.length, G.errors.length ? Math.max(1, gmax - G.you.length) : 0) : 0
+  const youN = Math.max(0, Math.min(G.you.length, gmax - errN))
+  // the page's heading, then its own count sentence (« 14 need you now (at 21:16) ») on the same line
+  rows.push(G.youCount
+    ? h.T(clip(`${W.you_block} · ${G.youCount}`, width), { bold: true, key: 'gl-you-head', wrap: 'truncate-end' })
+    : h.T(`${W.you_block} (${G.youTotal})`, { bold: true, key: 'gl-you-head' }))
   if (!G.you.length) rows.push(h.T(W.you_none, { dim: true, key: 'gl-you-none' }))
-  for (const q of G.you) {
+  for (const q of G.you.slice(0, youN)) {
     const parts = [
-      h.T(q.title, { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
-      h.T([...q.meta, q.covers].filter(Boolean).join(' · '), { dim: true, key: 'meta', wrap: 'wrap' }),
+      h.T(clip(q.title, width * tl), { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
+      h.T(clip([q.covers, ...q.meta].filter(Boolean).join(' · '), width), { dim: true, key: 'meta', wrap: 'truncate-end' }),
     ]
     if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: m.time(q.sent.t) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
     else if (q.answers.length) {
-      parts.push(h.row(q.answers.map((a) => h.btn(`${a.key === 'rec' ? clip(a.label, width - 16) : `${a.key}) ${clip(a.label, width - 18)}`}${a.rec ? ` · ${W.recommended}` : ''}`,
-        () => S.act.answer(q.uid, a.key), a.rec, `ans-${q.id}-${a.key}`)), { key: 'answers' }))
-    } else if (q.question) parts.push(h.T(`${q.rec ? fill(W.rec_text, { rec: q.rec }) + ' ' : ''}${W.no_answer}`, { dim: true, key: 'hint', wrap: 'wrap' }))
-    rows.push(h.col(parts.filter(Boolean), { key: 'you-' + q.uid, marginBottom: 1 }))
+      // the recommended answer, then « more » for the other options (unfolded in place)
+      const open = Boolean(S.more && S.more[q.uid])
+      const rec = q.answers.find((a) => a.rec) || q.answers[0]
+      const shown = open ? q.answers : [rec]
+      const label = (a) => `${a.key === 'rec' ? '' : `${a.key}) `}${a.label}`
+      // folded: the one button is the recommended answer (drawn as the primary button); unfolded: the page's « · recommended »
+      const btns = shown.map((a) => h.btn(open ? `${clip(label(a), width - 18)}${a.rec ? ` · ${W.recommended}` : ''}` : clip(label(a), width - 14),
+        () => S.act.answer(q.uid, a.key), a.rec, `ans-${q.id}-${a.key}`))
+      if (q.answers.length > 1) btns.push(h.btn(open ? W.less_answers : `${W.more_answers} (${q.answers.length - 1})`, () => S.act.more(q.uid), false, `more-${q.id}`))
+      parts.push(h.row(btns, { key: 'answers' }))
+    } else if (q.question) parts.push(h.T(`${q.rec ? fill(W.rec_text, { rec: q.rec }) + ' ' : ''}${W.no_answer}`, { dim: true, key: 'hint', wrap: 'truncate-end' }))
+    rows.push(h.col(parts.filter(Boolean), { key: 'you-' + q.uid }))
   }
-  if (G.youAll > G.you.length) rows.push(link(h, fill(W.show_all, { n: G.youAll }), moduleUrl(c.base, 'overview'), 'gl-you-all'))
-  if (G.fleetWs) {
-    rows.push(h.T(W.errors, { bold: true, key: 'gl-err-head' }))
+  if (G.youTotal > youN) rows.push(link(h, fill(W.show_all, { n: G.youTotal }), moduleUrl(c.base, 'overview'), 'gl-you-all'))
+  if (G.showErrors || G.fleetWs) {
+    rows.push(h.T(clip(`${W.errors}${G.errorsAt ? ` · ${G.errorsAt}` : ''}`, width), { bold: true, key: 'gl-err-head', wrap: 'truncate-end' }))
     if (!G.errors.length) rows.push(h.T(W.errors_none, { dim: true, key: 'gl-err-none' }))
-    G.errors.forEach((e, i) => rows.push(h.col([
-      h.T(`! ${e.text}`, { tone: e.tone || undefined, key: 'text', wrap: 'wrap' }),
-      e.meta.length ? h.T(e.meta.join(' · '), { dim: true, key: 'meta', wrap: 'wrap' }) : null,
+    G.errors.slice(0, errN).forEach((e, i) => rows.push(h.col([
+      h.T(`! ${clip(e.text, width * tl - 2)}`, { tone: e.tone || undefined, key: 'text', wrap: 'wrap' }),
+      e.meta.length ? h.T(clip(e.meta.join(' · '), width), { dim: true, key: 'meta', wrap: 'truncate-end' }) : null,
     ].filter(Boolean), { key: 'gl-e' + i })))
-    if (G.errorsMore) rows.push(link(h, fill(W.show_all, { n: G.errorsTotal }), moduleUrl(c.base, 'overview'), 'gl-err-all'))
+    if (G.errorsTotal > errN) rows.push(link(h, fill(W.show_all, { n: G.errorsTotal }), moduleUrl(c.base, 'overview'), 'gl-err-all'))
+    if (G.later) rows.push(link(h, `${G.later} ${W.look_later}`, moduleUrl(c.base, 'overview'), 'gl-later'))
     if (G.covered) rows.push(h.T(fill(W.covered, { n: G.covered }), { dim: true, key: 'gl-err-covered', wrap: 'wrap' }))
   }
-  if (G.alerts) rows.push(h.row([link(h, G.alerts.text, moduleUrl(c.base, 'alerts'), 'gl-alerts'), G.alerts.listed ? h.T(G.alerts.listed, { dim: true, key: 'gl-alerts-listed', wrap: 'wrap' }) : null].filter(Boolean), { key: 'gl-alerts-row', alignItems: 'center' }))
+  if (G.alerts) rows.push(link(h, G.alerts.text, moduleUrl(c.base, 'alerts'), 'gl-alerts'))
   if (G.urgentElsewhere) rows.push(link(h, fill(W.urgent_elsewhere, { n: G.urgentElsewhere }), moduleUrl(c.base, 'todo'), 'gl-urgent-else'))
-  rows.push(h.T(W.actions, { bold: true, key: 'gl-act-head' }))
   rows.push(h.row([
+    h.T(W.actions, { bold: true, key: 'h' }),
     h.btn(W.send_job, () => S.act.fill('/dispatch '), false, 'act-dispatch'),
     h.btn(W.add_todo, () => S.act.fill('/todo '), false, 'act-todo'),
-  ], { key: 'gl-actions' }))
-  rows.push(h.T(fill(W.send_hint, { machines: G.targets.join(', ') }), { dim: true, key: 'gl-act-hint', wrap: 'wrap' }))
+  ], { key: 'gl-actions', alignItems: 'center' }))
   const tone = G.errors.some((e) => e.tone === 'bad') || G.you.some((q) => q.tone === 'bad') ? 'bad' : undefined
   return h.box(`${W.global}${m.org ? ` · ${(m.orgs.find((o) => o.id === m.org) || {}).label || m.org}` : ''}`, rows, { key: 'blk-global', tone })
 }

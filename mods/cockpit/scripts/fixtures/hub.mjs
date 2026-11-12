@@ -119,3 +119,39 @@ export const DATA2 = (() => {
   ] }
   return d
 })()
+
+// DATA2 plus what the hub writes since the 12 Nov review (claude-control herd/cockpit glance.py): data.glance, the page's
+// ONE reading of its first blocks (quota row, Problems now, look later, alerts count, live jobs, freshness), and the
+// inbox's own folds (item.covers on the row that stands for a group, item.covered_by on the items it covers).
+export const DATA3 = (() => {
+  const d = structuredClone(DATA2)
+  const ts = T0 / 1000
+  d.words = { urgency: { now: 'urgent', today: 'today', week: 'this week', later: 'later' } }
+  d.inbox.generated_ts = ts - 60
+  for (const it of d.inbox.items) {
+    it.covered_by = ['I2', 'I4', 'pc2-2fa'].includes(it.id) ? 'issue:I90' : null
+    it.covers = it.id === 'I90' ? [{ id: 'I2', uid: 'issue:I2', type: 'issue' }, { id: 'I4', uid: 'issue:I4', type: 'issue' }, { id: 'pc2-2fa', uid: 'todo:pc2-2fa', type: 'todo' }] : null
+  }
+  d.glance = {
+    schema: 'herd.glance/1', generated_ts: ts - 30, time: { hour12: false },
+    quota: { provider: 'claude', colour: 'yellow', state: 'high', covers: ['I13'], link: '#quota',
+      text: 'Claude quota: 20 % used of the 7-day window, empties 2026-01-03T15:02:36Z at this pace, before its reset 2026-01-08T12:00:00Z; unlimited mode until 2026-01-08T12:00:00Z (read 2026-01-02T11:29:01Z)' },
+    problems: [
+      { kind: 'issue', severity: 'urgent', text: 'The job queue can run commands on every machine', id: 'I1', org: 'tools', owner: 'lead', link: '#r-issue-I1' },
+      { kind: 'issue', severity: 'urgent', text: 'App one build is red since 2026-01-02T09:00:00Z', id: 'I7', org: 'acme', owner: 'agent' },
+    ],
+    later: [
+      { kind: 'quota', severity: 'high', text: 'Claude quota (the row above)', org: null },
+      { kind: 'job', severity: 'high', text: '3 failed jobs in 24 h', org: null, from_overview: true },
+      { kind: 'issue', severity: 'high', text: 'Hub disk at 74 %', id: 'I10', org: 'tools' },
+    ],
+    alerts: { shown: 4, urgent: 1, acked: 1, entries: 3, entries_in_needs_you: 2 },
+    jobs: [{ id: 31, machine: 'pc1', kind: 'ps', tag: 'modes', started_ts: ts - 600, eta_ts: null }, { id: 32, machine: 'pc2', kind: 'sh', tag: null, started_ts: ts - 60, eta_ts: null }],
+    freshness: [
+      { id: 'data', label: 'page data', ts: ts - 30, due_ts: ts + 390 },
+      { id: 'overview', label: 'overview', ts: ts - 3 * 3600, next_ts: ts - 3600, due_ts: ts - 3300 },
+      { id: 'quota', label: 'quota reading', ts: ts - 1800, next_ts: ts + 1800, due_ts: ts + 2100 },
+    ],
+  }
+  return d
+})()

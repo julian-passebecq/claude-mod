@@ -9,7 +9,7 @@ import { drawHub, hubBar } from '../hooks/hub_view.mjs'
 import { kit, drawCockpit } from '../hooks/view.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
-import { LOCAL, DATA, DATA2 } from '../scripts/fixtures/hub.mjs'
+import { LOCAL, DATA, DATA2, DATA3 } from '../scripts/fixtures/hub.mjs'
 
 const NOW = LOCAL.now
 const ACT = { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done() {}, answer() {}, fill() {}, open() {} }
@@ -132,7 +132,7 @@ test('the dispatcher draws both blocks and the Open in Cockpit links at 45 and 9
   const m = hubModel(LOCAL, DATA, {}, { now: NOW })
   for (const cols of [45, 90]) {
     const text = draw(m, cols)
-    for (const re of [/This laptop · Computer one/, /Global/, /Needs you now \(2\)/, /\[a\) cap at 3 · recommended\]/, /Problems now/,
+    for (const re of [/This laptop · Computer one/, /Global/, /Needs you now \(2\)/, /\[a\) cap at 3\] \[more \(1\)\]/, /Problems now/,
       /\[Job or prompt to a machine…\]/, /\[To-do for Julian…\]/, /Open in Cockpit/, /\[Questions and checks\]/, /\[Dispatcher\]/, /\[Conversations\]/]) assert.match(text, re, `${re} at ${cols}`)
     assert.ok(text.indexOf('This laptop') < text.indexOf('Global') && text.indexOf('Global') < text.indexOf('Open in Cockpit'))
     for (const gone of [/Watch digest/, /Answer sheet/, /By application/, /Lost jobs/, /Fleet quota/]) assert.doesNotMatch(text, gone)
@@ -280,4 +280,78 @@ test('plain labels: title first, the id small at the end of a plain-word meta li
 test('the pane at 50 columns stays short with today-shaped data', () => {
   const text = draw(hubModel(LOCAL, DATA2, {}, { now: NOW }), 50)
   assert.ok(text.split('\n').length < 75, `${text.split('\n').length} lines`)
+})
+
+// ---- the page's own numbers (data.glance, inbox covers), 12 Nov I150 ----
+
+test('glance path: the page counts, rows and words (Needs you now, quota row, Problems now, look later, alerts)', () => {
+  const m = hubModel(LOCAL, DATA3, {}, { now: NOW })
+  const G = m.global
+  assert.equal(m.source, 'glance')
+  assert.equal(m.sourceLine, "numbers: the page's own (data.glance of 11:59)")
+  // Needs you now: the page's youList (covered_by items left out), the row's own covers, the page's sentence
+  assert.deepEqual(G.you.map((q) => q.id), ['I90', 'Q1'])
+  assert.equal(G.youCount, '2 need you now (at 11:59)')
+  assert.deepEqual(G.you[0].meta, ['Security', 'urgent', 'covers I2, I4 and 1 to-do', 'I90'])
+  assert.deepEqual(G.you[1].meta, ['App one', 'today', 'Q1'])
+  // the quota row: glance.quota's text, in the one clock, yellow (unlimited mode), covers I13
+  assert.equal(G.quota.text, 'Claude quota: 20 % used of the 7-day window, empties Sat 3 Jan 15:02 at this pace, before its reset Thu 8 Jan 12:00; unlimited mode until Thu 8 Jan 12:00 (read 11:29)')
+  assert.equal(G.quota.tone, 'warn')
+  assert.deepEqual(G.quota.covers, ['I13'])
+  // Problems now: glance.problems as they are (no quota row, nothing recomputed), the page's sub-line words
+  assert.deepEqual(G.errors.map((e) => e.text), ['The job queue can run commands on every machine', 'App one build is red since 09:00'])
+  assert.deepEqual(G.errors[0].meta, ['problem', 'urgent', 'owner lead', 'I1'])
+  assert.equal(G.later, 2) // the quota is the row above
+  assert.equal(G.errorsAt, 'At 11:59.')
+  // alerts: the Alerts module's count (shown minus acked)
+  assert.equal(G.alerts.text, 'Alerts: 3 open, 1 urgent')
+  // freshness: the late part, named as the page names it
+  assert.equal(m.stale, 'not up to date: overview refresh due 11:00 did not run (from 09:00)')
+  // jobs: the live queue (glance.jobs), the page's words
+  assert.deepEqual(m.laptop.work.map((w) => w.text), ['modes job on Computer one (job 31) · started 11:50'])
+  // a workspace: its own rows (Problems now shown there too, as on the page)
+  const acme = hubModel(LOCAL, DATA3, {}, { now: NOW, org: 'acme' }).global
+  assert.deepEqual(acme.you.map((q) => q.id), ['Q1'])
+  assert.deepEqual(acme.errors.map((e) => e.meta.at(-1)), ['I7'])
+  assert.equal(acme.quota, null)
+  const text = summaryText(m, {})
+  assert.match(text, /\n {2}Needs you now · 2 need you now \(at 11:59\)\n/)
+  assert.match(text, /\n {4}2 to look at when you have time: /)
+  assert.match(text, /\(numbers: the page's own \(data\.glance of 11:59\)\)$/)
+})
+
+test('fallback: without data.glance the counts are computed as before, and the proof line says so', () => {
+  const m = hubModel(LOCAL, DATA2, {}, { now: NOW })
+  assert.equal(m.source, 'computed')
+  assert.match(summaryText(m, {}), /\(numbers: computed here \(this hub data has no glance\)\)$/)
+  assert.equal(m.global.youCount, undefined)
+})
+
+test('Global block: about five rows, then show all; options folded to the recommended answer plus more', () => {
+  const d = structuredClone(DATA3)
+  for (let i = 0; i < 12; i++) {
+    d.inbox.items.push({ uid: `issue:I${200 + i}`, type: 'question', section: 'question', id: `I${200 + i}`, title: `A long question number ${i} that goes on and on about a thing that waits on you`,
+      org: 'tools', app_label: 'Process', urgency: 'now', you: true, blocks_work: true, covered_by: null, covers: null, options: [{ key: 'a', label: 'yes' }, { key: 'b', label: 'no' }, { key: 'c', label: 'later' }], rec_key: 'a', answerable: true })
+  }
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.equal(m.global.youTotal, 14)
+  const text = draw(m, 50)
+  assert.match(text, /Needs you now · 14 need you now/)
+  assert.match(text, /\[show all 14\]/)
+  assert.match(text, /\[show all 2\]/) // Problems now: one row, then the page's total
+  assert.equal((text.slice(text.indexOf('Global')).match(/^│ ! /gm) || []).length, 1)
+  assert.match(text, /\[a\) 30 minutes\] \[more \(1\)\]/)
+  assert.equal((text.match(/\[a\) yes\] \[more \(2\)\]/g) || []).length, 3)
+  assert.doesNotMatch(text, /\[b\) no\]/)
+  // the whole pane (both blocks, workspace switch, Open in Cockpit) about one screen; 95+ lines before
+  assert.ok(text.split('\n').length <= 70, `${text.split('\n').length} lines`)
+  const open = draw(m, 50, { more: { 'issue:I90': true } })
+  assert.match(open, /\[a\) 30 minutes · recommended\] \[b\) later\]/)
+  assert.match(open, /\[less\]/)
+})
+
+test('one clock in a named zone: Europe/Paris, 24 h, whatever this computer zone is', () => {
+  const m = hubModel(LOCAL, DATA3, { hub: { time: { zone: 'Europe/Paris' } } }, { now: NOW })
+  assert.equal(m.global.youCount, '2 need you now (at 12:59)')
+  assert.equal(at('2026-11-12T23:00:00Z', Date.parse('2026-11-12T20:00:00Z'), { time: { zone: 'Europe/Paris' } }), 'Fri 13 Nov 00:00')
 })
