@@ -37,8 +37,7 @@ import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
 import { quotaCurves } from '../lib/viz_quota.mjs'
 import { tpsHourly } from '../lib/viz_spark.mjs'
-import { H, refreshHub, model as hubModelOf, act as hubAct, send as hubSend, fleetText, fleetTab, registerHubCommands } from './hub_io.mjs'
-import { hubConfig, hubIdOf, tabKey, hubTabs } from '../lib/hub.mjs'
+import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, HUB_TABS } from '../lib/hub.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -103,6 +102,126 @@ async function loadConfig($) {
   FCFG = deepMerge(deepMerge(fbase, wf ? { workflow: wf } : {}), (await readJson($, (await board($)) + '/factory.config.json')) || {})
   if (!D.strips) D.strips = Object.fromEntries(cockpitConfig(CFG).sections.open.map((k) => [k, true]))
   return CFG
+}
+
+// ---- the hub tabs: the local Cockpit (herd-worker, loopback) read and its POSTs sent with the page's own checks -------
+// (Origin + per-start token). /fleet [tab], /dispatch, /todo come from the separate Fleet mod this replaces; they are
+// registered only when no loaded mod answers them already. Kept in this file: $ is passed only to functions declared here.
+
+const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set() }
+
+async function hubGet($, base, path) {
+  const r = await $.http.fetch(base + path, { headers: { Accept: 'application/json' } })
+  if (!r.ok) throw new Error(`${path} answered ${r.status}`)
+  return r.text
+}
+
+async function hubLoad($, cfg) {
+  const c = hubConfig(cfg)
+  H.busy = true
+  $.ui.invalidate('ui.render')
+  try {
+    H.local = JSON.parse(await hubGet($, c.base, '/local.json'))
+    try { H.data = JSON.parse(await hubGet($, c.base, '/data.json')); H.error = '' } catch { H.error = c.labels.no_data }
+  } catch {
+    H.local = null
+    H.error = c.labels.offline.replace('{base}', c.base)
+  } finally {
+    H.busy = false
+    H.memo = null
+  }
+  if (c.status_line !== false) {
+    try { $.ui.status(badgeText(H.local ? hubModelOf(cfg) : null)) } catch { /* no status line here */ }
+  }
+  $.ui.invalidate('ui.render')
+}
+
+function refreshHub($, cfg) {
+  H.inflight = H.inflight || hubLoad($, cfg).finally(() => { H.inflight = null })
+  return H.inflight
+}
+
+// The model for the tabs, kept until a new read, another workspace or new local readings.
+function hubModelOf(cfg, local = {}) {
+  if (!H.local) return null
+  const key = [H.local, H.data, H.org, local.usage, local.veille]
+  if (H.memo && H.memo.key.every((k, i) => k === key[i])) return H.memo.m
+  const m = hubModel(H.local, H.data, cfg, { org: H.org, usage: local.usage, veille: local.veille })
+  H.memo = { key, m }
+  return m
+}
+
+async function hubToken($, base, fresh) {
+  if (H.token && !fresh) return H.token
+  try {
+    const r = await $.http.fetch(base + '/', { headers: { Accept: 'text/html' } })
+    H.token = r.ok ? tokenOf(r.text) : null
+  } catch { H.token = null }
+  return H.token
+}
+
+// One POST with the page's checks. A 403 on a stale token (worker restarted) retries once with a fresh one.
+async function hubPost($, base, path, body) {
+  for (const fresh of [false, true]) {
+    const t = await hubToken($, base, fresh)
+    if (!t) return null
+    let r
+    try {
+      r = await $.http.fetch(base + path, { method: 'POST', body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json', Origin: base, 'X-Cockpit-Token': t } })
+    } catch { return null }
+    if (r.status !== 403 || fresh) return r
+  }
+  return null
+}
+
+// Run / Mark done of a to-do delivered to this computer.
+async function hubAct($, cfg, kind, id) {
+  const c = hubConfig(cfg)
+  H.msg = '…'
+  $.ui.invalidate('ui.render')
+  const r = await hubPost($, c.base, `/api/${kind}`, { id })
+  H.msg = sendResult(kind, r)
+  try { $.ui.toast(H.msg) } catch { /* no toast here */ }
+  await refreshHub($, cfg)
+}
+
+// /dispatch and /todo
+async function hubSend($, cfg, kind, args) {
+  const c = hubConfig(cfg)
+  if (!H.local) await refreshHub($, cfg)
+  const labels = (H.data && H.data.labels) || {}
+  const p = parseTarget(args, labels)
+  if (p.error) return { text: `/${kind}: ${p.error}` }
+  const r = await hubPost($, c.base, `/api/${kind}`, { machine: p.machine, text: p.text })
+  void refreshHub($, cfg)
+  return { text: sendResult(kind, r) }
+}
+
+function fleetText(cfg) {
+  return summaryText(hubModelOf(cfg), cfg)
+}
+
+// /fleet's argument -> a hub tab id ("" -> the To do tab, as the old Fleet mod opened on it)
+function fleetTab(args) {
+  const a = String(args || '').trim().toLowerCase()
+  if (!a || a === 'todo' || a === 'to-do') return 'todo'
+  return HUB_TABS.includes(a) ? a : 'todo'
+}
+
+// Register /fleet, /dispatch, /todo when no loaded command has the name (the old Fleet mod keeps them while loaded).
+async function registerHubCommands($) {
+  let names = []
+  try { names = ((await $.command.list()) || []).map((c) => c.name) } catch { return }
+  const defs = [
+    { name: 'fleet', immediate: true, description: 'Cockpit hub tabs: this computer\'s to-dos and the fleet from the local Cockpit (/fleet [todo|fleet|overview|questions|quota|alerts|journal|watch|lanes])', argumentHint: '[todo|fleet|overview|questions|quota|alerts|journal|watch|lanes]' },
+    { name: 'dispatch', immediate: true, description: 'Send a job to a machine through the local Cockpit: /dispatch <machine> <text>', argumentHint: '<machine> <text>' },
+    { name: 'todo', immediate: true, description: 'Add a to-do for Julian on a machine through the local Cockpit: /todo <machine> <text>', argumentHint: '<machine> <text>' },
+  ]
+  for (const d of defs) {
+    if (names.includes(d.name) || H.cmds.has(d.name)) continue
+    try { await $.command.register(d); H.cmds.add(d.name) } catch { /* refused: nothing */ }
+  }
 }
 
 // ---- data ------------------------------------------------------------------------------------------------------------

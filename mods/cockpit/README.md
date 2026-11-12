@@ -8,7 +8,7 @@ SAME data as the local Cockpit page and the VS Code extension, so the three neve
 every laptop at `http://127.0.0.1:24365` (loopback only), `GET /local.json` (this computer: machine, delivered to-dos,
 marked done, last pull) and `GET /data.json` (the hub's `herd.cockpit/1`: labels, to-dos per machine, fleet, watch
 digest, answer sheet, overview). Read every `hub.refresh_s` (60 s); the last copy stays with its age when the worker
-or the hub is down. Code: `lib/hub.mjs` (model, pure), `hooks/hub_view.mjs` (drawing), `hooks/hub_io.mjs` (engine glue).
+or the hub is down. Code: `lib/hub.mjs` (model, pure), `hooks/hub_view.mjs` (drawing), `hooks/register.mjs` (engine glue: reads, POSTs, commands).
 
 | Tab | From the data |
 |---|---|
