@@ -42,8 +42,22 @@ corrects the « all tabs in the mod » brief of #82/#83, which shipped nine hub 
 - A read-only probe on the mbp (`find $HOME -maxdepth 4`) hung (likely a macOS privacy prompt); it times out by itself
   at 600 s. Next probes on macOS avoid walking `$HOME`.
 
+## Installed (12 Nov, after #84 merged as c20ce50)
+- msi: main checkout fast-forwarded to c20ce50 (as earlier lanes deployed); `claude -p "/fleet fleet"` 17:33Z exit 0,
+  answered by band+cockpit with both blocks and the Fleet page link.
+- imac (queue job 318): `C:\PROJ\claude-mod` 6ba355b -> c20ce50 (ff-only; the untracked engine `tsconfig.json` kept),
+  old Fleet 0.1.0 replaced by the redirect 0.2.0 (backup in `~/.claude/mods-backup/`), validate passed, `/fleet`
+  answered by cockpit.
+- msiold (jobs 319, 320) and mbp (jobs 326, 327): no claude-mod checkout, only `~/.claude/mods/fleet` (Fleet 0.1.0).
+  The merged `mods/cockpit` and `mods/fleet` came from a hub tarball (sha256 8c6e6069…, checked on arrival) into
+  `~/.claude/mods/cockpit`; Fleet replaced by the redirect; `~/.claude/mods/cockpit` added first to
+  `CLAUDE_CODE_PLUGIN_DIRS` (`settings.json.bak-mod-dispatcher` kept); validate passed and `/fleet` answered by cockpit
+  on both. These copies do not follow main (register I145).
+- Problem hit: macOS separates `CLAUDE_CODE_PLUGIN_DIRS` with `:`, not `;` (job 326 wrote `;`, job 327 fixed it).
+  The first msiold settings edit failed on PowerShell quoting of `node -e` (nothing written; redone from a file).
+
 ## Remaining
-- Install on other machines: see the dated section in hub `~/work/STATUS.md` (per machine result).
+- msiold and mbp copies: a claude-mod checkout there (or a re-copy per release) to follow main: dispatch.
 - Not seen in the desktop app by a person: the external reviewer pass Julian asked for judges it.
 - `mods/fleet/README.md` still says « hub tabs » (not this lane's file): one patch.
 - Mode and CPU temperature appear when the hub publishes `health` / `modes` in `data.json` (lane health-modes or the
