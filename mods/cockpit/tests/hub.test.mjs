@@ -10,6 +10,8 @@ import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
 import { LOCAL, DATA } from '../scripts/fixtures/hub.mjs'
 
+process.env.TZ = 'UTC' // the pane prints local time (the page's format); the fixtures are read in UTC
+
 const NOW = LOCAL.now
 const ACT = { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done() {}, answer() {}, fill() {}, open() {} }
 const draw = (m, cols, o = {}) => renderText(drawHub(kit(el, {}), { cfg: {}, model: m, columns: cols, act: ACT, ...o }), cols)
@@ -40,9 +42,9 @@ test('This laptop: to-dos here urgent first (marked done last), Run only for del
   assert.deepEqual(P.todos[0].tags, ['security'])
   assert.ok(!P.todos[2].canRun && P.todos[2].marked)
   assert.equal(P.label, 'Computer one')
-  assert.match(P.line, /^live · mode not published · CPU 12 % · RAM 50 %$/)
+  assert.match(P.line, /^live · CPU 12 % · RAM 50 %$/)
   assert.equal(P.temp.text, 'temperature: no sensor reading in the hub data')
-  assert.equal(P.work[0].text, 'job #9 claude · since 11:59 UTC · ETA 12:01 UTC')
+  assert.equal(P.work[0].text, 'claude job (job 9) · since 11:59 · ETA 12:01')
   assert.equal(m.hereOpen, 3) // the page's count: marked done ones too
   assert.equal(badgeText(m), 'Fleet: 3 to do')
   assert.equal(badgeText(null), 'Fleet: offline')
@@ -60,7 +62,7 @@ test('This laptop: health and mode when the hub publishes them; hot, low disk an
   assert.equal(P.temp.tone, 'bad')
   assert.equal(P.agents, '25 agent processes')
   assert.deepEqual(P.warn.map((w) => [w.text, w.tone]), [['hot for 2 readings', 'bad'], ['temperature CPU 97 °C · GPU 60 °C', 'bad'], ['disk C: 4 % free', 'bad']])
-  assert.match(P.work[0].text, /past its ETA 11:50 UTC/)
+  assert.match(P.work[0].text, /past its ETA 11:50/)
   assert.equal(P.work[0].tone, 'warn')
   // gaming from the worker, GPU sensor of the load sample
   const d2 = structuredClone(DATA)
@@ -86,7 +88,7 @@ test('Global: the page’s You list (blocking only, most urgent first), answers 
   // an answer sent from the pane replaces the buttons by its confirmation
   const sent = hubModel(LOCAL, DATA, {}, { now: NOW, answered: { 'issue:I1': { key: 'a', label: 'a) cap at 3', t: NOW } } })
   assert.equal(sent.global.you[0].sent.label, 'a) cap at 3')
-  assert.match(draw(sent, 160), /Sent "a\) cap at 3" at 12:00 UTC; Oracle records it within about 2 minutes\./)
+  assert.match(draw(sent, 160), /Sent "a\) cap at 3" at 12:00; Oracle records it within about 2 minutes\./)
 })
 
 test('workspaces: All hides confidential items; an org shows only its own, the confidential one its own key', () => {
@@ -127,7 +129,7 @@ test('the dispatcher draws both blocks and the Open in Cockpit links at 45 and 9
   const m = hubModel(LOCAL, DATA, {}, { now: NOW })
   for (const cols of [45, 90]) {
     const text = draw(m, cols)
-    for (const re of [/This laptop · Computer one/, /Global/, /You: what blocks work now \(2\)/, /\[a\) cap at 3 · recommended\]/, /Errors now/,
+    for (const re of [/This laptop · Computer one/, /Global/, /You: what blocks work now \(2\)/, /\[a\) cap at 3 · recommended\]/, /Problems now/,
       /\[Job or prompt to a machine…\]/, /\[To-do for Julian…\]/, /Open in Cockpit/, /\[Questions and checks\]/, /\[Dispatcher\]/, /\[Conversations\]/]) assert.match(text, re, `${re} at ${cols}`)
     assert.ok(text.indexOf('This laptop') < text.indexOf('Global') && text.indexOf('Global') < text.indexOf('Open in Cockpit'))
     for (const gone of [/Watch digest/, /Answer sheet/, /By application/, /Lost jobs/, /Fleet quota/]) assert.doesNotMatch(text, gone)
@@ -147,10 +149,10 @@ test('the pane: the dispatcher takes the whole width (no left menu); /fleet text
   assert.match(text, /This laptop · Computer one/)
   assert.doesNotMatch(text, /Jauge/)
   const s = summaryText(m, {})
-  assert.match(s, /^This laptop · Computer one \(pulled 20 s ago · built 12:00 UTC\)/)
+  assert.match(s, /^This laptop · Computer one \(pulled 20 s ago · built 12:00\)/)
   assert.match(s, /\n {4}! 01 Rotate the test key\n/)
   assert.match(s, /\nGlobal\n/)
-  assert.match(s, /I1 · Cap tool work\? \[Tools\] · recommended: a\) cap at 3/)
+  assert.match(s, /Cap tool work\? \[Tools\] · recommended: a\) cap at 3 \(I1\)/) // plain title first, the id at the end
   assert.equal(moduleOf('questions'), 'inbox')
   assert.equal(moduleOf('fleet'), 'fleet')
   assert.equal(moduleOf('nope'), '')
@@ -166,4 +168,44 @@ test('sending: targets, results, token', () => {
   assert.equal(sendResult('dispatch', { status: 200, ok: true, text: '{"job":7}' }), 'dispatch: sent as job 7')
   assert.match(sendResult('todo', null), /did not answer/)
   assert.equal(tokenOf('<meta name="cockpit-token" content="abcdef0123456789">'), 'abcdef0123456789')
+})
+
+// ---- cockpit-ui-fix (12 Nov review): the page's ONE reading (data.glance), its words and its time format ----
+test('glance: fleet sentence and alert count of the page, quota row in unlimited mode, collapsed You rows, the page problems', () => {
+  const d = structuredClone(DATA)
+  const T = NOW / 1000
+  d.fleet_view = { generated_ts: T, sentence: 'Fleet coding is working: 1 of 2 machines busy, utilisation 50 %',
+    tiles: [{ id: 'pc1', label: 'Computer one', colour: 'yellow', power: 'on', busy: false, mode: 'coding', alerts: [] },
+      { id: 'pc2', label: 'Computer two', colour: 'red', power: 'on', busy: true, alerts: [] }] }
+  d.inbox.items[0].covers = [{ id: 'I5', type: 'issue' }, { id: 'pc1-urgent', type: 'todo' }]
+  d.inbox.items.push({ uid: 'issue:I5', type: 'issue', section: 'look', id: 'I5', title: 'Port open', org: 'tools', urgency: 'now', you: true, blocks_work: true, covered_by: 'issue:I1' })
+  d.glance = {
+    time: { hour12: false }, jobs: [{ id: 12, machine: 'pc1', kind: 'ps', tag: 'modes', started_ts: T - 60, eta_ts: null }],
+    alerts: { shown: 4, entries: 19 },
+    quota: { colour: 'yellow', text: 'Claude quota: 20 % used of the 7-day window, empties 2026-01-03T15:02:36Z at this pace; unlimited mode until 2026-01-05T12:00:00Z (read 2026-01-02T11:29:01Z)', covers: ['I13'] },
+    problems: [{ kind: 'machine', severity: 'urgent', text: 'Computer two: CPU 97 C', org: null }, { kind: 'issue', severity: 'urgent', text: 'Acme build broken', id: 'I77', org: 'acme' }],
+    later: [{ kind: 'job', severity: 'high', text: '3 failed jobs', org: null }, { kind: 'quota', severity: 'high', text: 'q', org: null }],
+    freshness: [{ id: 'data', ts: T, due_ts: T + 400 }, { id: 'overview', label: 'overview', ts: T - 7200, next_ts: T - 1500, due_ts: T - 1200 }],
+  }
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  const G = m.global
+  assert.equal(G.fleetLine, 'Fleet coding is working: 1 of 2 machines busy, utilisation 50 % (12:00) · 4 alerts')
+  assert.deepEqual(G.dots.map((x) => [x.label, x.tone]), [['Computer one', 'warn'], ['Computer two', 'bad']])
+  assert.equal(G.quota.tone, 'warn')
+  assert.equal(G.quota.text, 'Claude quota: 20 % used of the 7-day window, empties Sat 3 Jan 15:02 at this pace; unlimited mode until Mon 5 Jan 12:00 (read 11:29)')
+  assert.deepEqual(G.you.map((q) => q.id), ['I1', 'Q2'])           // I5 is covered by I1
+  assert.equal(G.you[0].covers, 'covers I5 and 1 to-do')
+  assert.deepEqual(G.errors.map((e) => e.text), ['Computer two: CPU 97 C', 'Acme build broken (I77)'])
+  assert.equal(G.later, 1)                                             // the quota row is above, not counted twice
+  assert.match(m.laptop.line, /^live · mode coding · CPU 12 %/)
+  assert.deepEqual(m.laptop.work.map((w) => w.text), ['modes job (job 12) · since 11:59', 'Write the folder table (R1)'].slice(0, 1))
+  assert.equal(m.stale, 'Not up to date: overview refresh due 11:35 did not run (from 10:00)')
+  // a workspace: shared rows in the default org, a register row in its own org only
+  const acme = hubModel(LOCAL, d, {}, { now: NOW, org: 'acme' }).global
+  assert.deepEqual(acme.errors.map((e) => e.text), ['Acme build broken (I77)'])
+  assert.equal(acme.quota, null)
+  const s = summaryText(m, {})
+  assert.match(s, /Cap tool work\? \[Tools\] · covers I5 and 1 to-do · recommended: a\) cap at 3 \(I1\)/)
+  assert.match(s, /1 more to look at when you have time/)
+  assert.doesNotMatch(s, /UTC|2026-01-0/)
 })

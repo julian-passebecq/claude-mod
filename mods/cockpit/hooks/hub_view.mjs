@@ -3,8 +3,9 @@
 // kit `h` and the callbacks in S.act.
 // S = { cfg, model, error, busy, msg, columns, act: { hubTab(id), panneau(), refresh(), org(id), run(id), done(id),
 //       answer(uid, key), fill(text), open(url) } }
-import { hubConfig, hubTabs, fill, moduleUrl, hhmmUtc } from '../lib/hub.mjs'
+import { hubConfig, hubTabs, fill, moduleUrl, fmtTime } from '../lib/hub.mjs'
 
+const URG_WORD = { now: 'urgent', today: 'today', week: 'this week', later: 'later' }
 const clip = (s, n) => { const t = String(s || ''); return n > 3 && t.length > n ? t.slice(0, n - 1) + '…' : t }
 
 // The two buttons above every view of the pane: the dispatcher and « Conversations » (this computer's Panneau).
@@ -83,6 +84,8 @@ function drawGlobal(h, m, c, S, width) {
   const G = m.global
   const rows = []
   if (G.fleetLine) rows.push(h.T(G.fleetLine, { key: 'gl-fleet', wrap: 'wrap' }))
+  // the quota row: the page's Quota reading, one exhaust time, the mode (unlimited = yellow)
+  if (G.quota) rows.push(link(h, `● ${G.quota.text}${G.quota.covers.length ? ` · covers ${G.quota.covers.join(', ')}` : ''}`, moduleUrl(c.base, 'quota'), 'gl-quota'))
   if (G.dots.length) {
     rows.push(h.row(G.dots.map((d) => h.T(`● ${d.label}${d.alerts ? ` (${d.alerts})` : ''}`, { tone: d.tone || undefined, dim: d.tone === 'dim', key: 'dot-' + d.id, wrap: 'truncate-end' })),
       { key: 'gl-dots', marginBottom: 1 }))
@@ -91,10 +94,10 @@ function drawGlobal(h, m, c, S, width) {
   if (!G.you.length) rows.push(h.T(W.you_none, { dim: true, key: 'gl-you-none' }))
   for (const q of G.you) {
     const parts = [
-      h.T(`${q.id} · ${q.title}`, { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
-      q.app || q.urgency ? h.T([q.app, q.urgency].filter(Boolean).join(' · '), { dim: true, key: 'meta', wrap: 'truncate-end' }) : null,
+      h.T(q.title, { tone: q.tone || undefined, wrap: 'wrap', key: 'title' }),
+      h.T([q.app, URG_WORD[q.urgency] || q.urgency, q.covers, q.id].filter(Boolean).join(' · '), { dim: true, key: 'meta', wrap: 'truncate-end' }),
     ]
-    if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: hhmmUtc(q.sent.t) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
+    if (q.sent) parts.push(h.T(fill(W.answered, { label: q.sent.label, at: fmtTime(q.sent.t, m.topt) }), { tone: 'ok', key: 'sent', wrap: 'wrap' }))
     else if (q.answers.length) {
       parts.push(h.row(q.answers.map((a) => h.btn(`${a.key === 'rec' ? clip(a.label, width - 16) : `${a.key}) ${clip(a.label, width - 18)}`}${a.rec ? ` · ${W.recommended}` : ''}`,
         () => S.act.answer(q.uid, a.key), a.rec, `ans-${q.id}-${a.key}`)), { key: 'answers' }))
@@ -107,6 +110,7 @@ function drawGlobal(h, m, c, S, width) {
     G.errors.forEach((e, i) => rows.push(h.T(`! ${e.text}`, { tone: e.tone, key: 'gl-e' + i, wrap: 'wrap' })))
     if (G.errorsMore) rows.push(link(h, fill(W.show_all, { n: G.errors.length + G.errorsMore }), moduleUrl(c.base, 'overview'), 'gl-err-all'))
   }
+  if (G.later) rows.push(link(h, fill(W.later, { n: G.later }), moduleUrl(c.base, 'overview'), 'gl-later'))
   if (G.urgentElsewhere) rows.push(link(h, fill(W.urgent_elsewhere, { n: G.urgentElsewhere }), moduleUrl(c.base, 'todo'), 'gl-urgent-else'))
   rows.push(h.T(W.actions, { bold: true, key: 'gl-act-head' }))
   rows.push(h.row([

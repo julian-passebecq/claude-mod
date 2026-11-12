@@ -59,7 +59,12 @@ export const HUB_DEFAULTS = {
     laptop: 'This laptop · {machine}',
     laptop_unknown: 'This laptop is not in the hub fleet yet ({machine}).',
     state: '{state} · mode {mode} · CPU {cpu} · RAM {ram}',
-    mode_unknown: 'not published',
+    mode: 'mode {mode}',
+    job: '{what} job (job {id})',
+    alerts_n: '{n} alerts',
+    later: '{n} more to look at when you have time',
+    not_fresh: 'Not up to date: {parts}',
+    not_fresh_part: '{label} refresh due {due} did not run (from {from})',
     temp: 'temperature {temp}',
     temp_none: 'temperature: no sensor reading in the hub data',
     agents: '{n} agent processes',
@@ -79,7 +84,7 @@ export const HUB_DEFAULTS = {
     fleet_line: '{busy} of {workers} workers busy · jobs: {running} running, {queued} queued · {alerts} alerts',
     you_block: 'You: what blocks work now',
     you_none: 'Nothing waits on you.',
-    errors: 'Errors now',
+    errors: 'Problems now',
     urgent_elsewhere: '{n} urgent to-dos on other machines',
     show_all: 'show all {n}',
     recommended: 'recommended',
@@ -162,18 +167,26 @@ const tsOf = (x) => {
   const t = Date.parse(str(x))
   return Number.isFinite(t) ? t : 0
 }
-// "2026-11-12T16:24:03Z" -> "12 Nov 16:24 UTC" (the hub writes UTC; the reader's clock is not assumed)
-export function when(x) {
+// ONE time format with the Cockpit page (its logic.js fmtTime, UX rules 8 and 12): local time of this computer,
+// 24-hour unless the hub's config says cockpit.time.hour12; today '19:22', another day 'Fri 13 Nov 16:02'.
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const p2 = (n) => String(n).padStart(2, '0')
+const clock = (d, o) => (o && o.hour12 ? `${d.getHours() % 12 || 12}:${p2(d.getMinutes())} ${d.getHours() < 12 ? 'AM' : 'PM'}` : `${p2(d.getHours())}:${p2(d.getMinutes())}`)
+export function fmtTime(x, o = {}) {
   const t = tsOf(x)
-  if (!t) return str(x)
+  if (!t) return ''
   const d = new Date(t)
-  const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]
-  return `${d.getUTCDate()} ${mon} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
+  const now = new Date(Number(o.now) || Date.now())
+  return d.toDateString() === now.toDateString() ? clock(d, o) : `${WD[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} ${clock(d, o)}`
 }
-export function hhmmUtc(t) {
-  const d = new Date(tsOf(t))
-  return Number.isFinite(d.getTime()) ? `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC` : ''
+// Hub-written text: every UTC stamp in it (2026-11-13T07:31:57Z, 2026-11-12 18:00Z) becomes the same local format.
+export function fmtText(s, o = {}) {
+  return str(s).replace(/\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?Z\b/g, (m0) => fmtTime(m0.replace(' ', 'T'), o))
 }
+// older names, same format now (they printed UTC before the 12 Nov review)
+export const when = (x, o) => fmtTime(x, o) || str(x)
+export const hhmmUtc = (t, o) => fmtTime(t, o)
 
 function sevRank(c, s) {
   const i = c.severity_order.indexOf(str(s).toLowerCase())
@@ -211,7 +224,7 @@ export function inboxItems(inbox, org) {
 
 // The page's « You » block: only what blocks work, most urgent first, then the application's importance.
 export function youList(items, max) {
-  const mine = items.filter((it) => it && it.you && it.section !== 'answered')
+  const mine = items.filter((it) => it && it.you && it.section !== 'answered' && !it.covered_by)
   const blocking = mine.filter((it) => it.blocks_work).sort((a, b) => urg(a.urgency) - urg(b.urgency) || (a.app_rank || 0) - (b.app_rank || 0) || (b.blocks || 0) - (a.blocks || 0))
   const rest = mine.filter((it) => !it.blocks_work).sort((a, b) => urg(a.urgency) - urg(b.urgency) || (a.app_rank || 0) - (b.app_rank || 0))
   return { top: blocking.slice(0, max), blocking: blocking.length, all: blocking.concat(rest) }
@@ -257,18 +270,25 @@ export function hubModel(local, data, cfg, opts = {}) {
     return o ? o === org : inOrg(x, org)
   }
   const ovTs = tsOf(ov.generated_ts || ov.generated_utc)
+  const G = obj(D.glance) // the hub's ONE reading of the first blocks (glance.py), the same rows and counts as the page
+  const topt = { ...obj(G.time), now }
+  // not up to date: a part past its due refresh (glance.freshness, the page's rule), else the old 3 h overview rule
+  const late = arr(G.freshness).filter((p) => p && p.id !== 'data' && p.due_ts && now > Number(p.due_ts) * 1000)
+  const stale = late.length
+    ? fill(c.labels.not_fresh, { parts: late.map((p) => fill(c.labels.not_fresh_part, { label: str(p.label), due: fmtTime(p.next_ts || p.due_ts, topt), from: fmtTime(p.ts, topt) })).join('; ') })
+    : !arr(G.freshness).length && ovTs && ov.stale_after_s && now - ovTs > Number(ov.stale_after_s) * 1000 ? fill(c.labels.stale, { h: Math.round(Number(ov.stale_after_s) / 3600) }) : ''
   const m = {
     machine, label: label(machine), version: str(L.version), viewer: Boolean(L.viewer), hubError: str(L.hub_error),
     fetchedAt: Number(L.fetched_at || 0), now, pulled: L.fetched_at ? ago(now - Number(L.fetched_at)) : 'never', hasData: Boolean(data),
-    built: D.generated_ts || D.generated_utc ? hhmmUtc(D.generated_ts || D.generated_utc) : '', generated: str(D.generated_utc),
-    orgs: orgsOf(D), org, labels, base: c.base,
+    built: D.generated_ts || D.generated_utc ? fmtTime(D.generated_ts || D.generated_utc, topt) : '', generated: str(D.generated_utc),
+    orgs: orgsOf(D), org, labels, base: c.base, topt,
     words: { ...c.labels, ...pick(PL, ['you_block', 'show_all', 'recommended', 'answer_sent']) },
-    stale: ovTs && ov.stale_after_s && now - ovTs > Number(ov.stale_after_s) * 1000 ? fill(c.labels.stale, { h: Math.round(Number(ov.stale_after_s) / 3600) }) : '',
+    stale,
     modules: arr(c.modules.order).filter((id) => MODULES.includes(id)).map((id) => ({ id, label: str(PL['tab_' + id] || c.modules.labels[id] || id), url: moduleUrl(c.base, id) })),
   }
   m.todo = todoModel(L, D, c, ofOrg, label)
-  m.laptop = laptopModel(L, D, c, m.todo, label, ov, now)
-  m.global = globalModel(D, c, m.todo, ofOrg, org, label, ov, inbox, opts.answered || {})
+  m.laptop = laptopModel(L, D, c, m.todo, label, ov, now, topt)
+  m.global = globalModel(D, c, m.todo, ofOrg, org, label, ov, inbox, opts.answered || {}, topt)
   // the page's count: every item of this computer (delivered or not yet, marked done or not) - the status line
   m.hereOpen = m.todo.all.filter((t) => t.here).length
   return m
@@ -322,26 +342,30 @@ function healthOf(D, x, id) {
   return { ...mh, ...h }
 }
 
-function laptopModel(L, D, c, todo, label, ov, now) {
+function laptopModel(L, D, c, todo, label, ov, now, topt) {
   const id = str(L.machine)
   const x = machineOf(D, id)
   const lab = c.labels
   const out = { id, label: label(id), known: Boolean(x), lines: [], warn: [], work: [], todos: todo.here, tone: '' }
   const ld = obj(x && x.load)
   const h = healthOf(D, x, id)
+  // the page's Fleet tile of this machine (panels.fleet_view): its mode, colour and running jobs are the page's
+  const tile = arr(obj(D.fleet_view).tiles).find((t) => t && str(t.id) === id) || null
   const modeRec = obj(obj(D.modes)[id])
   const gaming = Boolean(L.gaming || (x && x.gaming) || obj(ld.gaming).flag)
-  const mode = str(modeRec.mode || (x && x.mode) || h.mode || (gaming ? 'gaming' : ''))
+  const mode = str(modeRec.mode || (tile && tile.mode) || (x && x.mode) || h.mode || (gaming ? 'gaming' : ''))
   const state = str((x && (x.herd_state || x.state)) || (L.viewer ? 'viewer' : '?'))
-  const cpu = num(h.cpu_pct) ?? num(ld.cpu_pct)
-  const ram = ld.ram_total_mb ? Math.round((100 * Number(ld.ram_used_mb || 0)) / Number(ld.ram_total_mb)) : null
+  const cpu = num(h.cpu_pct) ?? num(ld.cpu_pct) ?? num(tile && tile.cpu_pct)
+  const ram = ld.ram_total_mb ? Math.round((100 * Number(ld.ram_used_mb || 0)) / Number(ld.ram_total_mb))
+    : tile && tile.ram_total_gb ? Math.round((100 * Number(tile.ram_used_gb || 0)) / Number(tile.ram_total_gb)) : null
   out.state = state
   out.tone = c.state_tone[state] || ''
-  out.line = fill(lab.state, { state, mode: mode || lab.mode_unknown, cpu: cpu === null ? '—' : `${Math.round(cpu)} %`, ram: ram === null ? '—' : `${ram} %` })
-  // temperature: the health reading (CPU, GPU) when published, else the GPU sensor of the load sample
+  // no mode published: the line leaves it out instead of printing an internal 'not published'
+  out.line = [state, mode ? fill(lab.mode, { mode }) : '', `CPU ${cpu === null ? '—' : `${Math.round(cpu)} %`}`, `RAM ${ram === null ? '—' : `${ram} %`}`].filter(Boolean).join(' · ')
+  // temperature: the health reading (CPU, GPU) when published, else the tile's, else the GPU sensor of the load sample
   const gpu0 = obj(arr(ld.gpu)[0])
-  const cpuC = num(h.cpu_c)
-  const gpuC = num(h.gpu_c) ?? num(gpu0.temp_c)
+  const cpuC = num(h.cpu_c) ?? num(tile && tile.cpu_c)
+  const gpuC = num(h.gpu_c) ?? num(tile && tile.gpu_c) ?? num(gpu0.temp_c)
   const parts = [cpuC !== null ? `CPU ${Math.round(cpuC)} °C` : '', gpuC !== null ? `GPU ${Math.round(gpuC)} °C` : ''].filter(Boolean)
   const hot = Math.max(cpuC ?? 0, gpuC ?? 0)
   const tTone = hot >= c.temp.bad_c ? 'bad' : hot >= c.temp.warn_c ? 'warn' : ''
@@ -358,39 +382,65 @@ function laptopModel(L, D, c, todo, label, ov, now) {
   if (typeof ld.battery_pct === 'number' && ld.on_ac === false && ld.battery_pct < Number(c.battery_warn_pct)) out.warn.push({ text: fill(lab.battery_low, { pct: Math.round(ld.battery_pct) }), tone: 'warn' })
   if (ld.reboot_pending) out.warn.push({ text: lab.reboot, tone: 'warn' })
   out.seen = x && x.seen && x.seen.age_s !== undefined ? fill(lab.seen, { ago: ago(Number(x.seen.age_s) * 1000) }) : ''
-  // current work: jobs running here (overview ETA when it has one), the queue's own, lanes owned by this machine
+  // current work: ONE source with the page (glance.jobs, the live queue); older hubs: the overview's jobs + the queue
+  const G = obj(D.glance)
   const run = obj(ov.running)
+  const jobs = Array.isArray(G.jobs) ? G.jobs : arr(run.jobs)
   const seenJobs = new Set()
-  for (const j of arr(run.jobs)) {
+  for (const j of jobs) {
     if (str(j.machine) !== id) continue
     seenJobs.add(str(j.id))
-    out.work.push({ text: `job #${str(j.id)} ${str(j.kind)}${j.tag ? ` (${str(j.tag)})` : ''}${j.started_ts ? ' · ' + fill(lab.since, { d: hhmmUtc(j.started_ts) }) : ''}${j.eta_ts ? ' · ' + fill(now && tsOf(j.eta_ts) < now ? lab.eta_past : lab.eta, { at: hhmmUtc(j.eta_ts) }) : ''}`, tone: now && j.eta_ts && tsOf(j.eta_ts) < now ? 'warn' : 'running' })
+    const late = now && j.eta_ts && tsOf(j.eta_ts) < now
+    out.work.push({ text: `${fill(lab.job, { what: str(j.tag || j.kind || 'a'), id: str(j.id) })}${j.started_ts ? ' · ' + fill(lab.since, { d: fmtTime(j.started_ts, topt) }) : ''}${j.eta_ts ? ' · ' + fill(late ? lab.eta_past : lab.eta, { at: fmtTime(j.eta_ts, topt) }) : ''}`, tone: late ? 'warn' : 'running' })
   }
-  for (const j of arr(obj(x && x.queue).running)) if (!seenJobs.has(str(obj(j).id))) out.work.push({ text: `job #${str(obj(j).id)} ${str(obj(j).kind)}`.trim(), tone: 'running' })
+  if (!Array.isArray(G.jobs)) for (const j of arr(obj(x && x.queue).running)) if (!seenJobs.has(str(obj(j).id))) out.work.push({ text: fill(lab.job, { what: str(obj(j).tag || obj(j).kind || 'a'), id: str(obj(j).id) }), tone: 'running' })
   const lanes = arr(obj(D.lanes).running && obj(obj(D.lanes).running).lanes).length ? arr(obj(obj(D.lanes).running).lanes) : arr(run.lanes)
   for (const l of lanes) {
     const owner = str(obj(l).owner)
-    if (owner === id || owner.startsWith(id + '/')) out.work.push({ text: `${str(l.id)} · ${str(l.title)}`, tone: 'running' })
+    if (owner === id || owner.startsWith(id + '/')) out.work.push({ text: `${str(l.title)} (${str(l.id)})`, tone: 'running' })
   }
   if (!out.tone && out.warn.some((w) => w.tone === 'bad')) out.tone = 'bad'
   return out
 }
 
-function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered) {
+const COLOUR_TONE = { red: 'bad', yellow: 'warn', green: 'ok', grey: 'dim' }
+
+// The page's rule for a first-block row of a workspace: a row naming no organization is shared (All and the default org).
+function rowInOrg(r, org, defOrg) {
+  if (!org) return true
+  return r.org ? r.org === org : org === defOrg
+}
+
+function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered, topt) {
   const lab = c.labels
   const max = Number(c.max_rows) || 5
   const fl = obj(D.fleet)
   const h = obj(fl.herd)
-  // one-line fleet status: workers busy of workers, jobs, alerts; one dot per machine coloured by its state
+  const G = obj(D.glance)
+  const fv = obj(D.fleet_view)
+  const defOrg = str(inbox.default_org || 'fleet')
+  const fleetWs = !org || org === defOrg
+  // one-line fleet status: the page's own sentence (panels.fleet_view) and the Alerts module's count; older hubs: computed
   const machines = arr(fl.machines).filter((x) => x && x.id)
-  const workers = machines.filter((x) => x.role === 'worker' || x.worker)
-  const busy = workers.filter((x) => arr(obj(x.queue).running).length > 0 || x.herd_state === 'busy')
-  const fleetLine = machines.length ? fill(lab.fleet_line, { busy: busy.length, workers: workers.length, running: h.jobs_running ?? 0, queued: h.jobs_queued ?? 0, alerts: h.alerts_total ?? 0 }) : ''
-  const dots = machines.map((x) => {
-    const st = arr(obj(x.queue).running).length ? 'busy' : str(x.herd_state || x.state || '?')
-    return { id: str(x.id), label: str(x.label || label(x.id)), state: st, tone: c.state_tone[st] || '', alerts: arr(x.alerts).length }
-  })
-  // what blocks work: the page's « You » list of the workspace (inbox), else the overview's urgent questions
+  let fleetLine = ''
+  if (fv.sentence) {
+    const al = obj(G.alerts)
+    fleetLine = `${str(fv.sentence)}${fv.generated_ts ? ` (${fmtTime(fv.generated_ts, topt)})` : ''}${al.shown !== undefined ? ' · ' + fill(lab.alerts_n, { n: al.shown }) : ''}`
+  } else if (machines.length) {
+    const workers = machines.filter((x) => x.role === 'worker' || x.worker)
+    const busy = workers.filter((x) => arr(obj(x.queue).running).length > 0 || x.herd_state === 'busy')
+    fleetLine = fill(lab.fleet_line, { busy: busy.length, workers: workers.length, running: h.jobs_running ?? 0, queued: h.jobs_queued ?? 0, alerts: h.alerts_total ?? 0 })
+  }
+  const tiles = arr(fv.tiles)
+  const dots = tiles.length
+    ? tiles.map((t) => ({ id: str(t.id), label: str(t.label || label(t.id)), state: str(t.power === 'on' ? (t.busy ? 'busy' : 'on') : t.power), tone: COLOUR_TONE[str(t.colour)] || '', alerts: arr(t.alerts).length }))
+    : machines.map((x) => {
+      const st = arr(obj(x.queue).running).length ? 'busy' : str(x.herd_state || x.state || '?')
+      return { id: str(x.id), label: str(x.label || label(x.id)), state: st, tone: c.state_tone[st] || '', alerts: arr(x.alerts).length }
+    })
+  // the quota row: the same quota.json reading as the page's Quota module (glance.quota); unlimited mode = yellow
+  const q = fleetWs && G.quota ? { text: fmtText(G.quota.text, topt), tone: COLOUR_TONE[str(G.quota.colour)] || '', covers: arr(G.quota.covers).map(str) } : null
+  // what blocks work: the page's « You » list of the workspace (inbox), related items collapsed; else the overview's
   let you = []
   let total = 0
   let all = 0
@@ -400,25 +450,44 @@ function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered) {
     all = yl.all.length
     you = yl.top.map((it) => ({
       uid: str(it.uid || it.id), id: str(it.id), title: str(it.title), app: str(it.app_label || it.app), urgency: str(it.urgency),
-      tone: it.urgency === 'now' || it.severity === 'urgent' || it.severity === 'critical' ? 'bad' : 'warn',
+      tone: it.urgency === 'now' ? 'bad' : 'warn', covers: coversText(it),
       answers: answerButtons(it), question: it.type === 'question', rec: str(it.recommended),
       sent: answered[str(it.uid || it.id)] || null,
     }))
   } else {
-    const qs = arr(obj(ov.you).questions).filter(ofOrg).filter((q) => sevRank(c, q.severity) <= 1)
+    const qs = arr(obj(ov.you).questions).filter(ofOrg).filter((x) => sevRank(c, x.severity) <= 1)
     total = qs.length
-    you = qs.slice(0, max).map((q) => ({ uid: str(q.id), id: str(q.id), title: str(q.title), app: '', urgency: str(q.severity), tone: sevTone(c, q.severity), answers: [], question: true, rec: str(q.recommended), sent: null }))
+    you = qs.slice(0, max).map((x) => ({ uid: str(x.id), id: str(x.id), title: str(x.title), app: '', urgency: str(x.severity), tone: sevTone(c, x.severity), covers: '', answers: [], question: true, rec: str(x.recommended), sent: null }))
   }
-  const errs = arr(obj(ov.errors).rows).filter(ofOrg).filter((r) => c.error_severities.includes(str(r.severity).toLowerCase()))
-    .sort((a, b) => sevRank(c, a.severity) - sevRank(c, b.severity))
+  // problems now: the page's rows (glance.problems: urgent only, nothing already under « You »); the quota row is above
+  let errs
+  let later = 0
+  if (Array.isArray(G.problems)) {
+    errs = G.problems.filter((r) => r && r.kind !== 'quota' && rowInOrg(r, org, defOrg))
+      .map((r) => ({ text: `${fmtText(r.text, topt)}${r.id ? ` (${str(r.id)})` : ''}`, tone: 'bad', kind: str(r.kind) }))
+    later = arr(G.later).filter((r) => r && r.kind !== 'quota' && rowInOrg(r, org, defOrg)).length
+  } else {
+    errs = arr(obj(ov.errors).rows).filter(ofOrg).filter((r) => c.error_severities.includes(str(r.severity).toLowerCase()))
+      .sort((a, b) => sevRank(c, a.severity) - sevRank(c, b.severity))
+      .map((r) => ({ text: fmtText(r.text, topt), tone: sevTone(c, r.severity) || 'bad', kind: str(r.kind) }))
+  }
+  const emax = Number(c.errors_max) || 3
   return {
-    fleetLine, dots, you, youTotal: total, youAll: all,
-    errors: errs.slice(0, Number(c.errors_max) || 3).map((r) => ({ text: str(r.text), tone: sevTone(c, r.severity) || 'bad', kind: str(r.kind) })),
-    errorsMore: Math.max(0, errs.length - (Number(c.errors_max) || 3)),
+    fleetLine, dots, quota: q, you, youTotal: total, youAll: all,
+    errors: errs.slice(0, emax), errorsMore: Math.max(0, errs.length - emax), later,
     urgentElsewhere: todo.urgentElsewhere.length,
     answerMachine: str(inbox.answer_machine || 'oracle'), answerTemplate: str(inbox.answer_text || 'Answer {id}: {key}'),
     targets: Object.keys(obj(D.labels)),
   }
+}
+
+// 'covers I2, I4 and 1 to-do' (the page's coversText): the row stands for its related items.
+export function coversText(it) {
+  const cv = arr(obj(it).covers)
+  if (!cv.length) return ''
+  const ids = cv.filter((x) => x.type !== 'todo').map((x) => str(x.id))
+  const todos = cv.filter((x) => x.type === 'todo').length
+  return `covers ${[ids.join(', '), todos ? `${todos} to-do${todos > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ')}`
 }
 
 // ---- sending ---------------------------------------------------------------------------------------------------------
@@ -477,11 +546,12 @@ export function summaryText(m, cfg) {
   lines.push(`${W.global}${m.org ? ` (${(m.orgs.find((o) => o.id === m.org) || {}).label || m.org})` : ''}`)
   if (G.fleetLine) lines.push(`  ${G.fleetLine}`)
   if (G.dots.length) lines.push(`  ${G.dots.map((d) => `${d.label} ${d.state}`).join(' · ')}`)
+  if (G.quota) lines.push(`  ${G.quota.tone === 'bad' ? '!' : '*'} ${G.quota.text}${G.quota.covers.length ? ` · covers ${G.quota.covers.join(', ')}` : ''}`)
   lines.push(`  ${W.you_block} (${G.youTotal})`)
   if (!G.you.length) lines.push(`    ${W.you_none}`)
   for (const q of G.you) {
     const rec = q.answers.find((a) => a.rec)
-    lines.push(`    ${q.id} · ${q.title}${q.app ? ` [${q.app}]` : ''}${rec ? ` · ${W.recommended}: ${rec.key === 'rec' ? rec.label : `${rec.key}) ${rec.label}`}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: hhmmUtc(q.sent.t) }) : ''}`)
+    lines.push(`    ${q.title}${q.app ? ` [${q.app}]` : ''}${q.covers ? ` · ${q.covers}` : ''}${rec ? ` · ${W.recommended}: ${rec.key === 'rec' ? rec.label : `${rec.key}) ${rec.label}`}` : ''}${q.sent ? ' · ' + fill(W.answered, { label: q.sent.label, at: fmtTime(q.sent.t, m.topt) }) : ''} (${q.id})`)
   }
   if (G.youTotal > G.you.length) lines.push(`    ${fill(W.show_all, { n: G.youTotal })}: ${moduleUrl(m.base, 'overview')}`)
   if (G.errors.length) {
@@ -489,6 +559,7 @@ export function summaryText(m, cfg) {
     for (const e of G.errors) lines.push(`    ! ${e.text}`)
     if (G.errorsMore) lines.push(`    ${fill(W.show_all, { n: G.errors.length + G.errorsMore })}: ${moduleUrl(m.base, 'overview')}`)
   }
+  if (G.later) lines.push(`  ${fill(W.later, { n: G.later })}: ${moduleUrl(m.base, 'overview')}`)
   if (G.urgentElsewhere) lines.push(`  ${fill(W.urgent_elsewhere, { n: G.urgentElsewhere })}: ${moduleUrl(m.base, 'todo')}`)
   lines.push(`  ${W.actions}: /dispatch <machine> <text> · /todo <machine> <text> (machines: ${G.targets.join(', ')})`)
   lines.push(`${W.open}: ${m.modules.map((x) => `${x.label} ${x.url}`).join(' · ')}`)

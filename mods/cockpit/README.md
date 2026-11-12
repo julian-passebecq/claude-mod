@@ -27,6 +27,18 @@ The status line reads « Fleet: N to do ». Nothing blocks, rewrites or adds to 
 `temp`, `disk_warn_pct`, every label); `hub.start: "panneau"` opens on the Panneau again, `hub.enabled: false` removes
 the dispatcher.
 
+**Same rows and counts as the page (12 Nov review, hub key `data.glance`, claude-control `herd/cockpit/glance.py`)**: the
+fleet line is the page's own sentence (`fleet_view.sentence`) plus the Alerts module's count (`glance.alerts.shown`:
+machine, quota and job events; alerts raised by register entries are counted apart); the quota row is the Quota
+module's reading (`glance.quota`: one exhaust time, its reading time, the mode, yellow in unlimited mode); **You** skips
+the items another row stands for (`covered_by`, the row says « covers I2, I4 and 1 to-do »); **Problems now** prints
+`glance.problems` (urgent only, nothing already under You) and one « N more to look at when you have time » line; the
+work of this laptop comes from `glance.jobs` (the live queue, as the page's Fleet tile and Lanes); the mode from the
+page's Fleet tile. Times are the page's format: local, 24-hour (`cockpit.time.hour12` on the hub), today « 19:22 »,
+another day « Fri 13 Nov 16:02 »; UTC stamps inside hub text are rewritten the same way. Not up to date = a part past its
+due refresh (`glance.freshness`), named with its due time. Ids come last (« … (I90) »). Older hubs without `glance`:
+the previous rules.
+
 Preview: `node mods/cockpit/scripts/preview.mjs --hub --cols 50` (invented fixtures), `--hub-live` (this computer's
 local Cockpit, read-only; private output, never commit it), `--text` for /fleet's text.
 
