@@ -62,7 +62,8 @@ wait on you without blocking work », « N decided for you » (`decisions.decide
 critical · <what is stopped> » on two lines at most, then the action and where (organization): a row whose story is a
 decision (its `uid`, or the to-do the hub files for its alert `key`: « in:provision:x » -> « todo:alert-in-provision-x
 ») carries that decision's recommended answer and the decision is not repeated below; another row « Open <module> »
-(its `link`). To keep the pane near one screen: the views, refresh and age on top, the workspace folded to « All · N
+(its `link`; a `#tile-<id>` link opens Fleet and « where » is that machine, and on that machine This laptop says « !
+critical: see the strip above » instead of repeating the reasons, 0.8.5). To keep the pane near one screen: the views, refresh and age on top, the workspace folded to « All · N
 more › », the tile's reasons on two lines, the fleet sentence on one, the quota on two, and « Open in Cockpit ·
 modules › » on one line (unfolds the module buttons).
 

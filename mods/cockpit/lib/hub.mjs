@@ -112,6 +112,7 @@ export const HUB_DEFAULTS = {
     // the critical strip: severity word, where (organization), the action link to the page's module
     crit_sev: 'critical',
     crit_open: 'Open {module}',
+    crit_here: '! critical: see the strip above',
     decided_for_you: '{n} decided for you',
     // the line under the recommended answer: what it does, in a few words
     effect: '→ {effect}',
@@ -463,7 +464,9 @@ export function criticalRows(G, org, orgLabel, isFleet) {
   return src.filter((r) => r && (r.text || r.title)).filter((r) => (!org ? true : r.org ? r.org === org : isFleet)).map((r) => ({
     text: str(r.text || r.title), id: str(r.id || ''), org: str(r.org || ''), orgLabel: r.org ? orgLabel(str(r.org)) : '',
     why: str(r.why || ''), link: str(r.link || '').replace(/^#/, '') || (r.uid ? 'r-' + uidKey(r.uid) : 'overview'),
-    uid: str(r.uid || ''), key: str(r.key || ''), severity: str(r.severity || 'critical').toLowerCase(), kind: str(r.kind || ''),
+    uid: str(r.uid || ''), key: str(r.key || ''), severity: str(r.severity || 'critical').toLowerCase(), kind: str(r.kind || ''), machine: str(r.machine || ''),
+    // the page module the link opens (« #tile-msi » is a Fleet tile)
+    module: /^tile-/.test(str(r.link || '').replace(/^#/, '')) ? 'fleet' : str(r.link || '').replace(/^#/, ''),
   }))
 }
 
@@ -560,13 +563,21 @@ export function hubModel(local, data, cfg, opts = {}) {
     // decision is not repeated under Needs you now
     const deflt = str(obj(inbox).default_org || 'fleet')
     for (const r of m.critical) {
-      r.where = r.orgLabel || orgLab(deflt)
+      // where: the machine when the row is about one, else its organization (the default one when it has none)
+      r.where = r.machine ? label(r.machine) : r.orgLabel || orgLab(deflt)
       const d = criticalUids(r).map((u) => dg.storyOf(u)).find(Boolean)
       if (d) { r.decision = d; if (!r.where) r.where = d.orgLabel }
     }
     const onStrip = new Set(m.critical.filter((r) => r.decision).map((r) => r.decision.uid))
     if (onStrip.size) m.global.you = m.global.you.filter((q) => !onStrip.has(q.uid))
-  } else for (const r of m.critical) r.where = r.orgLabel
+  } else for (const r of m.critical) r.where = r.machine ? label(r.machine) : r.orgLabel
+  // one story once: this laptop's reasons already on the critical strip are not repeated under This laptop
+  const onStripHere = m.critical.filter((r) => r.machine === machine).map((r) => r.text)
+  if (onStripHere.length) {
+    const kept = m.laptop.warn.filter((w) => !onStripHere.some((t) => t.includes(w.text)))
+    m.laptop.onStrip = m.laptop.warn.length - kept.length
+    m.laptop.warn = kept
+  }
   // one problem, one place (UX rule 13): a critical row on the strip is not repeated under Problems now
   if (m.critical.length && Array.isArray(m.global.errors)) {
     const onStrip = new Set(m.critical.map((r) => localize(r.text, now, c)))
@@ -1074,6 +1085,7 @@ export function summaryText(m, cfg) {
   if (m.stale) lines.push(`! ${m.stale}`)
   if (!P.known) lines.push(fill(W.laptop_unknown, { machine: m.machine }))
   lines.push(`  ${P.line} · ${P.temp.text}${P.agents ? ' · ' + P.agents : ''}`)
+  if (P.onStrip) lines.push(`  ${W.crit_here}`)
   for (const w of P.warn) lines.push(`  ! ${w.text}`)
   lines.push(`  ${W.working}: ${P.work.length ? P.work.map((w) => w.text).join('; ') : W.working_none}`)
   if (P.todos.length) lines.push(`  ${fill(W.todo_here, { n: P.todos.length })}`)

@@ -511,3 +511,18 @@ test('fewWords and clipLines', () => {
   assert.equal(clipLines('one two three four five six', 9, 2), 'one two three fo…')
   assert.equal(clipLines('short', 20, 2), 'short')
 })
+
+test('critical strip about a machine: where = the machine, the action opens Fleet; This laptop does not repeat it', () => {
+  const d = structuredClone(DATA4)
+  const tile = d.fleet_view.tiles.find((t) => t.id === 'pc1')
+  tile.red = ['CPU 98 C']
+  d.glance.critical = [{ kind: 'machine', text: 'Computer one: CPU 98 C, peak 98.1 C in the last hour', link: '#tile-pc1', machine: 'pc1', org: null }]
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.equal(m.critical[0].where, 'Computer one')
+  assert.equal(m.critical[0].module, 'fleet')
+  assert.ok(!m.laptop.warn.some((w) => w.text === 'CPU 98 C'))
+  const text = draw(m, 50)
+  assert.match(text, /\[Open Fleet\] Computer one/)
+  assert.match(text, /! critical: see the strip above/)
+  assert.equal((text.match(/CPU 98 C/g) || []).length, 1)
+})
