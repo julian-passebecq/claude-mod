@@ -34,6 +34,11 @@ PR: julian-passebecq/claude-mod#82.
   unknown machine answer the known list. The worker answers 400 (not 404) to an empty `/api/dispatch` and `/api/todo`:
   the endpoints exist. `node mods/cockpit/scripts/preview.mjs --hub-live <tab>` dumps all nine tabs from live data.
 
+## Follow-up the same evening (PR 2)
+- The hub started publishing `inbox` (orgs, items, `todo_org`, confidential orgs), `quota.providers` as a list,
+  `journal` as the daily journal text and `lanes` as a block: the model reads all four. Workspace row now live (DataPass,
+  FOIL, Fleet and tooling, Unsorted repos, one confidential org hidden under All); Questions adds the inbox questions.
+
 ## Problems hit
 - Git Bash turns `claude -p "/fleet"` into a path: use `MSYS_NO_PATHCONV=1`.
 - A headless prompt runs before the 4 s alias delay: hub commands now register at session start too.

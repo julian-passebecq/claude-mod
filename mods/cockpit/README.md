@@ -22,8 +22,11 @@ or the hub is down. Code: `lib/hub.mjs` (model, pure), `hooks/hub_view.mjs` (dra
 | Watch | the newest technology watch digest |
 | Lanes | `data.lanes` or overview lanes, running jobs with ETA, the backlog runner's last line |
 
-A **workspace** row (All · one button per organization) shows when the data carries `organizations`; items name
-theirs with `org` and items naming none show in every workspace (another lane adds them; absent = no row).
+A **workspace** row (All · one button per organization) shows when the data carries organizations (`organizations`, or
+the inbox's `inbox.orgs`, `herd.inbox/1`); items name theirs with `org` (to-dos through `inbox.todo_org`), items naming
+none show in every workspace, and an item of a confidential organization shows only in its own workspace, never under
+All. Questions and checks adds the inbox's open questions for you. Quota reads `quota.providers` as a list or a map,
+Journal shows the daily journal text (`journal.text`), Lanes reads `lanes.running` and `lanes.presence`.
 `/fleet [tab]`, `/dispatch <machine> <text>` (a herdq job) and `/todo <machine> <text>` (an item for Julian) come from
 the separate Fleet mod this replaces ([`mods/fleet`](../fleet) is now a thin redirect); Cockpit registers them only when
 no loaded mod has the name. Run, Mark done, dispatch and todo POST to the worker with the page's Origin and per-start

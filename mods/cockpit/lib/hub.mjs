@@ -28,10 +28,12 @@ export const HUB_DEFAULTS = {
   max_rows: 8,
   todo: { urgent_prio: 8, tag_re: '^\\s*\\[([^\\]]{1,24})\\]\\s*', why_lines: 2 },
   severity_order: ['critical', 'urgent', 'high', 'normal', 'watch', 'low', 'info', 'ok'],
+  urgency_order: ['now', 'soon', 'later', 'someday'],
   severity_tone: { critical: 'bad', urgent: 'bad', high: 'warn', watch: 'warn', normal: '', low: 'dim', info: 'dim', ok: 'ok' },
   state_tone: { live: 'ok', hub: 'ok', busy: 'running', viewer: 'dim', stale: 'warn', gaming: 'warn', offline: 'bad', down: 'bad' },
   quota: { watch: 50, high: 75, critical: 90 },
   watch_lines: 40,
+  journal_lines: 80,
   journal_max: 30,
   labels: {
     offline: 'The local Cockpit is not reachable on {base} (herd-worker not running here?)',
@@ -59,6 +61,7 @@ export const HUB_DEFAULTS = {
     marked: 'marked done, closes at the next hub tick',
     pending: 'The script reaches this computer at the next sync (about 10 minutes).',
     questions: 'Questions waiting on you',
+    inbox_questions: 'Inbox questions for you',
     answers: 'Answer sheet ({source})',
     checks: 'Checks that close by themselves',
     questions_none: 'No open question.',
@@ -151,10 +154,10 @@ const sevTone = (c, s) => c.severity_tone[str(s).toLowerCase()] || ''
 
 // ---- organizations (another lane adds them; tolerate absence) -------------------------------------------------------
 
-// data.organizations: [{id, label}] or {id: label}; anything else -> []
+// data.organizations ([{id, label}] or {id: label}), else the inbox's orgs (data.inbox.orgs, herd.inbox/1); else []
 export function orgsOf(data) {
-  const o = data && data.organizations
-  if (Array.isArray(o)) return o.filter((x) => x && (x.id || typeof x === 'string')).map((x) => (typeof x === 'string' ? { id: x, label: x } : { id: str(x.id), label: str(x.label || x.name || x.id) }))
+  const o = data && (data.organizations || (data.inbox && data.inbox.orgs))
+  if (Array.isArray(o)) return o.filter((x) => x && (x.id || typeof x === 'string')).map((x) => (typeof x === 'string' ? { id: x, label: x } : { id: str(x.id), label: str(x.label || x.name || x.id), confidential: Boolean(x.confidential) }))
   if (o && typeof o === 'object') return Object.entries(o).map(([id, v]) => ({ id, label: str((v && (v.label || v.name)) || v || id) }))
   return []
 }
@@ -184,7 +187,16 @@ export function hubModel(local, data, cfg, opts = {}) {
   const label = (id) => str(labels[id] || id)
   const ov = obj(D.overview)
   const fl = obj(D.fleet)
-  const ofOrg = (x) => inOrg(x, org)
+  // an item of a confidential organization shows only in its own workspace, never under « All »
+  const inbox = obj(D.inbox)
+  const secret = new Set([...arr(inbox.confidential).map(str), ...orgsOf(D).filter((o) => o.confidential).map((o) => o.id)])
+  const todoOrg = obj(inbox.todo_org)
+  const orgOf = (x) => str(obj(x).org || obj(x).organization || todoOrg[str(obj(x).id)] || '')
+  const ofOrg = (x) => {
+    const o = orgOf(x)
+    if (!org) return !secret.has(o)
+    return o ? o === org : inOrg(x, org)
+  }
   const m = {
     machine, label: label(machine), version: str(L.version), viewer: Boolean(L.viewer), hubError: str(L.hub_error),
     fetchedAt: Number(L.fetched_at || 0), now, pulled: L.fetched_at ? ago(now - Number(L.fetched_at)) : 'never', hasData: Boolean(data),
@@ -196,7 +208,7 @@ export function hubModel(local, data, cfg, opts = {}) {
     ? fill(c.labels.stale, { h: Math.round(Number(ov.stale_after_s) / 3600) }) : ''
   m.todo = todoModel(L, D, c, ofOrg, label)
   m.overview = overviewModel(ov, c, ofOrg, m.todo)
-  m.questions = questionsModel(D, ov, c, ofOrg, m.todo)
+  m.questions = questionsModel(D, ov, c, ofOrg, m.todo, inbox)
   m.fleet = fleetModel(fl, D, c, label, machine)
   m.quota = quotaModel(D, ov, c, opts.usage)
   m.alerts = alertsModel(D, ov, fl, c, ofOrg, opts.veille, label)
@@ -205,8 +217,8 @@ export function hubModel(local, data, cfg, opts = {}) {
   m.watch = watchModel(D, c)
   m.counts = {
     overview: m.overview.errors.length, todo: m.todo.here.length + m.todo.elsewhere.length + m.todo.urgent.length + m.todo.ongoing.length,
-    questions: m.questions.questions.length + m.questions.answers.length, fleet: m.fleet.machines.length, quota: m.quota.hub.length,
-    alerts: m.alerts.hub.length + m.alerts.machines.length + m.alerts.local.length, journal: m.journal.rows.length,
+    questions: m.questions.questions.length + m.questions.answers.length + m.questions.inbox.length, fleet: m.fleet.machines.length, quota: m.quota.hub.length,
+    alerts: m.alerts.hub.length + m.alerts.machines.length + m.alerts.local.length, journal: m.journal.rows.length + (m.journal.lines.length ? 1 : 0),
     watch: m.watch.lines.length ? 1 : 0, lanes: m.lanes.lanes.length + m.lanes.jobs.length,
   }
   // the page's count: every item of this computer (delivered or not yet, marked done or not) - the tab title « (N) »
@@ -239,7 +251,7 @@ function todoModel(L, D, c, ofOrg, label) {
         urgent: p !== null && p >= Number(c.todo.urgent_prio),
         ongoing: marked || (check.kind === 'check' && /last check/.test(str(check.text))),
         why: arr(t.why).map(str), check: str(check.text), note: str(t.note), created: str(t.created),
-        canRun: here && delivered.has(str(t.id)) && !marked, pending: here && !delivered.has(str(t.id)), org: str(t.org || t.organization || ''),
+        canRun: here && delivered.has(str(t.id)) && !marked, pending: here && !delivered.has(str(t.id)), org: str(t.org || t.organization || obj(obj(D.inbox).todo_org)[str(t.id)] || ''),
       })
     }
   }
@@ -282,9 +294,15 @@ function overviewModel(ov, c, ofOrg, todo) {
   }
 }
 
-function questionsModel(D, ov, c, ofOrg, todo) {
+function questionsModel(D, ov, c, ofOrg, todo, inbox) {
   const ans = obj(D.answers)
+  const urg = c.urgency_order
   return {
+    // the inbox's open questions that wait on you (herd.inbox/1 items), most urgent first
+    inbox: arr(inbox.items).filter((i) => i && i.you && i.category === 'question' && ofOrg(i))
+      .map((i) => ({ id: str(i.id), title: str(i.title), urgency: str(i.urgency), priority: str(i.priority), app: str(i.app_label || i.app), org: str(i.org), blocks: Boolean(i.blocks_work),
+        tone: i.blocks_work ? 'warn' : '' }))
+      .sort((a, b) => (urg.indexOf(a.urgency) + 1 || 99) - (urg.indexOf(b.urgency) + 1 || 99) || a.priority.localeCompare(b.priority)),
     questions: arr(obj(ov.you).questions).filter(ofOrg).map((q) => ({
       id: str(q.id), severity: str(q.severity), tone: sevTone(c, q.severity), title: str(q.title), rec: str(q.recommended), options: Number(q.options) || 0,
     })).sort((a, b) => sevRank(c, a.severity) - sevRank(c, b.severity)),
@@ -323,7 +341,8 @@ function fleetModel(fl, D, c, label, me) {
 function quotaModel(D, ov, c, usage) {
   const q = obj(D.quota)
   const hub = []
-  for (const [pid, p] of Object.entries(obj(q.providers))) {
+  const providers = Array.isArray(q.providers) ? q.providers.map((p) => [str(p && p.id), p]) : Object.entries(obj(q.providers))
+  for (const [pid, p] of providers) {
     for (const w of arr(p && p.windows)) {
       const pct = Number(w.used_pct)
       const st = str(w.state || (pct >= c.quota.critical ? 'critical' : pct >= c.quota.high ? 'high' : pct >= c.quota.watch ? 'watch' : 'ok'))
@@ -362,17 +381,25 @@ function alertsModel(D, ov, fl, c, ofOrg, veille, label) {
 }
 
 function lanesModel(D, ov, c, ofOrg, label) {
-  const run = obj(ov.running)
+  // data.lanes: a list, or {running: {jobs, lanes, runner}, presence, runner} (herd.cockpit lanes block); else the overview's
+  const lb = obj(D.lanes)
+  const run = lb.running ? obj(lb.running) : obj(ov.running)
   const lanes = (arr(D.lanes).length ? arr(D.lanes) : arr(run.lanes)).filter(ofOrg).map((l) => ({
     id: str(l.id), title: str(l.title || l.name), owner: str(l.owner), since: str(l.since), apps: arr(l.apps).map(str), state: str(l.state),
   }))
   const jobs = arr(run.jobs).map((j) => ({ id: str(j.id), machine: label(j.machine), kind: str(j.kind), eta: j.eta_ts ? when(j.eta_ts) : '', basis: str(j.basis) }))
-  return { lanes, jobs, runner: str(obj(run.runner).text), runnerAt: str(obj(run.runner).t) }
+  const rd = obj(lb.runner)
+  const runner = str(obj(run.runner).text) || [rd.decision, rd.reason, rd.item && (typeof rd.item === 'string' ? rd.item : str(obj(rd.item).id || obj(rd.item).title))].filter(Boolean).map(str).join(' · ')
+  const pres = obj(lb.presence)
+  return { lanes, jobs, runner, runnerAt: str(obj(run.runner).t || rd.time),
+    presence: pres.last_active ? `last active ${when(pres.last_active)}${pres.away_hours !== undefined && pres.away_hours !== null ? ` · away ${pres.away_hours} h` : ''}` : '' }
 }
 
 // data.journal ([{t|at, text, kind}]) when present; otherwise the dated events the data already carries.
 function journalModel(D, ov, fl, c, ofOrg, label) {
   let rows = []
+  const jd = obj(D.journal)
+  if (jd.text) return { rows: [], name: str(jd.name), date: str(jd.date), cut: Boolean(jd.cut), lines: mdLines(jd.text, Number(c.journal_lines) || 80) }
   if (arr(D.journal).length) rows = arr(D.journal).filter(ofOrg).map((e) => ({ t: tsOf(e.t || e.at || e.ts), kind: str(e.kind), text: str(e.text || e.title) }))
   else {
     const run = obj(ov.running)
@@ -384,7 +411,13 @@ function journalModel(D, ov, fl, c, ofOrg, label) {
     if (D.digest && D.digest.name) rows.push({ t: tsOf(D.digest.date), kind: 'watch', text: str(D.digest.name) })
   }
   rows = rows.filter((r) => r.text).sort((a, b) => b.t - a.t).slice(0, Number(c.journal_max) || 30)
-  return { rows: rows.map((r) => ({ ...r, at: r.t ? when(r.t) : '' })) }
+  return { rows: rows.map((r) => ({ ...r, at: r.t ? when(r.t) : '' })), lines: [] }
+}
+
+// Markdown text -> lines without runs of blank lines
+function mdLines(text, max) {
+  const lines = str(text).split('\n').map((l) => l.replace(/\s+$/, '')).filter((l, i, a) => l || (a[i - 1] && a[i - 1] !== ''))
+  return lines.slice(0, max)
 }
 
 function watchModel(D, c) {
