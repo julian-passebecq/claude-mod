@@ -49,7 +49,7 @@ for M in "${MACHINES[@]}"; do
   if [ -f "$HERE/deploy/$M.ps1" ]; then KIND=ps; SRC="$HERE/deploy/$M.ps1"
   elif [ -f "$HERE/deploy/$M.sh" ]; then KIND=sh; SRC="$HERE/deploy/$M.sh"
   else echo "$M: no deploy/$M.ps1 or .sh, skipped"; continue; fi
-  sed -e "s|@SHA@|$SHA|g" -e "s|@SUM@|$SUM|g" -e "s|@TAR@|$TAR|g" "$SRC" > "$WORK/$M.job"
+  sed -e "s|@SHA@|$SHA|g" -e "s|@SUM@|$SUM|g" -e "s|@TAR@|$TAR|g" "$SRC" | tr -d '\r' > "$WORK/$M.job"
   ID="$(ssh -o BatchMode=yes "$HUB" "$HERDQ add --to $M --kind $KIND --timeout 300 --stdin" < "$WORK/$M.job" | grep -Eo '[0-9]+' | head -1)"
   [ -n "$ID" ] && JOB[$M]="$ID" && echo "$M: queued job $ID" || echo "$M: could not queue"
 done
