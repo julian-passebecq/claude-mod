@@ -51,5 +51,14 @@ stopped, where, the action, a severity word. Files: `mods/cockpit` only (and thi
 - The critical-to-decision match relies on the hub's alert to-do naming (`todo:alert-<key slug>`); if the hub publishes
   `critical[].uid` or `decision` directly, prefer it (already read first).
 
+## Follow-up (0.8.5, second PR of the lane)
+At 21:50Z the hub published a live critical row (`kind: machine`, `link: #tile-msi`, `machine: msi`): the strip said
+« [more] Fleet and tooling ». Now « where » is the machine (« MSI (JULP) »), the action is « [Open Fleet] » (a
+`#tile-<id>` link is a Fleet tile), and This laptop shows « ! critical: see the strip above » instead of repeating the
+same reasons (the other reasons stay). Test added (hub 29 cases).
+
 ## Installed
-See the PR description (deploy-fleet.sh output per machine).
+- 0.8.4 (#90, cf75ed7), 21:50Z: `bash mods/cockpit/scripts/deploy-fleet.sh`: msi main checkout at cf75ed7; hub tarball
+  sha256 2170cd0d…; imac job 561 (b235088 -> cf75ed7), msiold job 562, mbp job 563: cockpit 0.8.4, validate passed,
+  /fleet answered (its first line already the live critical strip).
+- 0.8.5: see the second PR's description.

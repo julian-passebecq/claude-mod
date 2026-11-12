@@ -82,7 +82,7 @@ export function drawHub(h, S) {
       const rec = d && !d.sent ? d.answers.find((a) => a.rec) : null
       const act = rec
         ? [h.btn(clip(buttonLabel(rec), width - 26), () => S.act.answer(d.uid, rec.key), true, `crit-ans-${i}`), link(h, W.more_row, d.url, 'crit-more-' + i)]
-        : [link(h, modLabel(r.link) ? fill(W.crit_open, { module: modLabel(r.link) }) : W.more_row, moduleUrl(c.base, r.link), 'crit-more-' + i)]
+        : [link(h, modLabel(r.module) ? fill(W.crit_open, { module: modLabel(r.module) }) : W.more_row, moduleUrl(c.base, r.link), 'crit-more-' + i)]
       const sev = r.severity && r.severity !== 'critical' ? r.severity : W.crit_sev
       return h.col([
         h.T(clipLines(`! ${sev} · ${r.text}`, width, 2), { tone: 'bad', bold: true, key: 'text', wrap: 'wrap' }),
@@ -117,7 +117,9 @@ function drawLaptop(h, m, c, S, width) {
   if (!P.known) rows.push(h.T(fill(W.laptop_unknown, { machine: m.machine }), { dim: true, key: 'lp-unknown', wrap: 'wrap' }))
   rows.push(h.T(P.line, { tone: P.tone && P.tone !== 'dim' ? P.tone : undefined, dim: P.tone === 'dim', key: 'lp-state', wrap: 'wrap' }))
   rows.push(h.T([P.temp.text, P.agents, P.seen].filter(Boolean).join(' · '), { tone: P.temp.tone === 'dim' ? undefined : P.temp.tone || undefined, dim: P.temp.tone === 'dim', key: 'lp-temp', wrap: 'wrap' }))
-  // the tile's reasons on one wrapped line, red ones first (the full list is the page's Fleet tile)
+  // the tile's reasons on one wrapped line, red ones first (the full list is the page's Fleet tile); the ones on the
+  // critical strip are said there only
+  if (P.onStrip) rows.push(h.T(W.crit_here, { tone: 'bad', key: 'lp-crit' }))
   if (P.warn.length) {
     const ws = [...P.warn].sort((a, b) => Number(b.tone === 'bad') - Number(a.tone === 'bad'))
     rows.push(h.T(clipLines(`! ${ws.map((w) => w.text).join(' · ')}`, width, 2), { tone: ws[0].tone || 'warn', key: 'lp-warn', wrap: 'wrap' }))
