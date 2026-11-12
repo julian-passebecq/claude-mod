@@ -109,7 +109,7 @@ async function loadConfig($) {
 // (Origin + per-start token). /fleet [module], /dispatch, /todo come from the separate Fleet mod this replaces; they are
 // registered only when no loaded mod answers them already. Kept in this file: $ is passed only to functions declared here.
 
-const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set(), answered: {} }
+const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set(), answered: {}, more: {} }
 
 async function hubGet($, base, path) {
   const r = await $.http.fetch(base + path, { headers: { Accept: 'application/json' } })
@@ -842,6 +842,8 @@ function actions($) {
     fill: (text) => { void Promise.resolve($.prompt.fill({ text, mode: 'replace' })).catch(() => { H.msg = `Type ${text.trim()} <machine> <text>`; redraw() }) },
     panneau: () => setTab($, 'panneau'),
     org: (id) => { H.org = id; H.memo = null; saveHubState($); redraw() },
+    // a question's other options: its recommended answer shows, « more » unfolds the rest (this pane only)
+    more: (uid) => { H.more = { ...H.more, [uid]: !H.more[uid] }; redraw() },
     run: (id) => { void hubAct($, CFG || {}, 'run', id) },
     done: (id) => { void hubAct($, CFG || {}, 'done', id) },
     crumb: (level) => { D.nav = zoomTo(D.nav, level); redraw() },
@@ -1084,7 +1086,7 @@ export function register(on, opts) {
       depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
       panel: D.tab === 'panneau' ? { ...panelView(now || D.at || 0), act: actions($) } : null,
-      hub: { model: hubModelOf(CFG || {}), error: H.error, busy: H.busy, msg: H.msg },
+      hub: { model: hubModelOf(CFG || {}), error: H.error, busy: H.busy, msg: H.msg, more: H.more },
     })
   })
 }

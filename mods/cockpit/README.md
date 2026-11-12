@@ -25,9 +25,20 @@ gone; their ids and words (`/cockpit fleet`, `hub.start: "overview"`) open the d
 to the worker with the page's Origin and per-start token (`<meta name="cockpit-token">`); a 404 says « not available
 yet ». Cockpit registers the three only when no loaded mod has the name ([`mods/fleet`](../fleet) is a thin redirect).
 The status line reads « Fleet: N to do ». Nothing blocks, rewrites or adds to a tool call or prompt. Settings under
-`hub` in `cockpit.config.json` (start, refresh, modules order and labels, `max_rows`, `errors_max`, `todo.max`, `time`,
+`hub` in `cockpit.config.json` (start, refresh, modules order and labels, `max_rows`, `errors_max`, `global_max`, `title_lines`, `todo.max`, `time`,
 `quota`, `temp`, `disk_warn_pct`, state / owner words, every label); `hub.start: "panneau"` opens on the Panneau again, `hub.enabled: false` removes
 the dispatcher.
+
+**Same numbers as the page (12 Nov, I150)**: when the hub's data carries `glance` (claude-control
+`herd/cockpit/glance.py`) the pane prints the page's own reading, not its own count: the quota row (`glance.quota`, under
+the fleet sentence, yellow in unlimited mode), Needs you now with the page's sentence « 14 need you now (at 21:16) »
+(items with `covered_by` left out, the row that stands for them says « covers I2, I4 and 1 to-do » from its own
+`covers`), Problems now (`glance.problems`, « At 21:16. ») and « 37 to look at when you have time » (`glance.later`),
+the Alerts module's count (`glance.alerts`), running jobs from the live queue (`glance.jobs`: « ps job on MSI (job
+418) »), and « not up to date: … » from `glance.freshness`. Without `glance` (older hub) the earlier rules compute them;
+the last line of `/fleet` says which path was used. Global shows about `global_max` (5) rows, titles cut to
+`title_lines` (1) line, and a question's options folded to its recommended answer plus « more ». Times: `time.zone`
+`Europe/Paris` (or `local`, `utc`), 24-hour unless the page's `glance.time.hour12` says otherwise.
 
 Preview: `node mods/cockpit/scripts/preview.mjs --hub --cols 50` (invented fixtures), `--hub-live` (this computer's
 local Cockpit, read-only; private output, never commit it), `--text` for /fleet's text.
