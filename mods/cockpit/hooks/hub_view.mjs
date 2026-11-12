@@ -124,6 +124,12 @@ function drawQuestions(h, m, c, S, width) {
     h.T(`${q.id} · ${q.title}`, { bold: true, tone: q.tone || undefined, wrap: 'wrap' }),
     h.T([q.severity, q.options ? `${q.options} options` : '', q.rec ? fill(L.recommended, { rec: q.rec }) : ''].filter(Boolean).join(' · '), { dim: true }),
   ], { key: 'q-' + i, marginBottom: 1 })) : [none(h, L.questions_none, 'q-none')], { key: 'q-box' }))
+  if (Q.inbox.length) {
+    out.push(h.box(`${L.inbox_questions} (${Q.inbox.length})`, Q.inbox.slice(0, Number(c.max_rows) * 3).map((q, i) => h.col([
+      h.T(`${q.id} · ${q.title}`, { bold: true, tone: q.tone || undefined, wrap: 'wrap' }),
+      h.T([q.urgency, q.priority, q.app, m.org ? '' : q.org].filter(Boolean).join(' · '), { dim: true, wrap: 'truncate-end' }),
+    ], { key: 'iq-' + i, marginBottom: 1 })).concat([more(h, L, Q.inbox.length - Number(c.max_rows) * 3, 'iq-more')].filter(Boolean)), { key: 'iq-box' }))
+  }
   if (Q.answers.length) {
     out.push(h.box(fill(L.answers, { source: Q.source }), Q.answers.map((a, i) => h.col([
       h.T(`Q${a.n} · ${a.q}`, { bold: true, wrap: 'wrap' }),
@@ -190,6 +196,11 @@ function drawAlerts(h, m, c, S, width) {
 
 function drawJournal(h, m, c, S, width) {
   const J = m.journal
+  if (J.lines.length) {
+    const out = J.lines.map((l, i) => (l.startsWith('#') ? h.T(l.replace(/^#+\s*/, ''), { bold: true, key: 'jl-' + i, wrap: 'wrap' }) : h.T(l.replace(/\*\*/g, ''), { key: 'jl-' + i, wrap: 'wrap' })))
+    if (J.cut) out.push(h.T(c.labels.watch_cut, { dim: true, key: 'j-cut' }))
+    return out
+  }
   if (!J.rows.length) return [none(h, c.labels.journal_none, 'j-none')]
   return J.rows.map((r, i) => h.col([
     h.T(`${r.at}${r.kind ? ' · ' + r.kind : ''}`, { dim: true }),
@@ -216,5 +227,6 @@ function drawLanes(h, m, c, S, width) {
   ], { key: 'l-' + i, marginBottom: 1 })) : [none(h, L.lanes_none, 'l-none')], { key: 'l-box' }))
   if (X.jobs.length) out.push(h.box(L.lanes_jobs, X.jobs.map((j, i) => h.T(`#${j.id} ${j.kind} · ${j.machine}${j.eta ? ' · ' + fill(L.eta, { at: j.eta }) : ''}${j.basis ? ' · ' + j.basis : ''}`, { key: 'lj-' + i, tone: 'running', wrap: 'wrap' })), { key: 'l-jobs' }))
   if (X.runner) out.push(h.box(L.lanes_runner, [h.T(X.runner, { wrap: 'wrap' }), X.runnerAt ? h.T(X.runnerAt, { dim: true }) : null], { key: 'l-runner' }))
+  if (X.presence) out.push(h.T(X.presence, { dim: true, key: 'l-presence' }))
   return out
 }

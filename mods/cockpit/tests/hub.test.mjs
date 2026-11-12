@@ -119,3 +119,37 @@ test('the pane: a hub tab takes the whole width (no left menu)', () => {
   assert.match(text, /Computer one/)
   assert.doesNotMatch(text, /Jauge/)
 })
+
+test('the shapes the hub publishes since 12 Nov evening: quota providers list, journal text, lanes block, inbox orgs', () => {
+  const data = {
+    ...DATA,
+    quota: { generated_at: '2026-01-02T11:58:00Z', providers: [{ id: 'codex', label: 'Codex', windows: [{ window: '7d', used_pct: 2, state: 'ok', account: 'plan' }] }] },
+    journal: { name: '2026-01-02.md', date: '2026-01-02', text: '# Journal 2026-01-02\n\n\n## Day in short\n\n- One PR merged.', cut: true },
+    lanes: { running: { jobs: [{ id: 5, machine: 'pc2', kind: 'ps', eta_ts: DATA.generated_ts + 60 }], lanes: [{ id: 'R9', title: 'Lane nine', owner: 'hub/pm' }], runner: { t: '2026-01-02T11:00:00Z', text: 'picked R9' } },
+      presence: { last_active: '2026-01-02T10:00:00Z', away_hours: 2 } },
+    inbox: { orgs: [{ id: 'acme', label: 'Acme' }, { id: 'secret', label: 'Secret', confidential: true }], confidential: ['secret'],
+      todo_org: { 'pc1-urgent': 'acme', 'pc1-plain': 'secret' },
+      items: [{ id: 'Q1', title: 'Pick a name', category: 'question', you: true, urgency: 'soon', priority: 'p1', org: 'acme' },
+        { id: 'Q2', title: 'Hidden one', category: 'question', you: true, urgency: 'now', priority: 'p0', org: 'secret' },
+        { id: 'X1', title: 'Not a question', category: 'issue', you: true, org: 'acme' }] },
+  }
+  const all = hubModel(LOCAL, data, {}, { now: NOW })
+  assert.deepEqual(all.orgs.map((o) => o.id), ['acme', 'secret'])
+  assert.equal(all.quota.hub[0].provider, 'Codex')
+  assert.equal(all.journal.lines[0], '# Journal 2026-01-02')
+  assert.ok(!all.journal.lines.includes('') || all.journal.lines.filter((l, i, a) => !l && !a[i - 1]).length === 0)
+  assert.equal(all.lanes.lanes[0].id, 'R9')
+  assert.equal(all.lanes.jobs[0].machine, 'Computer two')
+  assert.match(all.lanes.presence, /away 2 h/)
+  // confidential: hidden under All, shown in its own workspace
+  assert.deepEqual(all.questions.inbox.map((q) => q.id), ['Q1'])
+  assert.ok(!all.todo.all.some((t) => t.id === 'pc1-plain'))
+  const sec = hubModel(LOCAL, data, {}, { now: NOW, org: 'secret' })
+  assert.deepEqual(sec.questions.inbox.map((q) => q.id), ['Q2'])
+  assert.ok(sec.todo.all.some((t) => t.id === 'pc1-plain'))
+  assert.ok(!sec.todo.all.some((t) => t.id === 'pc1-urgent'))
+  for (const id of ['questions', 'journal', 'lanes', 'quota']) {
+    const text = renderText(drawHub(kit(el, {}), { cfg: {}, tab: id, model: all, columns: 70, act: { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done() {} } }), 70)
+    assert.match(text, /Workspace \[All\] \[Acme\] \[Secret\]/, id)
+  }
+})
