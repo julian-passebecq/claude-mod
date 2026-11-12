@@ -100,7 +100,8 @@ test('scanProjects + aggregate on the fixture tree: kinds, projects, surfaces, s
   assert.equal(a2.days['2026-10-14'].total[5], 8)
 
   // retention: a file not touched for longer than retentionDays is not read and leaves the cache
-  const r3 = scanProjects({ root, cache, prices, now: now + 30 * 86400000, retentionDays: 14 })
+  // (the files' mtime is the real clock's, so "later" counts from whichever is later: the fixture's time or today)
+  const r3 = scanProjects({ root, cache, prices, now: Math.max(now, Date.now()) + 30 * 86400000, retentionDays: 14 })
   assert.equal(r3.read, 0)
   assert.equal(Object.keys(cache.files).length, 0)
 })
