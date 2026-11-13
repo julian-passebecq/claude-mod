@@ -6,7 +6,8 @@ import { test } from 'node:test'
 import { briefArgv, briefButtons, briefCfg, briefToast, infoOf, scriptPath } from '../hooks/brief.ts'
 
 const shipped = JSON.parse(readFileSync(new URL('../band.config.json', import.meta.url), 'utf8'))
-const bc = briefCfg(shipped.export_brief)
+// shipped off since 13 Nov 2026 (R59: « Export conv » left the strip); the buttons still work when turned on
+const bc = briefCfg({ ...shipped.export_brief, enabled: true })
 
 test('shipped config: two buttons in config order, tree only with children, its count filled in', () => {
   assert.deepEqual(briefButtons(bc, { ready: true, children: 0 }).map((b) => b.label), ['Export conv'])
@@ -35,4 +36,12 @@ test('script path, argv, info and toast', () => {
   assert.equal(briefToast(bc, { exitCode: 0, stdout: '{"ok":true,"line":"Brief : C:/x.md · copié"}', stderr: '' }), 'Brief : C:/x.md · copié')
   assert.equal(briefToast(bc, { exitCode: 1, stdout: '{"ok":false,"error":"introuvable"}', stderr: '' }), 'Brief échoué : introuvable')
   assert.equal(briefToast(bc, { exitCode: 1, stdout: '', stderr: 'boom' }), 'Brief échoué : boom')
+})
+
+test('shipped config: Export conv is off on the strip (R59), the 5 h and week figures left the clarity summary', () => {
+  assert.equal(shipped.export_brief.enabled, false)
+  assert.deepEqual(briefButtons(briefCfg(shipped.export_brief), { ready: true, children: 2 }), [])
+  assert.ok(!shipped.jauge.clarity.summary.includes('five'))
+  assert.ok(!shipped.jauge.clarity.summary.includes('week'))
+  assert.deepEqual(shipped.jauge.keep_above_prompt, ['cockpit-you'])
 })

@@ -26,7 +26,7 @@ import { viewModel } from '../lib/veille/hooks/view.mjs'
 import { deepMerge as vmerge } from '../lib/veille/lib/modes.mjs'
 import { cardsOf, pickTarget, workflowsLive, runnerBackends, cardsConfig } from '../lib/cards.mjs'
 import { cockpitConfig, initialNav, select, zoomTo, usageCard, findSession, sectionFor, consoCard, parseArgs, aliasArgs, tabValid, nightRepos, titleOf, laneRows } from './nav.mjs'
-import { drawCockpit } from './view.mjs'
+import { drawCockpit, kit } from './view.mjs'
 import { readyItems, decideConfig } from '../lib/decide.mjs'
 import { depuisConfig } from '../lib/depuis.mjs'
 import { panelConfig, synthesis, cycle, barsOf, contexteOf, effectiveWindow, detailOf } from '../lib/panel.mjs'
@@ -38,7 +38,7 @@ import { debitModel } from '../lib/debit.mjs'
 import { sankeyModel } from '../lib/viz_sankey.mjs'
 import { quotaCurves } from '../lib/viz_quota.mjs'
 import { tpsHourly } from '../lib/viz_spark.mjs'
-import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, tokenOf, parseTarget, sendResult, summaryText, badgeText, moduleOf, moduleUrl, answerText, decisionText, buttonLabel } from '../lib/hub.mjs'
+import { hubConfig, hubIdOf, tabKey, hubTabs, hubModel, fill as hubFill, tokenOf, parseTarget, sendResult, summaryText, badgeText, moduleOf, moduleUrl, answerText, decisionText, buttonLabel } from '../lib/hub.mjs'
 import { newFiles, nodesOf, applyListed, applyTop, applyGit, resetTo, openDirs, filesPress, openDir, filesClear, filesRows, filesHead, filesShort, filesContext } from './files.mjs'
 
 const PANE = 'cockpit'
@@ -109,6 +109,8 @@ async function loadConfig($) {
 // (Origin + per-start token). /fleet [module], /dispatch, /todo come from the separate Fleet mod this replaces; they are
 // registered only when no loaded mod answers them already. Kept in this file: $ is passed only to functions declared here.
 
+// the views that draw the Panneau's data: the Panneau itself and the dispatcher's Ongoing view
+const wantsPanel = (tab) => tab === 'panneau' || hubIdOf(tab) === 'ongoing'
 const H = { local: null, data: null, error: '', busy: false, msg: '', token: null, inflight: null, org: '', memo: null, cmds: new Set(), answered: {}, more: {} }
 
 async function hubGet($, base, path) {
@@ -443,7 +445,7 @@ async function loadConso($, now) {
   await loadDebit($, dir)
   D.conso = consoCard(D.consoData, CFG, now, D.consoPreset || q.default)
   const old = !D.consoData || now - (D.consoData.generated || 0) > q.rescan_min * 60000
-  const wanted = (D.strips || {}).conso || (D.tab === 'panneau' && ((D.popen || {}).convs || (D.popen || {}).debit))
+  const wanted = (D.strips || {}).conso || (wantsPanel(D.tab) && ((D.popen || {}).convs || (D.popen || {}).debit))
   if (old && wanted && !D.consoScan && ucfg.data_dir !== undefined) {
     D.consoScan = true
     $.clock.after(0, async () => {
@@ -743,6 +745,8 @@ function safe(f) {
 
 // What the tab on screen needs, now.
 async function refreshTab($) {
+  // Ongoing: the hub's data (its machines and jobs) and the Panneau's (this conversation's tree)
+  if (hubIdOf(D.tab) === 'ongoing') { await refreshHub($, CFG || {}).catch(() => undefined); await rescan($); return refreshPanel($) }
   if (hubIdOf(D.tab)) return refreshHub($, CFG || {})
   if (D.tab === 'panneau') { await rescan($); return refreshPanel($) }
   if (D.tab === 'workflow') return rescanWorkflow($)
@@ -1030,8 +1034,8 @@ export function register(on, opts) {
         argumentHint: '[conv|projet|mega|agent|mission|focus|arbre|pipeline|workflow [all]|journal|machine|relais|galerie|nuit|depuis [8h|24h|nuit|HH:MM]] [projet ou conversation] | close' })
     } catch { /* a name clash must not break the rest */ }
     $.clock.after(Math.max(0, c.aliases.delay_s) * 1000, () => { void registerAliases($).catch(() => undefined) })
-    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' && !hubIdOf(D.tab) ? rescan($) : undefined)) })
-    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : D.tab === 'panneau' ? refreshPanel($) : hubIdOf(D.tab) ? refreshTab($) : refreshStrips($)) : undefined)) })
+    $.clock.every(Math.max(5, c.refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab !== 'workflow' && D.tab !== 'machine' && (!hubIdOf(D.tab) || hubIdOf(D.tab) === 'ongoing') ? rescan($) : undefined)) })
+    $.clock.every(Math.max(15, c.strips_refresh_s) * 1000, () => { void shown($).then((s) => (s ? (D.tab === 'workflow' ? rescanWorkflow($) : wantsPanel(D.tab) ? refreshPanel($) : hubIdOf(D.tab) ? refreshTab($) : refreshStrips($)) : undefined)) })
     $.clock.every(Math.max(3, c.machine_refresh_s) * 1000, () => { void shown($).then((s) => (s && D.tab === 'machine' ? sampleMachine($) : undefined)) })
     if (c.auto_open && options.start !== 'off') {
       void (async () => {
@@ -1086,8 +1090,26 @@ export function register(on, opts) {
       cards: D.tab === 'home' ? cards(now || D.at) : [],
       depuis: D.tab === 'depuis' ? depuisView() : null, cardsError: D.cardsError, cardsAt: D.cardsAt,
       wf: D.wf, wfAt: D.wfAt, wfBusy: D.wfBusy, wfError: D.wfError, wfScope: D.wfScope, wfOpen: D.wfOpen, machine: D.machine,
-      panel: D.tab === 'panneau' ? { ...panelView(now || D.at || 0), act: actions($) } : null,
+      panel: wantsPanel(D.tab) ? { ...panelView(now || D.at || 0), act: actions($) } : null,
       hub: { model: hubModelOf(CFG || {}), error: H.error, busy: H.busy, msg: H.msg, more: H.more },
     })
   })
+
+  // « you: N » above the prompt (R59): your own items (the page's Needs you now count), red while work is stopped; a
+  // click opens the page's To do. Keyed cockpit-you so the band keeps it (band jauge.keep_above_prompt). hub.prompt_line
+  // false turns it off.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const theirs = await next(e)
+    const hc = hubConfig(CFG || {})
+    if (hc.enabled === false || hc.prompt_line === false || (e.props && e.props.hasSurvey)) return theirs
+    const m = hubModelOf(CFG || {})
+    if (!m) return theirs
+    const el = $.ui.resolve(e)
+    const h = kit(el, CFG || {})
+    const n = Number(m.global && m.global.youTotal) || 0
+    const tone = (m.critical || []).length ? 'bad' : n ? 'warn' : undefined
+    const line = h.row([h.tbtn(hubFill(hc.labels.you_line, { n }), () => { void openPage($, CFG || {}, moduleUrl(hc.base, 'todo')) }, 'cockpit-you-btn', { plain: true, bold: Boolean(n), tone, dim: !n })],
+      { key: 'cockpit-you', flexWrap: 'nowrap' })
+    return h.col([line, theirs || null], { key: 'cockpit-above' })
+  }).catch(($, e, next) => next(e))
 }

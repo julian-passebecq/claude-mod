@@ -6,6 +6,10 @@ import assert from 'node:assert/strict'
 import { hubModel, hubTabs, hubIdOf, tabKey, hubConfig, parseTarget, sendResult, summaryText, badgeText, tokenOf, inOrg, orgsOf, moduleOf, moduleUrl,
   answerText, answerButtons, youList, HUB_TABS, MODULES, at, localize, foldRelated, decisionButtons, decisionText, coversOfUids, rowUrl, fewWords, criticalUids } from '../lib/hub.mjs'
 import { drawHub, hubBar, clipLines } from '../hooks/hub_view.mjs'
+import { machineText, repoMachines, jobRepo } from '../lib/hub.mjs'
+import { ongoingOf } from '../lib/panel_list.mjs'
+import { listModel } from '../hooks/panel_view.mjs'
+import { panneauView } from '../scripts/fixtures/panneau.mjs'
 import { kit, drawCockpit } from '../hooks/view.mjs'
 import { tabValid, parseArgs } from '../hooks/nav.mjs'
 import { el, renderText } from '../lib/factory/scanner/textrender.mjs'
@@ -16,8 +20,10 @@ const ACT = { hubTab() {}, panneau() {}, refresh() {}, org() {}, run() {}, done(
 const draw = (m, cols, o = {}) => renderText(drawHub(kit(el, {}), { cfg: {}, model: m, columns: cols, act: ACT, ...o }), cols)
 
 test('one hub view, the dispatcher; the nine old tab ids and /cockpit words open it', () => {
-  assert.deepEqual(HUB_TABS, ['home'])
-  assert.deepEqual(hubTabs({}).map((t) => t.label), ['Dispatcher'])
+  assert.deepEqual(HUB_TABS, ['home', 'ongoing'])
+  assert.deepEqual(hubTabs({}).map((t) => t.label), ['Dispatcher', 'Ongoing'])
+  assert.equal(hubIdOf('hub-ongoing'), 'ongoing')
+  assert.equal(tabKey('ongoing'), 'hub-ongoing')
   assert.deepEqual(hubTabs({ hub: { enabled: false } }), [])
   for (const old of ['overview', 'todo', 'fleet', 'journal', 'lanes']) {
     assert.equal(tabKey(old), 'hub-home')
@@ -450,7 +456,7 @@ test('one story once: a step here that is a decision row, or one a decision cove
   const m = hubModel(LOCAL, d, {}, { now: NOW })
   assert.deepEqual(m.laptop.todos.map((t) => t.id).sort(), ['pc1-marked', 'pc1-plain', 'pc1-urgent'])
   assert.equal(m.laptop.asDecisions, 2)
-  const text = draw(m, 50, { act: { ...ACT, more() {} } })
+  const text = draw(m, 50, { act: { ...ACT, more() {} }, more: { '__sec_lp-todo': true } })
   const laptop = text.slice(text.indexOf('This laptop'), text.indexOf('Global'))
   assert.doesNotMatch(laptop, /Mail app password|Restrict the laptop keys/)
   assert.match(laptop, /2 more are decisions below/)
@@ -472,7 +478,8 @@ test('decision rows at 50 columns: title on two lines, one line of why, the reco
   d.glance.decisions.decided_for_you = [{ uid: 'issue:I89', org: 'tools' }]
   const m = hubModel(LOCAL, d, {}, { now: NOW })
   assert.equal(m.global.you[0].effect, 'Turns on GitLab two-factor')
-  const text = draw(m, 50, { act: { ...ACT, more() {} } })
+  // hub.compact false: today's full rows in the folding pane
+  const text = draw(m, 50, { act: { ...ACT, more() {} }, cfg: { hub: { compact: false } } })
   const lines = text.split('\n')
   const i = lines.findIndex((l) => l.includes('Security hour with you'))
   assert.match(lines[i + 1], /GitLab two-factor, replace the leaked tokens,…/)
@@ -525,4 +532,139 @@ test('critical strip about a machine: where = the machine, the action opens Flee
   assert.match(text, /\[Open Fleet\] Computer one/)
   assert.match(text, /! critical: see the strip above/)
   assert.equal((text.match(/CPU 98 C/g) || []).length, 1)
+})
+
+// ---- 13 Nov 2026: concise pane that opens the page (R58, R59, R63, R70) -------------------------------------------------
+
+// every Button of a drawn tree: its key, its text, its press
+function buttons(node, out = []) {
+  if (!node || typeof node !== 'object') return out
+  if (Array.isArray(node)) { for (const x of node) buttons(x, out); return out }
+  const p = node.props || {}
+  if (node.type === 'Button') out.push({ key: p.key, press: p.onPress })
+  buttons(p.children, out)
+  return out
+}
+const ACT_FOLD = { ...ACT, more() {}, open() {} }
+const opened = (t, key) => {
+  const urls = []
+  const b = buttons(t).find((x) => x.key === key)
+  assert.ok(b, `no button ${key}`)
+  ACT_FOLD.open = (u) => urls.push(u)
+  b.press()
+  return urls[0]
+}
+const tree = (m, more = {}, cfg = {}) => drawHub(kit(el, {}), { cfg, model: m, columns: 38, act: ACT_FOLD, more })
+
+test('folded pane: each section one line with its count, › unfolds it; nothing over 38 columns', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const text = renderText(tree(m), 38)
+  for (const l of text.split('\n')) assert.ok([...l].length <= 38, `too wide: ${l}`)
+  assert.match(text, /\[›\] \[Warnings \(\d+\)\]/)
+  assert.match(text, /\[›\] \[To do here \(\d+\)/)
+  assert.match(text, /\[⌄\] \[Machines \(3\)\]/)
+  assert.match(text, /\[⌄\] \[Needs you now \(\d+\)\]/)
+  assert.match(text, /\[›\] \[Problems now \(\d+\)\]/)
+  // folded Needs you now: no row; unfolded Problems now: its rows
+  const folded = renderText(tree(m, { __sec_you: true, __sec_errors: true }), 38)
+  assert.match(folded, /\[›\] \[Needs you now/)
+  assert.doesNotMatch(folded, /Security hour/)
+  assert.match(folded, /The job queue can run/)
+  // the press toggles its section key
+  const keys = []
+  const b = buttons(drawHub(kit(el, {}), { cfg: {}, model: m, columns: 38, act: { ...ACT_FOLD, more: (k) => keys.push(k) } })).find((x) => x.key === 'sec-t-errors')
+  b.press()
+  assert.deepEqual(keys, ['__sec_errors'])
+  // open_sections is configurable
+  assert.match(renderText(tree(m, {}, { hub: { open_sections: [] } }), 38), /\[›\] \[Machines \(3\)\]/)
+})
+
+test('compact rows: a decision is one clipped line that opens #r-<uid>; its › unfolds the full row with its answers', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const q = m.global.you[0]
+  const text = renderText(tree(m), 38)
+  assert.doesNotMatch(text, /\[a\) 30 minutes\]/)
+  assert.equal(opened(tree(m), 'you-' + q.uid), 'http://127.0.0.1:24365/#r-' + q.uid.replace(/[^A-Za-z0-9-]/g, '-'))
+  const open = renderText(tree(m, { [q.uid]: true }), 38)
+  assert.match(open, /\[a\) 30 minutes/)
+})
+
+test('each line opens its part of the page: machine #tile-<id>, Problems now #overview, alerts #alerts, To do #todo', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const t = tree(m, { __sec_errors: true })
+  assert.equal(opened(t, 'dot-pc2'), 'http://127.0.0.1:24365/#tile-pc2')
+  assert.equal(opened(t, 'sec-errors'), 'http://127.0.0.1:24365/#overview')
+  assert.equal(opened(t, 'gl-e0'), 'http://127.0.0.1:24365/#overview')
+  assert.equal(opened(t, 'sec-lp-todo'), 'http://127.0.0.1:24365/#todo')
+  if (m.global.alerts) assert.equal(opened(t, 'gl-alerts'), 'http://127.0.0.1:24365/#alerts')
+  // a configured base is the one used
+  const cfg = { hub: { base: 'http://127.0.0.1:29999' } }
+  const m2 = hubModel(LOCAL, DATA4, cfg, { now: NOW })
+  assert.equal(opened(drawHub(kit(el, {}), { cfg, model: m2, columns: 38, act: ACT_FOLD }), 'dot-pc2'), 'http://127.0.0.1:29999/#tile-pc2')
+})
+
+test('machine lines (R58): name, mode, what runs (jobs + agent processes), its tile link', () => {
+  const m = hubModel(LOCAL, DATA4, {}, { now: NOW })
+  const d = Object.fromEntries(m.global.dots.map((x) => [x.id, x]))
+  assert.equal(d.pc1.running, 27)
+  assert.equal(d.pc1.link, 'tile-pc1')
+  assert.equal(machineText(d.pc1, m.words), 'Computer one · normal · ▶ 27')
+  assert.equal(machineText(d.pc2, m.words), 'Computer two · coding busy · ▶ 1')
+  assert.equal(machineText(d.tab, m.words), 'Tablet · off · ▶ 0')
+  assert.equal(machineText({ label: 'X', state: 'asleep', mode: '', running: null }, m.words), 'X · asleep')
+  assert.match(summaryText(m, {}), /● Computer one · normal · ▶ 27: http:\/\/127\.0\.0\.1:24365\/#tile-pc1/)
+})
+
+test('freshness: a part is late only when the hub knew it; the page data alone is read against this clock', () => {
+  const d = structuredClone(DATA4)
+  const g = d.glance.generated_ts
+  d.glance.freshness = [
+    { id: 'data', label: 'page data', ts: g, due_ts: g + 420 },
+    { id: 'intake', label: 'my messages', ts: g - 600, next_ts: g + 300, due_ts: g + 600 },
+  ]
+  // hours later on this computer (an old copy): intake was not late when the hub wrote it, only the page data is
+  const late = hubModel(LOCAL, d, {}, { now: (g + 7200) * 1000 })
+  assert.match(late.stale, /page data/)
+  assert.doesNotMatch(late.stale, /my messages/)
+  assert.equal(hubModel(LOCAL, d, {}, { now: (g + 60) * 1000 }).stale, '')
+  // the hub itself knew intake was late
+  d.glance.freshness[1].due_ts = g - 60
+  assert.match(hubModel(LOCAL, d, {}, { now: (g + 60) * 1000 }).stale, /my messages refresh due/)
+})
+
+test('Ongoing (R63, R70): this conversation tree only, others counted; its repo, the machines with a job in it, not reported', () => {
+  const V = panneauView(60, { busy: true })
+  const lm = listModel({ ...V.panel, cfg: V.cfg, now: V.at })
+  const o = ongoingOf(lm, 'lead')
+  assert.equal(o.self.row.id, 'lead')
+  assert.ok(o.lines.every((x) => x.kind !== 'rest'))
+  assert.ok(!o.lines.some((x) => x.kind === 'conv' && x.row.id === 'pm'))
+  assert.ok(o.lines.some((x) => x.kind === 'workflow'))
+  assert.ok(o.elsewhere >= 1)
+  // a sub-conversation keeps its parent line, not its siblings
+  const lm2 = { lines: lm.lines.map((x) => ({ ...x, self: x.kind === 'conv' && x.row.id === 'k4' })) }
+  const o2 = ongoingOf(lm2, 'k4')
+  assert.equal(o2.lines[0].row.id, 'lead')
+  assert.equal(o2.self.row.id, 'k4')
+  assert.ok(!o2.lines.some((x) => x.kind === 'conv' && x.row.id === 'k2'))
+  assert.equal(ongoingOf({ lines: [] }, 'x').self, null)
+  // the machines with a queue job in its repo; a job's repo from its field or its working directory
+  assert.equal(jobRepo({ cwd: 'C:\\code\\proj-one\\' }), 'proj-one')
+  const d = structuredClone(DATA4)
+  for (const t of d.fleet_view.tiles) if (t.id === 'pc2') t.running = [{ id: 9, repo: 'proj-one' }]
+  const m = hubModel(LOCAL, d, {}, { now: NOW })
+  assert.deepEqual(repoMachines(m, 'proj-one').map((x) => [x.id, x.repoJobs]), [['pc2', 1]])
+  assert.deepEqual(repoMachines(m, 'proj-two'), [])
+  // drawn: the tab, the tree, the repo line, the machine, sessions not reported
+  const VV = { ...V, cfg: { hub: { enabled: true } }, tab: 'hub-ongoing', act: { ...V.act, ...ACT_FOLD }, hub: { model: m, more: {} }, columns: 38 }
+  const text = renderText(drawCockpit(el, VV), 38).replace(/\u00a0/g, ' ')
+  assert.match(text, /\[Dispatcher\] \[Ongoing\] \[Conversations\]/)
+  assert.match(text, /This conversation/)
+  assert.match(text, /Lane alpha/)
+  assert.doesNotMatch(text, /PM BETA/)
+  assert.match(text, /Elsewhere on this PC: \d+ working/)
+  assert.match(text, /Repo proj-one · branch claude\/pan/)
+  assert.match(text, /Computer two · 1 job/)
+  assert.match(text, /not\s+reported/)
+  for (const l of text.split('\n')) assert.ok([...l].length <= 38, `too wide: ${l}`)
 })

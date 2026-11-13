@@ -81,7 +81,11 @@ function drawBody(el, V) {
   const pc = panelConfig(V.cfg)
   // the hub tabs (Overview, To do, … Lanes): the local Cockpit's data, one tab bar shared by every view of the pane
   const hub = V.hub || {}
-  if (hubIdOf(V.tab)) return drawHub(h, { cfg: V.cfg, tab: hubIdOf(V.tab), model: hub.model, error: hub.error, busy: hub.busy, msg: hub.msg, more: hub.more, columns: V.columns, act: V.act })
+  if (hubIdOf(V.tab)) {
+    // Ongoing reads the Panneau's data (this conversation's tree), drawn as the Panneau draws it
+    const panel = V.panel ? { now: V.at, ...V.panel, cfg: V.cfg, columns: V.columns, colors: { track: '#8b949e33', ...(h.c.colors || {}) } } : null
+    return drawHub(h, { cfg: V.cfg, tab: hubIdOf(V.tab), model: hub.model, error: hub.error, busy: hub.busy, msg: hub.msg, more: hub.more, columns: V.columns, act: V.act, panel })
+  }
   const bar = hubBar(h, V.cfg, V.tab === 'panneau' ? 'panneau' : '', hub.model, V.act)
   const tab = tabs.some((t) => t.id === V.tab) || V.tab === 'nuit' || V.tab === 'depuis' || (V.tab === 'panneau' && pc.enabled !== false) ? V.tab : 'home'
   // The Panneau is one scrolling column with no tab bar at all (Julian, 17 Oct): the old views are reached by their

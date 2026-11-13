@@ -698,3 +698,13 @@ test('scanner extras: the % projected at reset from the samples\' pace (traffic 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('keptAbove: only the keyed elements of the other mods are kept above the prompt', async () => {
+  const { keptAbove } = await import('../hooks/logic.ts')
+  const you = { type: 'Box', key: 'cockpit-you', props: { children: ['you: 3'] } }
+  const veille = { type: 'Box', key: null, props: { children: [{ type: 'Text', key: 'veille', props: { children: 'line' } }, { type: 'Box', key: 'cockpit-above', props: { children: [you, { type: 'Text', props: { key: 'eta', children: 'x' } }] } }] } }
+  assert.equal(keptAbove(veille, ['cockpit-you']), you)
+  assert.equal(keptAbove(veille, []), null)
+  assert.equal(keptAbove(null, ['cockpit-you']), null)
+  assert.equal(keptAbove({ type: 'Text', props: { key: 'eta' } }, ['cockpit-you']), null)
+})

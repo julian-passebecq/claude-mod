@@ -26,7 +26,10 @@ test('shipped config: the clarity layout is the default and every label has a va
 test('folded: ONE row, the running state first, grey when nothing runs', () => {
   const v = clarityView(base, cc, lv, 120, false)
   assert.equal(v.rows.length, 1)
-  assert.match(text(v.rows[0]), /^▶ ○ rien en cours · ctx ▰▰▱▱▱ 30 % · 5 h ▱▱▱▱▱ 3 % · sem ▰▱▱▱▱ 11 %$/)
+  // since 13 Nov 2026 (R59) the shipped summary is ctx only: 5 h and week are on Claude's own icon
+  assert.match(text(v.rows[0]), /^▶ ○ rien en cours · ctx ▰▰▱▱▱ 30 %$/)
+  const old = clarityView(base, clarityCfg({ ...shipped.jauge.clarity, summary: ['waiting', 'context', 'five', 'week'] }), lv, 120, false)
+  assert.match(text(old.rows[0]), /^▶ ○ rien en cours · ctx ▰▰▱▱▱ 30 % · 5 h ▱▱▱▱▱ 3 % · sem ▰▱▱▱▱ 11 %$/)
   assert.equal(v.tone, 'dim')
 })
 

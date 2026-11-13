@@ -272,3 +272,28 @@ export function todayOf(syn) {
   const rows = (syn.every || syn.rows || []).filter((r) => r.id !== 'codex' && Number(r.tokens) > 0)
   return { convs: rows.length, tokens: syn.total ? Number(syn.total.tokens) || 0 : 0, cost: syn.total && Number.isFinite(syn.total.cost) ? syn.total.cost : null }
 }
+
+/**
+ * The Ongoing view (R63): oneList()'s lines kept to the tree that holds this conversation: its parents (when it is a
+ * sub-conversation), itself, its Workflows, agents and sub-conversations; the other conversations are counted, not drawn.
+ * in: listModel (oneList()), self (its cli). -> { lines, self (its line or null), elsewhere (working or waiting
+ * conversations outside that tree) }.
+ */
+export function ongoingOf(listModel, self) {
+  const lines = (listModel && Array.isArray(listModel.lines)) ? listModel.lines : []
+  const at = lines.findIndex((x) => x.kind === 'conv' && x.self)
+  const busy = (x) => x.kind === 'conv' && (x.row.cat === 'working' || x.row.cat === 'waiting')
+  if (at < 0) return { lines: [], self: null, elsewhere: lines.filter(busy).length }
+  const me = lines[at]
+  const kept = new Set([at])
+  // its parents: walking back, each conversation line one level up
+  let depth = me.depth
+  for (let i = at - 1; i >= 0 && depth > 0; i--) {
+    const x = lines[i]
+    if (x.kind === 'conv' && x.depth < depth) { kept.add(i); depth = x.depth }
+  }
+  // its own subtree: every line after it one level deeper or more
+  for (let i = at + 1; i < lines.length && lines[i].depth > me.depth && lines[i].kind !== 'rest'; i++) kept.add(i)
+  const out = lines.filter((x, i) => kept.has(i))
+  return { lines: out, self: me, elsewhere: lines.filter((x, i) => !kept.has(i) && busy(x)).length }
+}

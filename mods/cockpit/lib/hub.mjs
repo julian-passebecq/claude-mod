@@ -18,7 +18,7 @@
 // Pure: no `$`, no engine call. Words: the page's own (page_labels, inbox.labels) first, then hub.labels.
 
 // the one hub view of the pane (the dispatcher); the old tab ids still open it (configs and /cockpit words of #82/#83)
-export const HUB_TABS = ['home']
+export const HUB_TABS = ['home', 'ongoing']
 export const LEGACY_TABS = ['overview', 'todo', 'questions', 'fleet', 'quota', 'alerts', 'journal', 'watch', 'lanes']
 // the page's modules (its view ids, its hash links; logic.js KNOWN)
 export const MODULES = ['overview', 'inbox', 'todo', 'fleet', 'alerts', 'quota', 'dispatch', 'intake', 'lanes', 'journal', 'watch']
@@ -33,6 +33,12 @@ export const HUB_DEFAULTS = {
   start: 'home',
   refresh_s: 60,
   status_line: true,
+  // the « you: N » line above the prompt (your own items, red while work is stopped; a click opens the page's To do)
+  prompt_line: true,
+  // one line per decision / problem row (a click opens the page at that row); its › unfolds today's full row
+  compact: true,
+  // the sections that start unfolded (the others are one line with a count and a colour until clicked)
+  open_sections: ['machines', 'you'],
   // the « Open in Cockpit » links: the page's own list (data.modules) when it publishes one, else this order and labels
   modules: { order: MODULES, labels: { overview: 'Overview', inbox: 'Questions and checks', todo: 'To do', fleet: 'Fleet', alerts: 'Alerts',
     quota: 'Quota', dispatch: 'Dispatch plan', intake: 'My messages', lanes: 'Lanes', journal: 'Journal', watch: 'Watch' } },
@@ -70,7 +76,26 @@ export const HUB_DEFAULTS = {
     stale: 'Hub overview older than {h} h: the hub cron did not run',
     refresh: '↻',
     dispatcher: 'Dispatcher',
+    ongoing: 'Ongoing',
     conversations: 'Conversations',
+    // one line per machine (R58): its name, mode (or power when off), what runs there
+    machine_line: '{name} · {mode} · ▶ {running}',
+    machine_line_idle: '{name} · {mode}',
+    machines: 'Machines',
+    warnings: 'Warnings',
+    // the line above the prompt: your own items (the page's Needs you now count)
+    you_line: 'you: {n}',
+    // the Ongoing view (R63, R70)
+    this_conv: 'This conversation',
+    this_conv_none: 'This conversation is not in the session list yet.',
+    elsewhere: 'Elsewhere on this PC: {n} working',
+    elsewhere_none: 'Nothing else works on this PC.',
+    repo_line: 'Repo {repo} · branch {branch}',
+    repo_none: 'Repo: not known for this conversation',
+    repo_machines: 'Machines with a queue job in {repo}',
+    repo_jobs_none: 'no queue job in this repo',
+    not_reported: 'not reported',
+    sessions_not_reported: 'Sessions per machine: not reported',
     org_all: 'All',
     workspace: 'Workspace',
     laptop: 'This laptop · {machine}',
@@ -109,6 +134,7 @@ export const HUB_DEFAULTS = {
     // This laptop keeps only the steps that are not already a decision row (one story, one place: the decision)
     todo_as_decisions: '{n} more are decisions below',
     todo_all_decisions: 'All {n} steps here are decisions below',
+    todo_dec_short: '+{n} as decisions',
     // the critical strip: severity word, where (organization), the action link to the page's module
     crit_sev: 'critical',
     crit_open: 'Open {module}',
@@ -203,7 +229,7 @@ export function fill(tpl, vars) {
 // The hub views of the pane: the dispatcher alone (none when hub.enabled is false).
 export function hubTabs(cfg) {
   const c = hubConfig(cfg)
-  return c.enabled === false ? [] : [{ id: 'home', label: c.labels.dispatcher }]
+  return c.enabled === false ? [] : [{ id: 'home', label: c.labels.dispatcher }, { id: 'ongoing', label: c.labels.ongoing }]
 }
 
 // D.tab of a hub view: "hub-home"; "hub-<old tab>" still means the dispatcher
@@ -211,6 +237,7 @@ export const tabKey = (id) => 'hub-' + (LEGACY_TABS.includes(id) ? 'home' : id)
 export const hubIdOf = (tab) => {
   if (typeof tab !== 'string' || !tab.startsWith('hub-')) return null
   const id = tab.slice(4)
+  if (id === 'ongoing') return 'ongoing'
   return HUB_TABS.includes(id) || LEGACY_TABS.includes(id) ? 'home' : null
 }
 
@@ -514,7 +541,10 @@ export function hubModel(local, data, cfg, opts = {}) {
   if (typeof obj(G.time).hour12 === 'boolean') c.time = { ...c.time, hour12: G.time.hour12 }
   const T = (x) => at(x, now, c)
   const ovTs = tsOf(ov.generated_ts || ov.generated_utc)
-  const late = arr(G.freshness).filter((p) => p && p.id !== 'data' && p.due_ts && now > tsOf(p.due_ts))
+  // a part is late only when the hub itself knew it (its due time before the glance was written): an old copy of the
+  // page data on this computer does not make every part look late. Only the page data is read against this clock.
+  const gTs = tsOf(G.generated_ts)
+  const late = arr(G.freshness).filter((p) => p && p.due_ts && (p.id === 'data' ? now > tsOf(p.due_ts) : gTs > 0 && tsOf(p.due_ts) < gTs))
   const words = {
     ...c.labels, ...pick(PL, ['show_all', 'recommended', 'answer_sent']),
     ...pick(PG, ['needs_you', 'needs_you_none', 'errors_now', 'errors_now_none', 'alerts_none']),
@@ -797,7 +827,10 @@ function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered, now, me
     fleetLine = fill(lab.fleet_at, { sentence: str(fv.sentence), at: T(fv.generated_ts) })
     dots = tiles.map((t) => {
       const st = t.busy ? 'busy' : str(t.power || '?')
-      return { id: str(t.id), label: str(t.label || label(t.id)), state: st, tone: c.colour_tone[str(t.colour)] || c.state_tone[st] || '', alerts: arr(t.alerts).length }
+      // what runs there: its queue jobs plus its agent processes, when the tile reports them
+      const ag = num(obj(t.agents).total)
+      const running = Array.isArray(t.running) || ag !== null ? arr(t.running).length + (ag || 0) : null
+      return { id: str(t.id), label: str(t.label || label(t.id)), state: st, mode: str(t.mode), running, link: 'tile-' + str(t.id), tone: c.colour_tone[str(t.colour)] || c.state_tone[st] || '', alerts: arr(t.alerts).length, jobs: arr(t.running) }
     })
   } else {
     const fl = obj(D.fleet)
@@ -808,7 +841,8 @@ function globalModel(D, c, todo, ofOrg, org, label, ov, inbox, answered, now, me
     fleetLine = machines.length ? fill(lab.fleet_line, { busy: busy.length, workers: workers.length, running: h.jobs_running ?? 0, queued: h.jobs_queued ?? 0 }) : ''
     dots = machines.map((x) => {
       const st = arr(obj(x.queue).running).length ? 'busy' : str(x.herd_state || x.state || '?')
-      return { id: str(x.id), label: str(x.label || label(x.id)), state: st, tone: c.state_tone[st] || '', alerts: arr(x.alerts).length }
+      const mode = str(obj(obj(D.modes)[str(x.id)]).mode || x.mode)
+      return { id: str(x.id), label: str(x.label || label(x.id)), state: st, mode, running: obj(x.queue).running ? arr(obj(x.queue).running).length : null, link: 'tile-' + str(x.id), tone: c.state_tone[st] || '', alerts: arr(x.alerts).length, jobs: arr(obj(x.queue).running) }
     })
   }
   // Needs you now: the page's « You » list of the workspace, related items folded into one row
@@ -1096,7 +1130,7 @@ export function summaryText(m, cfg) {
   lines.push(`${W.global}${m.org ? ` (${(m.orgs.find((o) => o.id === m.org) || {}).label || m.org})` : ''}`)
   if (G.fleetLine) lines.push(`  ${G.fleetLine}`)
   if (G.quota) lines.push(`  ${G.quota.tone === 'bad' ? '!' : '*'} ${G.quota.text}${G.quota.covers.length ? ` · ${fill(W.covers, { list: G.quota.covers.join(', ') })}` : ''}`)
-  if (G.dots.length) lines.push(`  ${G.dots.map((d) => `${d.label} ${d.state}`).join(' · ')}`)
+  for (const d of G.dots) lines.push(`  ● ${machineText(d, W)}: ${moduleUrl(m.base, d.link)}`)
   lines.push(G.youCount ? `  ${W.you_block} · ${G.youCount}` : `  ${W.you_block} (${G.youTotal})`)
   if (!G.you.length) lines.push(`    ${W.you_none}`)
   for (const q of G.you) {
@@ -1128,6 +1162,31 @@ export function summaryText(m, cfg) {
   lines.push(`${W.open}: ${m.modules.map((x) => `${x.label} ${x.url}`).join(' · ')}`)
   if (m.sourceLine) lines.push(`(${m.sourceLine})`)
   return lines.join('\n')
+}
+
+// One machine line (R58): « MSI (JULP) · normal · 9 running »; the power word when it is not on (asleep, off, busy).
+export function machineText(d, W) {
+  const mode = [d.mode, d.state && d.state !== 'on' ? d.state : ''].filter(Boolean).join(' ') || d.state || ''
+  return d.running === null || d.running === undefined
+    ? fill(W.machine_line_idle, { name: d.label, mode })
+    : fill(W.machine_line, { name: d.label, mode, running: d.running })
+}
+
+// The repo of a queue job: its own field when the hub writes one, else the last folder of its working directory.
+export function jobRepo(j) {
+  const x = obj(j)
+  const r = str(x.repo || x.project)
+  if (r) return r
+  const cwd = str(x.cwd || x.workdir)
+  return cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : ''
+}
+
+// Ongoing (R70): per repo, the machines that have a queue job in it (tile.running), from the dispatcher's machines.
+export function repoMachines(m, repo) {
+  const r = str(repo).toLowerCase()
+  if (!m || !r) return []
+  return arr(m.global && m.global.dots).filter((d) => arr(d.jobs).some((j) => jobRepo(j).toLowerCase() === r))
+    .map((d) => ({ ...d, repoJobs: arr(d.jobs).filter((j) => jobRepo(j).toLowerCase() === r).length }))
 }
 
 export function badgeText(m) {

@@ -30,7 +30,7 @@
     "layout": "clarity",
     "clarity": {
       "sections": ["running", "gauges", "pc", "mods"],
-      "summary": ["waiting", "context", "five", "week"],
+      "summary": ["waiting", "context"],
       "gauges": ["context", "five", "week", "tps"],
       "summary_bar_cells": 5,
       "bar_cells": 10,
@@ -102,6 +102,8 @@
     "bar_cells": 5,
     "buttons_inline": true,
     "others_above_prompt": "hide",
+    "_keep_above_prompt": "With others_above_prompt hide, what other mods draw above the prompt is left out except the elements whose key is listed here (the Cockpit's « you: N » line, key cockpit-you; R59, 13 Nov 2026).",
+    "keep_above_prompt": ["cockpit-you"],
     "sep": " │ ",
     "dot": " · ",
     "sep_short": " │ ",
@@ -256,8 +258,9 @@
     "preview_chars": 12000
   },
   "export_brief": {
+    "_off": "enabled false since 13 Nov 2026 (Julian, R59: « Export conv » obsolete on the strip); /export-eta brief stays.",
     "_doc": "Brief pour une autre IA, sur la ligne de la Jauge : « Export conv » écrit UN fichier Markdown masqué sur cette conversation (ce qu'elle est, où on en est / suite, ETA en direct, git, PR/MR, messages et actions) et le copie dans le presse-papiers ; « Export + enfants » (seulement quand l'app lui connaît des sous-conversations, leur nombre en {n}) y ajoute chaque sous-conversation. buttons : libellés et ordre (id conv ou tree ; count : suffixe du bouton tree). Lance script (exporter/brief.mjs du mod export-eta, relatif au dossier de band) directement, sans attendre la fin du tour de Claude, sans modèle ni PR ; réglages du brief dans export-eta.config.json (brief). refresh_s : intervalle de relecture du nombre d'enfants. when_missing : hide (boutons absents si le script manque) ou grey.",
-    "enabled": true,
+    "enabled": false,
     "script": "../export-eta/exporter/brief.mjs",
     "buttons": [
       { "id": "conv", "label": "Export conv" },
