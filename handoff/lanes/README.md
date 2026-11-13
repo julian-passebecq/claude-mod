@@ -11,3 +11,4 @@ One file per lane that changed code here: what changed, how it was verified, pro
 | 2026-11-12 | mod-one-count (Needs you now = the page's glance.decisions: one count, a button on every row, more opens the page row, critical strip, one deploy command) | [2026-11-12-mod-one-count.md](2026-11-12-mod-one-count.md) |
 | 2026-11-12 | mod-first-glance (fifth review: one story once, two-line titles with why and what the answer does, critical strip with severity, where and action, shorter pane) | [2026-11-12-mod-first-glance.md](2026-11-12-mod-first-glance.md) |
 | 2026-11-13 | cockpit-ongoing-view (sections one line that open the page, Ongoing view, machine lines, you: N above the prompt, freshness fix) | [2026-11-13-cockpit-ongoing-view.md](2026-11-13-cockpit-ongoing-view.md) |
+| 2026-11-13 | mod-top-lines (this computer / play or shut down / Oracle / You on top of the pane and page; hot card shows now) | [2026-11-13-mod-top-lines.md](2026-11-13-mod-top-lines.md) |

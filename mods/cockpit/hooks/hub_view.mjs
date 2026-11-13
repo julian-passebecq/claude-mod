@@ -98,6 +98,8 @@ export function drawHub(h, S) {
     out.push(link(h, W.open, moduleUrl(c.base, ''), 'open-page'))
     return h.col(out.filter(Boolean))
   }
+  // the three top lines (lane C): this computer, play / shut down (the line is the action), Oracle, then You
+  if (m.top) out.push(drawTop(h, m.top, S, width))
   if (S.error) out.push(h.T(S.error, { tone: 'warn', key: 'hub-err', wrap: 'wrap' }))
   if (m.stale) out.push(h.T(m.stale, { tone: 'warn', key: 'hub-stale', wrap: 'wrap' }))
   if (m.orgs.length) {
@@ -115,7 +117,7 @@ export function drawHub(h, S) {
     // each row: its severity word and what is stopped (two lines at most), then the action and where it is. A row whose
     // story is a decision carries that decision's recommended answer (the decision is not repeated below)
     const modLabel = (id) => (m.modules.find((x) => x.id === id) || {}).label || ''
-    out.push(h.box(W.critical, m.critical.map((r, i) => {
+    out.push(h.box(m.criticalHead || W.critical, m.critical.map((r, i) => {
       const d = r.decision
       const rec = d && !d.sent ? d.answers.find((a) => a.rec) : null
       const act = rec
@@ -144,6 +146,20 @@ export function drawHub(h, S) {
     out.push(h.T(m.base, { dim: true, key: 'open-base' }))
   }
   return h.col(out.filter(Boolean))
+}
+
+// The top lines, one each, in the hub's words; the play line sends its click (S.act.top), You opens its item on the page.
+export function drawTop(h, t, S, width) {
+  const w = Math.max(16, width)
+  return h.col([
+    h.T(clipLines(t.this, w, 2), { key: 'top-this', bold: true, tone: t.tone === 'ok' ? 'ok' : t.tone === 'warn' ? 'warn' : undefined, wrap: 'wrap' }),
+    t.clickText && S.act && S.act.top
+      ? h.col([h.tbtn(clipLines(t.play, w, 2), () => S.act.top(), 'top-play', { plain: true }),
+        t.clickHint ? h.T(t.clickHint, { key: 'top-hint', dim: true, wrap: 'truncate-end' }) : null].filter(Boolean), { key: 'top-play-col' })
+      : h.T(clipLines(t.play, w, 2), { key: 'top-play', wrap: 'wrap' }),
+    h.T(clipLines(t.oracle, w, 2), { key: 'top-oracle', dim: false, wrap: 'wrap' }),
+    h.tbtn(clipLines(t.you, w, 2), () => S.act && S.act.open(t.youUrl), 'top-you', { plain: true, tone: t.youN ? 'warn' : undefined }),
+  ], { key: 'top-lines', marginBottom: 1 })
 }
 
 function drawLaptop(h, m, c, S, width) {

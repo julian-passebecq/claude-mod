@@ -668,3 +668,51 @@ test('Ongoing (R63, R70): this conversation tree only, others counted; its repo,
   assert.match(text, /not\s+reported/)
   for (const l of text.split('\n')) assert.ok([...l].length <= 38, `too wide: ${l}`)
 })
+
+// ---- 13 Nov 2026 evening (lane C): the three top lines, the hub's own strings (glance.top) ------------------------------
+const TOP = {
+  machines: {
+    pc1: { machine: 'pc1', this: 'This computer: in use by agents (1 Codex agent job, until about 21:20)', busy: true, stale: false,
+      play: 'You can play / shut it down: no, an agent job is running', click: 'pause', click_hint: 'click: send it nothing new', click_text: 'Cockpit: pause pc1',
+      you: 'You: 2 to do here · next: Say yes', you_n: 2, you_link: '#todo-say-yes' },
+  },
+  oracle: 'Oracle: lead working on the to-do list; audit running',
+}
+const withTop = (top, head) => { const d = JSON.parse(JSON.stringify(DATA4)); d.glance.top = top; if (head) d.glance.critical_head = head; return d }
+
+test('top lines: this computer, play / shut down, Oracle, You first, in the hub words; the You line opens its item', () => {
+  const m = hubModel(LOCAL, withTop(TOP), {}, { now: NOW })
+  assert.equal(m.top.this, TOP.machines.pc1.this)
+  assert.equal(m.top.youUrl, 'http://127.0.0.1:24365/#todo-say-yes')
+  const t = tree(m)
+  const text = renderText(t, 38)
+  const i = (s) => text.replace(/\s+/g, ' ').indexOf(s)
+  assert.ok(i('This computer: in use') >= 0 && i('This computer: in use') < i('You can play') && i('You can play') < i('Oracle: lead') && i('Oracle: lead') < i('You: 2 to do'), text)
+  for (const l of text.split('\n')) assert.ok([...l].length <= 38, `too wide: ${l}`)
+  assert.equal(opened(t, 'top-you'), 'http://127.0.0.1:24365/#todo-say-yes')
+})
+
+test('top lines: the play line is the action (S.act.top); no glance.top = no lines (older hub)', () => {
+  const m = hubModel(LOCAL, withTop(TOP), {}, { now: NOW })
+  let n = 0
+  const b = buttons(drawHub(kit(el, {}), { cfg: {}, model: m, columns: 38, act: { ...ACT_FOLD, top: () => n++ } })).find((x) => x.key === 'top-play')
+  b.press()
+  assert.equal(n, 1)
+  const m0 = hubModel(LOCAL, withTop(undefined), {}, { now: NOW })
+  assert.equal(m0.top, null)
+  assert.ok(!/This computer:/.test(renderText(tree(m0), 38)))
+})
+
+test('critical strip heading: the hub says whether work is stopped', () => {
+  const m = hubModel(LOCAL, withTop(TOP, 'Urgent now'), {}, { now: NOW })
+  assert.equal(m.criticalHead, 'Urgent now')
+})
+
+test('/fleet text starts with the four top lines', () => {
+  const m = hubModel(LOCAL, withTop(TOP), {}, { now: NOW })
+  const lines = summaryText(m, {}).split('\n')
+  assert.equal(lines[0], TOP.machines.pc1.this)
+  assert.ok(lines[1].startsWith('You can play / shut it down: no'))
+  assert.equal(lines[2], TOP.oracle)
+  assert.ok(lines[3].startsWith('You: 2 to do here · next: Say yes http://127.0.0.1:24365/#todo-say-yes'))
+})

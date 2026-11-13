@@ -226,6 +226,23 @@ async function hubAnswer($, cfg, uid, key) {
   $.ui.invalidate('ui.render')
 }
 
+// The « You can play / shut it down » line: its click sends the hub's own text (« Cockpit: pause msi » or « … resume
+// msi ») with the click line, as the page does; the hub applies it within about 2 minutes, the line then says so.
+async function hubTopClick($, cfg) {
+  const c = hubConfig(cfg)
+  const m = hubModelOf(cfg)
+  const t = m && m.top
+  if (!t || !t.clickText) return
+  H.msg = '…'
+  $.ui.invalidate('ui.render')
+  const r = await hubPost($, c.base, '/api/todo', { machine: m.global.answerMachine, text: `${t.clickText}\n${m.global.clickLine}` })
+  H.msg = r && r.ok
+    ? (t.click === 'pause' ? 'Sent: nothing new goes to this computer within about 2 minutes; click the line again to resume.' : 'Sent: this computer gets jobs again within about 2 minutes.')
+    : `Could not send: ${sendResult('todo', r)}`
+  try { $.ui.toast(H.msg) } catch { /* no toast here */ }
+  $.ui.invalidate('ui.render')
+}
+
 // « Open in Cockpit »: the page at a module (base/#<module>) in the default browser. Only the configured loopback base
 // is opened, as an argv (never a shell string): rundll32's URL handler on Windows, open on macOS, xdg-open elsewhere.
 async function openPage($, cfg, url) {
@@ -842,6 +859,7 @@ function actions($) {
     // the dispatcher (lib/hub.mjs, hooks/hub_view.mjs)
     hubTab: (id) => setTab($, tabKey(id)),
     answer: (uid, key) => { void hubAnswer($, CFG || {}, uid, key) },
+    top: () => { void hubTopClick($, CFG || {}) },
     open: (url) => { void openPage($, CFG || {}, url) },
     // a quick action fills the prompt with the command; the person completes and sends it (nothing is sent by itself)
     fill: (text) => { void Promise.resolve($.prompt.fill({ text, mode: 'replace' })).catch(() => { H.msg = `Type ${text.trim()} <machine> <text>`; redraw() }) },

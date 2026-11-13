@@ -9,6 +9,14 @@ the SAME data (herd-worker on every laptop: `GET /local.json` this computer, `GE
 is written one way (`hub.time`: this computer's clock, 24 h, « 19:22 » today, « Fri 13 Nov 16:02 » another day), hub-written
 dates inside texts included (« empties 2026-11-13T07:31:57Z » reads « empties Fri 13 Nov 08:31 »).
 
+**Top lines (0.8.7, 13 Nov 2026 evening).** Right under the views row, four lines in the hub's own words
+(`data.glance.top.machines[<this machine>]`, computed once on the hub so the page of each machine prints the same):
+« This computer: free » or « in use by agents (N jobs, what, until about HH:MM) » or « no news from it since HH:MM »;
+« You can play / shut it down: yes » or « no: <why> », a button whose click sends the hub's pause (or resume) of this
+computer with the click line (nothing new is sent to it; the same line resumes it); « Oracle: idle » or « lead working
+on … » or « audit running »; « You: N to do here · next: <title> », which opens the page at that item (`#todo-<id>`).
+The critical strip's heading is the hub's `glance.critical_head`: « Critical: work is stopped » only when a row stops work.
+
 | Block | What it shows |
 |---|---|
 | **This laptop · <machine>** | read from the page's own Fleet tile (`fleet_view.tiles`): power, mode, CPU, RAM, the hotter temperature sensor (and its 1 h maximum when it passed `temp.warn_c`), the tile's red and yellow reasons, its running jobs (one source for the tile, the page's Lanes and this pane; ETA or « past its ETA » from the overview), lanes this machine owns; then the to-dos delivered here, urgent first (marked done last), `todo.max` (3) rows of one line each, **Run** / **Mark done** on the first only, « show all N ». Older data without tiles: the fleet machine and the hub's health / modes keys. |
