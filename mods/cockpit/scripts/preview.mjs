@@ -38,6 +38,33 @@ const unfold = String(opt('--open', '') || '').split(',').filter(Boolean)
 // --hub [--org <id>]: the dispatcher (This laptop, Global, Open in Cockpit) from invented fixtures
 //   (scripts/fixtures/hub.mjs); --hub-live: the same from this computer's local Cockpit (http://127.0.0.1:24365,
 //   read-only GETs; the output is private data: print it, never commit it); --text: summaryText (/fleet's answer)
+// --ongoing [--live]: the dispatcher's Ongoing view (this conversation's tree from the Panneau fixtures, its repo and the
+//   machines with a queue job in it from the hub fixtures; --live: the hub part from this computer's local Cockpit)
+if (argv.includes('--ongoing')) {
+  const { hubModel } = await import('../lib/hub.mjs')
+  const { drawCockpit } = await import('../hooks/view.mjs')
+  const { panneauView } = await import('./fixtures/panneau.mjs')
+  let local, data
+  if (argv.includes('--live')) {
+    const base = 'http://127.0.0.1:24365'
+    local = await (await fetch(base + '/local.json')).json()
+    data = await (await fetch(base + '/data.json')).json()
+  } else {
+    const fx = await import('./fixtures/hub.mjs')
+    local = fx.LOCAL
+    data = structuredClone(fx.DATA4)
+    // an invented queue job in the fixture conversation's repo, on Computer two
+    for (const t of data.fleet_view.tiles) if (t.id === 'pc2') t.running = [{ id: 9, kind: 'claude', tag: 'lane', repo: 'proj-one' }]
+  }
+  const noop = () => {}
+  const V = panneauView(cols, { busy: true, hub: true })
+  V.cfg = { ...V.cfg, hub: { ...(V.cfg.hub || {}), enabled: true } }
+  V.tab = 'hub-ongoing'
+  V.act = { ...V.act, hubTab: noop, panneau: noop, refresh: noop, org: noop, run: noop, done: noop, answer: noop, fill: noop, open: noop, more: noop }
+  V.hub = { model: hubModel(local, data, {}, {}), more: {} }
+  console.log(renderText(drawCockpit(el, V), cols).replace(/ /g, ' '))
+  process.exit(0)
+}
 const hubLive = argv.includes('--hub-live')
 if (argv.includes('--hub') || hubLive) {
   const { hubModel, summaryText } = await import('../lib/hub.mjs')

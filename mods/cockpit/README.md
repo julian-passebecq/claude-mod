@@ -15,6 +15,32 @@ dates inside texts included (« empties 2026-11-13T07:31:57Z » reads « empties
 | **Global** | the page's fleet sentence with its time (`fleet_view.sentence`) and one dot per tile in the page's order, coloured by the tile (grey = off or viewer); the page's headings (`page_labels`): **Needs you now**, the page's list of the workspace with related items folded into one row (the question with its **one-click answers**, recommended first, and « covers I2, I4 and 1 to-do »; the page's own send, `POST /api/todo` « Answer I90: a » to `inbox.answer_machine`, confirmed on screen and kept), the plain title first and a meta line in plain words (`state_words`, `owner_words`, « priority 1 ») with the id small at its end; **Problems now**, the page's rows (red machines, the overview's errors) minus what Needs you now already shows, the quota ONCE built from `quota.json` (`data.quota`, as the Quota module reads it: used %, one exhaust time, reset, reading time) with the register's quota problems folded into it, yellow with « unlimited mode until … » when Julian's quota mode is in `quota.calm_modes`, `errors_max` rows then « show all N »; the page's alerts count minus the rows listed above; urgent to-dos on other machines; quick actions **Job or prompt to a machine…** and **To-do for Julian…** that fill the prompt with `/dispatch ` or `/todo ` (nothing is sent until the person sends it) |
 | **Open in Cockpit** | one button per page module, the page's own list (`data.modules`: Overview, Questions and checks, To do, Fleet, Alerts, Quota, Dispatch plan, My messages, Lanes, Journal, Watch) opening `base/#<module>` in the browser (rundll32 URL handler on Windows, `open` on macOS, `xdg-open` elsewhere, as an argv; only the configured loopback base). Every « show all N » is such a button too. |
 
+**Concise, open to Cockpit** (0.8.6, 13 Nov 2026; Julian: « claude mod concise, open to cockpit », backlog R58, R59, R63,
+R70). In the pane every section is ONE line with its count and colour: **›** unfolds it in place, its label opens its part
+of the page (`base/#…`). `hub.open_sections` (default `machines`, `you`) start unfolded. With `hub.compact` (default
+true) each decision or problem row is one clipped line that opens the page at that row; its **›** unfolds today's full
+row with the one-click answers. What each line opens:
+
+| Line | Opens |
+|---|---|
+| a machine « ● MSI (JULP) · normal · ▶ 9 » (`labels.machine_line`; ▶ = queue jobs + agent processes of its tile) | `#tile-<id>` |
+| a decision row | `#r-<uid>` |
+| Needs you now, Problems now and their rows | `#overview` |
+| alerts | `#alerts` |
+| To do here, « you: N » above the prompt | `#todo` |
+| This laptop's state, Warnings, Working on | `#tile-<this machine>` |
+| a critical row | its own link |
+
+The views row reads **Dispatcher | Ongoing | Conversations**. **Ongoing** (R63, R70) shows THIS conversation as the
+Panneau draws it (its parent when it is a sub-conversation, its Workflows, agents and sub-conversations;
+`lib/panel_list.mjs ongoingOf`), « Elsewhere on this PC: N working » (opens Conversations), the conversation's repo and
+branch, the machines whose tile has a queue job in that repo (`tile.running[].repo`, else the job's working directory),
+and « not reported » for what the hub does not publish (Claude sessions per machine). Above the prompt, **you: N** (the
+page's Needs you now count, red while the critical strip has a row) opens the page's To do; `hub.prompt_line: false`
+turns it off. The band keeps it under its Jauge through `jauge.keep_above_prompt` (`cockpit-you`). The « not up to date »
+line counts a part late only when the hub knew it (its `due_ts` before `glance.generated_ts`); only the page data is read
+against this computer's clock.
+
 A **workspace** row (All · one button per organization) filters both blocks the page's way: All = every
 non-confidential item; an organization = its items; a confidential organization's items show only in its own workspace.
 **Conversations** (above every view) opens the Panneau below; **Dispatcher** comes back. The nine hub tabs of #82/#83 are
@@ -266,6 +292,8 @@ node mods/cockpit/scripts/preview.mjs --cols 75 --project datapass-claude-eta --
 ```
 
 prints the four levels as text (every section unfolded) at a side-panel width from this PC's transcripts; `--defaults` prints the pane as it opens (this conversation selected, the other sections folded).
+`--hub --cols 38` (about 300 px) prints the dispatcher from invented fixtures, `--hub-live` from this computer's local
+Cockpit (private: print, never commit), `--ongoing --cols 38` the Ongoing view (`--live` for the hub part).
 
 ## Tests
 

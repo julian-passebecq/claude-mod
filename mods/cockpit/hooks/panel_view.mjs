@@ -23,7 +23,7 @@
 // Pure except for the kit `h` and the callbacks in P.act.
 import { panelConfig, fill, textBar, durText, kTok, convKey, minText, modelShort, detailOf } from '../lib/panel.mjs'
 import { enCours, runningNow } from '../lib/panel_conv.mjs'
-import { convList, oneList, ciOfRow } from '../lib/panel_list.mjs'
+import { convList, oneList, ciOfRow, ongoingOf } from '../lib/panel_list.mjs'
 import { activityCounts } from '../lib/core/activity.mjs'
 import { fmtTokens, fmtUsd } from './nav.mjs'
 import { meterSvg } from './svg.mjs'
@@ -364,6 +364,20 @@ function drawConvs(u, P, L, width) {
   const wide = width >= (Number(u.c.style.wide_cols) || 60)
   for (const x of model.lines) out.push(...lineEls(u, P, L, x, wide))
   return h.col(out, { key: 'p-convs' })
+}
+
+/**
+ * The Ongoing view's tree (R63): this conversation's lines of the Panneau's list (its parents, its Workflows, agents and
+ * sub-conversations), drawn as the Panneau draws them. P: the Panneau's data (drawPanel's P). -> { els, self (its list
+ * line or null), elsewhere (working conversations outside that tree) }.
+ */
+export function drawThisConv(h, P) {
+  const c = panelConfig(P.cfg)
+  const width = Math.max(30, P.columns || 75)
+  const u = ui(h, P, c, width)
+  const o = ongoingOf(listModel(P), P.self)
+  const wide = width >= (Number(c.style.wide_cols) || 60)
+  return { els: o.lines.flatMap((x) => lineEls(u, P, c.labels, x, wide)), self: o.self, elsewhere: o.elsewhere }
 }
 
 /** oneList() of the Panneau's data (exported for scripts/preview.mjs --real and the tests). */

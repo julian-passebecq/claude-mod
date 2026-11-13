@@ -34,6 +34,7 @@ import {
   launcherButtons,
   launcherItems,
   othersOpen,
+  keptAbove,
   launcherPress,
   launcherKey,
   launcherTyped,
@@ -841,6 +842,8 @@ export const register: Register = (on, raw) => {
         return st ? [btn, <Text key={`stamp-${launcherKey(b)}`} dimColor wrap="truncate-end">{st}</Text>] : [btn]
       })
       const keepOthers = jx.others_above_prompt === 'show'
+      // hide: only the elements other mods key as kept (jauge.keep_above_prompt, the Cockpit's « you: N »)
+      const others: any = keepOthers ? (theirs ?? null) : keptAbove(theirs, (jx as any).keep_above_prompt)
       if (jx.layout !== 'line') {
         // The clarity Jauge (default since 25 Oct): folded, ONE line « ▶ ● 3 agents en cours · ctx · 5 h · sem »
         // coloured by state; ▶/▼ unfolds sections (blank line, header, ├ └ tree rows). Pure rows from clarity.ts.
@@ -954,7 +957,7 @@ export const register: Register = (on, raw) => {
             {summary}
             {briefRow}
             {body}
-            {keepOthers ? (theirs ?? null) : null}
+            {others}
           </Box>
         )
       }
@@ -994,7 +997,7 @@ export const register: Register = (on, raw) => {
             {rowEls([...relayEls, ...buttonEls, ...briefEls])}
             {l2?.text ? <Text key="jauge-l2-t" dimColor wrap="truncate-end">{l2.text}</Text> : null}
             {ecEls}
-            {keepOthers ? (theirs ?? null) : null}
+            {others}
           </Box>
         )
       }
@@ -1007,7 +1010,7 @@ export const register: Register = (on, raw) => {
             {buttonEls}
             {briefEls}
           </Box>
-          {keepOthers ? (theirs ?? null) : null}
+          {others}
         </Box>
       )
     }

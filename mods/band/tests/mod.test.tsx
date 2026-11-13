@@ -20,7 +20,7 @@ const ev = (sAgo: number, s: string, tokens: number, extra: Record<string, strin
 
 // opts.julian / opts.todo: the counters the scanner computed with lib/core/veille.mjs (view.waiting); opts.config: the
 // person's own settings file (userConfig 'config') at C:/Users/me/band.json.
-function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown; layout?: 'clarity' | 'line'; brief?: { children: number; runs: string[][] } } = {}) {
+function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolean; stored?: unknown; julian?: number; todo?: number; config?: unknown; extra?: Record<string, unknown>; limits?: { kind: string; percentUsed: number }[]; encours?: unknown; layout?: 'clarity' | 'line'; brief?: { children: number; runs: string[][] }; shipped?: string } = {}) {
   const tokens = opts.tokens ?? 164000
   const clock = mock.clock(on, { now: NOW } as any)
   const runs: string[][] = []
@@ -44,7 +44,7 @@ function world(on: any, opts: { week?: boolean; tokens?: number; resume?: boolea
   on('store.set', ($: any, e: any) => ((stored[e.key] = e.value), { value: undefined }))
   on('fs.read', ($: any, e: any) => {
     const p = String(e.path).replace(/\\/g, '/')
-    if (p.endsWith('/band.config.json')) return { value: opts.layout === 'clarity' ? SHIPPED : LINE }
+    if (p.endsWith('/band.config.json')) return { value: opts.shipped ?? (opts.layout === 'clarity' ? SHIPPED : LINE) }
     if (opts.config && p === 'C:/Users/me/band.json') return { value: JSON.stringify(opts.config) }
     if (opts.resume && p === 'C:/code/app/handoff/RESUME.md') return { value: '# RESUME fixture\n\n- tâche ouverte' }
     throw new Error('ENOENT')
@@ -705,7 +705,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const all = await texts(open)
     for (const h of ['  En cours · cette conversation', '  Jauges', '  Ailleurs sur ce PC']) expect(all).toContain(h)
     expect(((await open.find({ type: 'Text', text: '  Jauges' })) as any).props.bold).toBe(true)
-    expect(all.filter(t => t === ' ').length >= 3).toBe(true) // a blank line before each section
+    // a blank line before each section drawn (since 13 Nov the summary has no 5 h / week, R59: on a wide surface the Mods
+    // buttons fit beside it and the mods section is left out)
+    expect(all.filter(t => t === ' ').length >= 3 - (all.includes('  Mods') ? 0 : 1)).toBe(true)
     // the running tree: the Workflow, its two agents indented under │, the background agent last
     expect(all).toContain('  ├ ')
     expect(all).toContain('  │ ├ ')
@@ -722,7 +724,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(((await open.find({ type: 'Text', text: '  70 %' })) as any).props.color).toBe('warning')
     expect(((await open.find({ type: 'Text', text: '  90 %' })) as any).props.color).toBe('error')
     expect(all.some(t => /164 k \/ 400 k/.test(t))).toBe(true)
-    if (surface === 'desktop') expect(((await open.findAll({ type: 'Svg' })) as any[]).length >= 6).toBe(true)
+    // two fewer bars since 13 Nov: the summary has no 5 h / week (R59), the Jauges section still has them
+    if (surface === 'desktop') expect(((await open.findAll({ type: 'Svg' })) as any[]).length >= 4).toBe(true)
     else expect(all).toContain('▰▰▰▰▰▰▰▱▱▱')
     await open.unmount()
   })
@@ -772,13 +775,15 @@ for (const cols of [40, 60, 90]) {
   })
 }
 
+// shipped off since 13 Nov 2026 (R59); these tests turn it on
+const BRIEF_ON = JSON.stringify({ ...CFG, export_brief: { ...CFG.export_brief, enabled: true } })
 // « Export conv » / « Export + enfants » (export_brief, Julian 26 Oct): drawn only when export-eta's script is found; the
 // tree button only with children (« +3 »); a press runs the script directly (no wait for the turn) and toasts its line.
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`export brief: both buttons with 3 children, a press runs brief.mjs --children and toasts the file (${surface})`, async ($, on) => {
     const runs: string[][] = []
     const toasts: string[] = []
-    world(on, { ...CL, brief: { children: 3, runs } })
+    world(on, { ...CL, brief: { children: 3, runs }, shipped: BRIEF_ON })
     on('command.list', () => ({ value: FIVE_CMDS }))
     on('ui.toast', ($: any, e: any) => (toasts.push(String(e.text)), { value: undefined }))
     await $.command.run({ command: 'jauge', args: '' } as any)
@@ -794,12 +799,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('export brief: no children → only « Export conv »; at 60 columns the buttons get a row of their own', async ($, on) => {
+test('export brief: no children → only « Export conv »; at 40 columns the buttons get a row of their own', async ($, on) => {
   const runs: string[][] = []
-  world(on, { ...CL, brief: { children: 0, runs } })
+  world(on, { ...CL, brief: { children: 0, runs }, shipped: BRIEF_ON })
   on('command.list', () => ({ value: FIVE_CMDS }))
   await $.command.run({ command: 'jauge', args: '' } as any)
-  const band = await mountAt($, 'terminal', 60)
+  // 40 columns: the summary is shorter since 13 Nov (R59), the buttons still fit beside it at 60
+  const band = await mountAt($, 'terminal', 40)
   expect(await band.find({ type: 'Button', text: 'Export conv' })).toBeDefined()
   expect(await band.find({ type: 'Button', text: /enfants/ })).toBeUndefined()
   expect(await band.find({ type: 'Box', key: 'clar-brief-row' })).toBeDefined()

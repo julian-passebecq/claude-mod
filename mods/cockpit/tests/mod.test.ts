@@ -556,10 +556,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.command.run({ command: 'cockpit', args: 'fleet' } as any)
     const ui = await $.ui.mount({ plugin: 'cockpit', component: 'Pane', requestId: 'cockpit', surface, viewport: { columns: 60, rows: 120 }, props: { ...PANE, bodyColumns: 60 } } as any)
     expect(await has(ui, /^This laptop · Computer one$/)).toBe(true)
+    // folded (13 Nov): each section one line with its count, › unfolds it here
+    expect(await has(ui, /^To do here \(\d+\)/)).toBe(true)
+    expect(await has(ui, /^Rotate the test key$/)).toBe(false)
+    await ui.press({ plugin: 'cockpit', key: 'sec-t-lp-todo' })
     expect(await has(ui, /^Rotate the test key$/)).toBe(true)
     expect(await has(ui, /^Global$/)).toBe(true)
     expect(await has(ui, /^Needs you now \(1\)$/)).toBe(true)
+    expect(await has(ui, /job 14 lost on Computer two/)).toBe(false)
+    await ui.press({ plugin: 'cockpit', key: 'sec-t-errors' })
     expect(await has(ui, /job 14 lost on Computer two/)).toBe(true)
+    // a decision is one line; its › unfolds the row with its one-click answer
+    expect(await ui.find({ key: 'ans-I7-a' })).toBeUndefined()
+    await ui.press({ plugin: 'cockpit', key: 'you-issue:I7-more' })
     expect(await has(ui, /^Open in Cockpit$/)).toBe(true)
     // « Open in Cockpit » is one line; « modules › » unfolds one button per page module
     expect(await ui.find({ key: 'open-fleet' })).toBeUndefined()
@@ -586,6 +595,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(fills[0]?.text).toBe('/dispatch ')
     expect(w.posts.some((x) => x.path === '/api/dispatch')).toBe(false)
     expect(w.status).toContain('Fleet: 1 to do')
+    // above the prompt (R59): « you: N », a click opens the page's To do
+    const above = await $.ui.mount({ plugin: 'cockpit', component: 'AbovePrompt', surface, viewport: { columns: 60, rows: 10 }, props: {} } as any)
+    expect(await has(above, /^you: \d+$/)).toBe(true)
+    await above.press({ plugin: 'cockpit', key: 'cockpit-you-btn' })
+    await (async () => { for (let i = 0; i < 20 && !w.argvs.some((x) => x.includes('http://127.0.0.1:24365/#todo')); i++) await new Promise((r) => setTimeout(r, 10)) })()
+    expect(w.argvs.some((x) => x.includes('http://127.0.0.1:24365/#todo'))).toBe(true)
+    await above.unmount()
     await ui.unmount()
   })
 }

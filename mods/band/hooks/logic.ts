@@ -654,3 +654,23 @@ export const recentHandoffs = (
   if (resume?.mtime !== undefined && (since === undefined || resume.mtime >= since)) out.push({ t: resume.mtime, kind: 'resume', text: L(labels, 'handoff_written') })
   return out.sort((a, b) => b.t - a.t).slice(0, Math.max(0, n))
 }
+
+/**
+ * What the band keeps of the other mods' drawing above the prompt when others_above_prompt is hide: the elements whose
+ * key is in `keys` (searched depth first through children, at most 12 levels), in order; null when none.
+ */
+export function keptAbove(theirs: unknown, keys: unknown): unknown {
+  const want = new Set(Array.isArray(keys) ? keys.map(String) : [])
+  if (!want.size || !theirs) return null
+  const found: unknown[] = []
+  const walk = (x: any, depth: number): void => {
+    if (!x || depth > 12) return
+    if (Array.isArray(x)) { for (const y of x) walk(y, depth + 1); return }
+    if (typeof x !== 'object') return
+    const key = x.key ?? x.props?.key
+    if (key !== undefined && key !== null && want.has(String(key))) { found.push(x); return }
+    walk(x.props?.children, depth + 1)
+  }
+  walk(theirs, 0)
+  return found.length ? (found.length === 1 ? found[0] : found) : null
+}
