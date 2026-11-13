@@ -477,6 +477,25 @@ export function coversOfUids(uids, lab) {
   return fill(l.covers, { list: [ids.join(', '), n ? fill(n === 1 ? l.todos_n : l.todos_n_pl, { n }) : ''].filter(Boolean).join(` ${l.and} `) })
 }
 
+// The three top lines (lane C, 13 Nov 2026: « i dont know if msi is used, if i can play or shut it off, whats going on
+// oracle »): the hub's own strings (glance.top, computed once for the mod and the page), printed as they are.
+//   this   « This computer: free » | « … in use by agents (N jobs, what, until about HH:MM) » | « … no news since HH:MM »
+//   play   « You can play / shut it down: yes » | « no: <why> »; a click sends clickText (pause / resume on the hub)
+//   oracle « Oracle: idle » | « Oracle: lead working on … » | « … audit running »
+//   you    « You: N to do here · next: <title> » that opens the page at that item (youUrl)
+// null when the hub data has no glance.top (an older hub) or no row for this machine.
+export function topLines(G, machine, base) {
+  const T = obj(obj(G).top)
+  const r = obj(obj(T.machines)[str(machine)])
+  if (!r.this) return null
+  return {
+    this: str(r.this), play: str(r.play), oracle: str(r.oracle || T.oracle), you: str(r.you),
+    clickText: r.click_text ? str(r.click_text) : '', click: str(r.click || ''), clickHint: str(r.click_hint || ''),
+    youUrl: moduleUrl(base, str(r.you_link || '#todo').replace(/^#/, '')), youN: Number(r.you_n || 0),
+    tone: r.stale ? 'warn' : r.busy ? 'running' : 'ok', paused: Boolean(r.paused),
+  }
+}
+
 // The critical strip (UX rule 20: work is stopped), read when the page data has one: glance.critical as a list or
 // {rows | items}, else glance.problems rows of severity critical. Each row: its text, organization, id and page link.
 // The uids a critical row can be as a decision: its own uid, and the to-do the hub files for an alert key
@@ -581,6 +600,9 @@ export function hubModel(local, data, cfg, opts = {}) {
   }
   const orgLab = (o) => str((m.orgs.find((x) => x.id === o) || {}).label || o)
   m.critical = criticalRows(G, org, orgLab, isFleetWs(D, org))
+  m.top = topLines(G, machine, c.base)
+  // the strip's heading: « work is stopped » only when a row really stops work (the hub's glance.critical_head)
+  m.criticalHead = str(G.critical_head || '')
   if (dg) {
     // one story, one place (review 5, MAJOR 1): a step that is a decision row (or one a decision covers) shows once, as
     // the decision under Needs you now; This laptop keeps the other steps and says how many went there
@@ -1106,9 +1128,11 @@ export function summaryText(m, cfg) {
   const G = m.global
   const tmax = Number(c.todo.max) || 3
   const lines = []
+  // the three top lines first (lane C), the hub's words; then the critical strip
+  if (m.top) lines.push(m.top.this, m.top.play + (m.top.clickHint ? ` (${m.top.clickHint} in the pane)` : ''), m.top.oracle, `${m.top.you} ${m.top.youUrl}`)
   // the critical strip on top (UX rule 20), when the page data has one
   if (arr(m.critical).length) {
-    lines.push(`!! ${W.critical}`)
+    lines.push(`!! ${m.criticalHead || W.critical}`)
     for (const r of m.critical) {
       lines.push(`   ! ${r.text}${[r.orgLabel, r.id].filter(Boolean).length ? ` (${[r.orgLabel, r.id].filter(Boolean).join(' · ')})` : ''}`)
       const rec = r.decision && r.decision.answers.find((a) => a.rec)
