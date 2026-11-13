@@ -14,7 +14,7 @@ computed once on the hub, and a hot-machine card that shows the state now. Manif
    with the click line through `POST /api/todo`, as the page's buttons do; the hub's actions.py runs `herdq pause|resume`.
 4. `/fleet` text starts with the same four lines (the installed-mod check reads them with `claude -p "/fleet"`).
 
-## Hub side (not in this repo, ~/fleet commits 9965970 and f738e1f)
+## Hub side (not in this repo, ~/fleet commits 9965970, f738e1f, 0eb1af6, 8b4d44a)
 glance.py `top()` and `oracle_line()`, `hot_words` (latest temperature, episode start), `critical_head`; health.py
 15-minute cool-down (`cool_s`); actions.py `Cockpit: pause|resume <machine>` (resume needs Julian's click); the page
 (`#top3`, `#todo-<id>` card ids). cockpit_build.py `queue_live()` reads q.db read-only at each build: the hub's own
@@ -23,6 +23,15 @@ a machine « in use ». Rule for « yes »: no real job running or waiting (a wa
 start) and no agent session (transcript written in the last 10 min, minus the agent jobs already counted). « Safe to
 interrupt » is not guessed: the queue does not re-send a job cut in the middle, so any real job gives « no: N jobs
 running ». The MSI paused between 02:00 and 09:00 says « paused for the night by the 02:00 timer ».
+
+## Follow-up (0.8.8, same evening, lead's fix)
+Julian's own chat on his desk counted as « 1 agent session », so his desk said « no ». Now only hub work (a real job
+running or waiting) makes « in use » / « no: N jobs running ». Chats alone: « This computer: no hub job; N chats open here
+(yours or an agent's) » and « You can play / shut it down: yes: nothing from the hub; N chats here would stop and can be
+resumed », same click (pause). Chats = top-level Claude + Codex transcripts written in the last 10 min (fleet 0eb1af6:
+subagents are helpers, not sessions; the MSI had shown 21 sessions for 2). The load probe has no finer field (active now
+vs waiting for input), so every chat of the last 10 min is counted; no new probe was built. The folded « This laptop »
+temperature already says the value now first, the peak in brackets: unchanged. Tests: fleet test_top_lines.py, 20 cases.
 
 ## How verified
 - `node --test "tests/*.test.mjs" "mods/*/tests/*.test.mjs"`: 621 pass, 0 fail (with `python` on PATH; 5 new hub cases).
