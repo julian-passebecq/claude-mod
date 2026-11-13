@@ -11,8 +11,9 @@ dates inside texts included (« empties 2026-11-13T07:31:57Z » reads « empties
 
 **Top lines (0.8.7, 13 Nov 2026 evening).** Right under the views row, four lines in the hub's own words
 (`data.glance.top.machines[<this machine>]`, computed once on the hub so the page of each machine prints the same):
-« This computer: free » or « in use by agents (N jobs, what, until about HH:MM) » or « no news from it since HH:MM »;
-« You can play / shut it down: yes » or « no: <why> », a button whose click sends the hub's pause (or resume) of this
+« This computer: free » or « in use by agents (N jobs, what, until about HH:MM) » (hub jobs only) or « no hub job; N chats open
+here (yours or an agent's) » (0.8.8: a chat on the machine is not hub work) or « no news from it since HH:MM »;
+« You can play / shut it down: yes » (« yes: nothing from the hub; N chats here would stop and can be resumed ») or « no: <why> », a button whose click sends the hub's pause (or resume) of this
 computer with the click line (nothing new is sent to it; the same line resumes it); « Oracle: idle » or « lead working
 on … » or « audit running »; « You: N to do here · next: <title> », which opens the page at that item (`#todo-<id>`).
 The critical strip's heading is the hub's `glance.critical_head`: « Critical: work is stopped » only when a row stops work.

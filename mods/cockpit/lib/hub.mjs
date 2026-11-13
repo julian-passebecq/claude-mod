@@ -480,6 +480,7 @@ export function coversOfUids(uids, lab) {
 // The three top lines (lane C, 13 Nov 2026: « i dont know if msi is used, if i can play or shut it off, whats going on
 // oracle »): the hub's own strings (glance.top, computed once for the mod and the page), printed as they are.
 //   this   « This computer: free » | « … in use by agents (N jobs, what, until about HH:MM) » | « … no news since HH:MM »
+//          | « … no hub job; N chats open here (yours or an agent's) » (a local chat is not hub work, 0.8.8)
 //   play   « You can play / shut it down: yes » | « no: <why> »; a click sends clickText (pause / resume on the hub)
 //   oracle « Oracle: idle » | « Oracle: lead working on … » | « … audit running »
 //   you    « You: N to do here · next: <title> » that opens the page at that item (youUrl)
